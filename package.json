@@ -2,6 +2,9 @@
   "name": "user-app",
   "version": "1.0.0",
   "main": "index.ts",
+  "resolutions": {
+    "@expo/cli": "xxx" 
+  },
   "scripts": {
     "start": "expo start --go --lan",
     "reset-project": "node ./scripts/reset-project.js",
