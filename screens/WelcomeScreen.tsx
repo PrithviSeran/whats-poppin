@@ -10,23 +10,27 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
-import Button from '../components/Button';
+//import Button from '../components/Button';
+import { Button } from 'tamagui'
 
 type WelcomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Welcome'>;
 };
 
 export default function WelcomeScreen({ navigation }: WelcomeScreenProps) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
+
+  
+  //const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
     Animated.parallel([
+      /*
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 1000,
         useNativeDriver: true,
-      }),
+      }),*/
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 800,
@@ -43,13 +47,12 @@ export default function WelcomeScreen({ navigation }: WelcomeScreenProps) {
         style={[
           styles.content,
           {
-            opacity: fadeAnim,
+            //opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
+          }]}
+          >
         <View style={styles.header}>
-          <Text style={styles.title}>Tonight's Plans</Text>
+          <Text style={styles.title}>It Changed</Text>
           <Text style={styles.subtitle}>
             Find the perfect event for your evening
           </Text>
@@ -69,11 +72,9 @@ export default function WelcomeScreen({ navigation }: WelcomeScreenProps) {
           </Text>
           
           <Button 
-            title="Let's Get Started" 
             onPress={() => navigation.navigate('EventType')}
-            primary
-            style={styles.button}
-          />
+            theme="blue"
+          > Let's Get Started</Button>
         </View>
       </Animated.View>
     </SafeAreaView>
@@ -83,7 +84,7 @@ export default function WelcomeScreen({ navigation }: WelcomeScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: 'black',
   },
   content: {
     flex: 1,
