@@ -17,14 +17,13 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
-  'create-account': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 const CATCH_PHRASES = [
   "Any Plans Tonight?",
@@ -32,32 +31,28 @@ const CATCH_PHRASES = [
   "Where We Linking?",
   "Plans or Nah?",
   "Where's the Spot?"
-]
+];
 
-const SignInScreen = () => {
+const SocialSignInScreen = () => {
+  const navigation = useNavigation<NavigationProp>();
   const [currentIndex, setCurrentIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const navigation = useNavigation<NavigationProp>();
 
   useEffect(() => {
     const interval = setInterval(() => {
-      // Fade out
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 500,
         useNativeDriver: true,
       }).start(() => {
-        // Update index after fade out
         setCurrentIndex((prevIndex) => (prevIndex + 1) % CATCH_PHRASES.length);
-        
-        // Fade in
         Animated.timing(fadeAnim, {
           toValue: 1,
           duration: 500,
           useNativeDriver: true,
         }).start();
       });
-    }, 5000); // Change every 5 seconds
+    }, 5000);
 
     return () => clearInterval(interval);
   }, []);
@@ -74,38 +69,65 @@ const SignInScreen = () => {
           <Text style={styles.title}>{`What's Poppin?`}</Text>
         </View>
 
-
-        <AnimatedGradientText 
-          phrases={CATCH_PHRASES}
-          colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4'] as const}
-        />
+        <View style={styles.gradientTextContainer}>
+          <AnimatedGradientText 
+            phrases={CATCH_PHRASES}
+            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4'] as const}
+          />
+        </View>
         
         <View style={styles.buttonGroup}>
-          <Text style={styles.welcomeText}>
+         <Text style={styles.welcomeText}>
             By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
           </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
+         <TouchableOpacity>
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               locations={[0, 0.3, 0.7, 1]}
-              style={styles.loginButton}
+              style={styles.socialButton}
             >
-              <Text style={styles.loginButtonText}>Sign In</Text>
+                <Image 
+                source={require('../assets/images/google-logo.webp')}
+                style={styles.socialIcon}
+                />
+              <Text style={styles.socialButtonText}>Sign In with Google</Text>
             </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('create-account')}>
+
+          <TouchableOpacity>
             <LinearGradient
-              colors={['#FF9A9E', '#FF69B4', '#9D4EDD', '#FF9A9E']}
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               locations={[0, 0.3, 0.7, 1]}
-              style={styles.signupButton}
+              style={styles.socialButton}
             >
-              <Text style={styles.signupButtonText}>Create Account</Text>
+            <Image 
+              source={require('../assets/images/meta-logo.png')}
+              style={styles.socialIcon}
+            />
+              <Text style={styles.socialButtonText}>Sign In with Facebook</Text>
             </LinearGradient>
           </TouchableOpacity>
+
+          <TouchableOpacity>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.socialButton}
+            >
+            <Image 
+              source={require('../assets/images/phone-logo.png')}
+              style={styles.socialIcon}
+            />
+              <Text style={styles.socialButtonText}>Sign In with Number</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
           <Text style={styles.troubleText}>
             Trouble signing in? 
           </Text>
@@ -118,7 +140,7 @@ const SignInScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white', // Peach background
+    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -156,7 +178,11 @@ const styles = StyleSheet.create({
   buttonGroup: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 90,
+    marginBottom: 20,
+  },
+  termsLink: {
+    color: '#F45B5B',
+    textDecorationLine: 'underline',
   },
   welcomeText: {
     fontSize: 12,
@@ -166,72 +192,44 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     lineHeight: 24,
     width: width * 0.8,
-
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    borderRadius: 30,
+    width: width * 0.8,
+    paddingVertical: 13,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  socialIcon: {
+    width: 24,
+    height: 24,
+    marginRight: 10,
+  },
+  socialButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'Gotham Rounded',
   },
   troubleText: {
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
     marginHorizontal: 20,
-    marginTop: 30,
-  },
-  loginButton: {
-    borderRadius: 30,
-    width: width * 0.8,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  loginButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
-  },
-  signupButton: {
-    borderRadius: 30,
-    width: width * 0.8,
-    paddingVertical: 13,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  signupButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
-  },
-  catchPhraseContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginVertical: 20,
-    
-  },
-  catchPhrase: {
-    fontSize: 45,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    fontFamily: 'Gotham Rounded',
-    paddingHorizontal: 20,
-    marginBottom: 20,
+    marginTop: 15,
   },
   gradientTextContainer: {
     marginTop: -20,
     marginBottom: 20,
   },
-  termsLink: {
-    color: '#F45B5B',
-    textDecorationLine: 'underline',
-  },
 });
 
-export default SignInScreen; 
+export default SocialSignInScreen; 

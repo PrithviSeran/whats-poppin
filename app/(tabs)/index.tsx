@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 
 import SignInScreen from '@/components/SignInScreen';
+import SocialSignInScreen from '@/components/SocialSignInScreen';
 
 
 export default function HomeScreen() {

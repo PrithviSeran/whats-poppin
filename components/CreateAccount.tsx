@@ -9,55 +9,51 @@ import {
   Dimensions,
   Platform,
   Animated,
+  TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedGradientText from './GradientAnimatedText';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import MaskedView from '@react-native-masked-view/masked-view';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
-  'create-account': undefined;
+  'create-account-email': undefined;
+  'create-account-birthday': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 const CATCH_PHRASES = [
-  "Any Plans Tonight?",
-  "What's the Motive?",
-  "Where We Linking?",
-  "Plans or Nah?",
-  "Where's the Spot?"
-]
+  "What's Your Name?"
+];
 
-const SignInScreen = () => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+const CreateAccount = () => {
   const navigation = useNavigation<NavigationProp>();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [name, setName] = useState('');
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const interval = setInterval(() => {
-      // Fade out
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 500,
         useNativeDriver: true,
       }).start(() => {
-        // Update index after fade out
         setCurrentIndex((prevIndex) => (prevIndex + 1) % CATCH_PHRASES.length);
-        
-        // Fade in
         Animated.timing(fadeAnim, {
           toValue: 1,
           duration: 500,
           useNativeDriver: true,
         }).start();
       });
-    }, 5000); // Change every 5 seconds
+    }, 5000);
 
     return () => clearInterval(interval);
   }, []);
@@ -65,50 +61,31 @@ const SignInScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.centerContent}>
-        <View style={styles.headerContainer}>
-          <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>{`What's Poppin?`}</Text>
-        </View>
-
-
-        <AnimatedGradientText 
-          phrases={CATCH_PHRASES}
-          colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4'] as const}
-        />
         
+        <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={styles.titleLarge}>My name is</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="Enter your name"
+            placeholderTextColor="#bbb"
+            autoCapitalize="words"
+          />
+          <Text style={styles.helperText}>This is how it will appear in the app</Text>
+        </View>
         <View style={styles.buttonGroup}>
-          <Text style={styles.welcomeText}>
-            By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
-          </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
+          <TouchableOpacity onPress={() => navigation.navigate('create-account-email')}>
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               locations={[0, 0.3, 0.7, 1]}
-              style={styles.loginButton}
+              style={styles.socialButton}
             >
-              <Text style={styles.loginButtonText}>Sign In</Text>
+              <Text style={styles.socialButtonText}>CONTINUE</Text>
             </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('create-account')}>
-            <LinearGradient
-              colors={['#FF9A9E', '#FF69B4', '#9D4EDD', '#FF9A9E']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.signupButton}
-            >
-              <Text style={styles.signupButtonText}>Create Account</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <Text style={styles.troubleText}>
-            Trouble signing in? 
-          </Text>
         </View>
       </View>
     </SafeAreaView>
@@ -118,7 +95,7 @@ const SignInScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white', // Peach background
+    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -156,7 +133,11 @@ const styles = StyleSheet.create({
   buttonGroup: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 90,
+    marginBottom: 20,
+  },
+  termsLink: {
+    color: '#F45B5B',
+    textDecorationLine: 'underline',
   },
   welcomeText: {
     fontSize: 12,
@@ -166,72 +147,76 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     lineHeight: 24,
     width: width * 0.8,
-
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    borderRadius: 30,
+    width: width * 0.8,
+    paddingVertical: 13,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  socialIcon: {
+    width: 24,
+    height: 24,
+    marginRight: 10,
+  },
+  socialButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'Gotham Rounded',
   },
   troubleText: {
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
     marginHorizontal: 20,
-    marginTop: 30,
+    marginTop: 15,
   },
-  loginButton: {
-    borderRadius: 30,
-    width: width * 0.8,
-    paddingVertical: 13,
-    alignItems: 'center',
+  gradientTextContainer: {
+    marginTop: -20,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  loginButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
-  },
-  signupButton: {
-    borderRadius: 30,
-    width: width * 0.8,
-    paddingVertical: 13,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  signupButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
-  },
-  catchPhraseContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginVertical: 20,
-    
   },
   catchPhrase: {
     fontSize: 45,
     fontWeight: 'bold',
     textAlign: 'center',
     fontFamily: 'Gotham Rounded',
-    paddingHorizontal: 20,
-    marginBottom: 20,
   },
-  gradientTextContainer: {
-    marginTop: -20,
-    marginBottom: 20,
+  titleLarge: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#222',
+    textAlign: 'center',
+    marginBottom: 30,
+    marginTop: 40,
   },
-  termsLink: {
-    color: '#F45B5B',
-    textDecorationLine: 'underline',
+  input: {
+    width: '80%',
+    fontSize: 22,
+    borderBottomWidth: 2,
+    borderBottomColor: '#ddd',
+    paddingVertical: 8,
+    textAlign: 'left',
+    marginBottom: 10,
+    color: '#222',
+  },
+  helperText: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 2,
+    marginBottom: 10,
+    textAlign: 'left',
+    width: '80%',
   },
 });
 
-export default SignInScreen; 
+export default CreateAccount; 
