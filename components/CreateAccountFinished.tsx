@@ -1,14 +1,18 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
 
 const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 export default function CreateAccountFinished() {
+  const colorScheme = useColorScheme();
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       {/* Large circular gradient background */}
       <LinearGradient
         colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4']}
@@ -23,17 +27,19 @@ export default function CreateAccountFinished() {
         start={{ x: 0.7, y: 0.2 }}
         end={{ x: 0.3, y: 0.8 }}
       />
-        <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
-            resizeMode="contain"
-          />
+      <Image
+        source={BALLOON_IMAGE}
+        style={styles.balloons}
+        resizeMode="contain"
+      />
       <View style={styles.content}>
-        <Text style={styles.title}>You have created your account!</Text>
+        <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
+          You have created your account!
+        </Text>
         <TouchableOpacity style={styles.findEventsButton}>
-            <Text style={styles.findEventsText}>
+          <Text style={[styles.findEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
             find events now! <Text style={styles.arrow}>→</Text>
-            </Text>
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -43,7 +49,6 @@ export default function CreateAccountFinished() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FF1493',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -71,11 +76,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     zIndex: 2,
     width: '100%',
-    paddingTop: 120, // Move content down from the top
+    paddingTop: 120,
     marginBottom: 140,
   },
   title: {
-    color: 'white',
     fontSize: 28,
     fontWeight: 'bold',
     textAlign: 'center',
@@ -87,7 +91,6 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
   findEventsText: {
-    color: 'white',
     fontSize: 18,
     textDecorationLine: 'underline',
     fontWeight: '600',

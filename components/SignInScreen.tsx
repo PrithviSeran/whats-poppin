@@ -14,6 +14,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedGradientText from './GradientAnimatedText';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -31,20 +33,23 @@ const CATCH_PHRASES = [
   "What's the Motive?",
   "Where We Linking?",
   "Plans or Nah?",
-  "Where's the Spot?"
+  "Where's the Spot?",
+  "Wagwan Cro?"
+
 ]
 
 const SignInScreen = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const navigation = useNavigation<NavigationProp>();
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
     const interval = setInterval(() => {
       // Fade out
       Animated.timing(fadeAnim, {
         toValue: 0,
-        duration: 500,
+        duration: 600,
         useNativeDriver: true,
       }).start(() => {
         // Update index after fade out
@@ -53,7 +58,7 @@ const SignInScreen = () => {
         // Fade in
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 500,
+          duration: 600,
           useNativeDriver: true,
         }).start();
       });
@@ -63,7 +68,7 @@ const SignInScreen = () => {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.centerContent}>
         <View style={styles.headerContainer}>
           <Image
@@ -81,7 +86,7 @@ const SignInScreen = () => {
         />
         
         <View style={styles.buttonGroup}>
-          <Text style={styles.welcomeText}>
+          <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
             By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
           </Text>
           <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
@@ -118,7 +123,6 @@ const SignInScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white', // Peach background
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -160,13 +164,11 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     fontSize: 12,
-    color: '#666',
     textAlign: 'center',
     marginHorizontal: 20,
     marginBottom: 30,
     lineHeight: 24,
     width: width * 0.8,
-
   },
   troubleText: {
     fontSize: 16,
@@ -202,31 +204,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.18,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 4, 
   },
   signupButtonText: {
     color: '#FFF',
     fontSize: 16,
     fontWeight: 'bold',
     fontFamily: 'Gotham Rounded',
-  },
-  catchPhraseContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginVertical: 20,
-    
-  },
-  catchPhrase: {
-    fontSize: 45,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    fontFamily: 'Gotham Rounded',
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  gradientTextContainer: {
-    marginTop: -20,
-    marginBottom: 20,
   },
   termsLink: {
     color: '#F45B5B',

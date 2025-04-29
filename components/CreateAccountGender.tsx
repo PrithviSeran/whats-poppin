@@ -11,6 +11,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
 
 const { width } = Dimensions.get('window');
 
@@ -23,23 +25,41 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const CreateAccountGender = () => {
   const [selectedGender, setSelectedGender] = useState<'Male' | 'Female' | null>(null);
   const navigation = useNavigation<NavigationProp>();
+  const colorScheme = useColorScheme();
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.centerContent}>
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={styles.titleLarge}>I am a</Text>
+          <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>I am a</Text>
           <View style={styles.genderButtonGroup}>
             <TouchableOpacity
-              style={[styles.genderButton, selectedGender === 'Male' && styles.genderButtonSelected]}
+              style={[
+                styles.genderButton,
+                selectedGender === 'Male' && styles.genderButtonSelected,
+                { borderColor: '#FF8C00', backgroundColor: selectedGender === 'Male' ? '#FF8C00' : Colors[colorScheme ?? 'light'].background }
+              ]}
               onPress={() => setSelectedGender('Male')}
             >
-              <Text style={[styles.genderButtonText, selectedGender === 'Male' && styles.genderButtonTextSelected]}>Male</Text>
+              <Text style={[
+                styles.genderButtonText,
+                selectedGender === 'Male' && styles.genderButtonTextSelected,
+                { color: selectedGender === 'Male' ? 'white' : '#FF8C00' }
+              ]}>Male</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.genderButton, selectedGender === 'Female' && styles.genderButtonSelected]}
+              style={[
+                styles.genderButton,
+                selectedGender === 'Female' && styles.genderButtonSelected,
+                { borderColor: '#FF8C00', backgroundColor: selectedGender === 'Female' ? '#FF8C00' : Colors[colorScheme ?? 'light'].background }
+              ]}
               onPress={() => setSelectedGender('Female')}
             >
-              <Text style={[styles.genderButtonText, selectedGender === 'Female' && styles.genderButtonTextSelected]}>Female</Text>
+              <Text style={[
+                styles.genderButtonText,
+                selectedGender === 'Female' && styles.genderButtonTextSelected,
+                { color: selectedGender === 'Female' ? 'white' : '#FF8C00' }
+              ]}>Female</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -64,7 +84,6 @@ const CreateAccountGender = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -79,7 +98,6 @@ const styles = StyleSheet.create({
   titleLarge: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#222',
     textAlign: 'center',
     marginBottom: 30,
     marginTop: 40,
@@ -108,10 +126,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'white',
     borderRadius: 30,
     width: width * 0.8,
     paddingVertical: 13,
@@ -126,7 +140,7 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
+    textAlign: 'center',
   },
   genderButtonGroup: {
     flexDirection: 'row',
@@ -137,18 +151,23 @@ const styles = StyleSheet.create({
   },
   genderButton: {
     borderWidth: 2,
-    borderColor: '#FF6B6B',
     borderRadius: 25,
     paddingVertical: 12,
     paddingHorizontal: 32,
     marginHorizontal: 10,
-    backgroundColor: 'white',
+    shadowColor: '#FF8C00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   genderButtonSelected: {
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#FF8C00',
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 6,
   },
   genderButtonText: {
-    color: '#FF6B6B',
     fontSize: 18,
     fontWeight: 'bold',
   },

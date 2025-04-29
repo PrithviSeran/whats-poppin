@@ -11,6 +11,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
 
 const { width } = Dimensions.get('window');
 
@@ -24,30 +26,46 @@ const CreateAccountPassword = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const navigation = useNavigation<NavigationProp>();
+  const colorScheme = useColorScheme();
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.centerContent}>
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={styles.titleLarge}>Set your password</Text>
+          <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>Set your password</Text>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                borderBottomColor: colorScheme === 'dark' ? '#555' : '#ddd',
+                color: Colors[colorScheme ?? 'light'].text,
+              },
+            ]}
             value={password}
             onChangeText={setPassword}
             placeholder="Enter your password"
-            placeholderTextColor="#bbb"
+            placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
             autoCapitalize="none"
             secureTextEntry
           />
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                borderBottomColor: colorScheme === 'dark' ? '#555' : '#ddd',
+                color: Colors[colorScheme ?? 'light'].text,
+              },
+            ]}
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             placeholder="Confirm your password"
-            placeholderTextColor="#bbb"
+            placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
             autoCapitalize="none"
             secureTextEntry
           />
-          <Text style={styles.helperText}>Please enter your password and confirm it.</Text>
+          <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
+            Please enter your password and confirm it.
+          </Text>
         </View>
         <View style={styles.buttonGroup}>
           <TouchableOpacity onPress={() => navigation.navigate('create-account-finished')}>
@@ -70,7 +88,6 @@ const CreateAccountPassword = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -85,7 +102,6 @@ const styles = StyleSheet.create({
   titleLarge: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#222',
     textAlign: 'center',
     marginBottom: 30,
     marginTop: 40,
@@ -94,15 +110,12 @@ const styles = StyleSheet.create({
     width: '80%',
     fontSize: 22,
     borderBottomWidth: 2,
-    borderBottomColor: '#ddd',
     paddingVertical: 8,
     textAlign: 'left',
     marginBottom: 10,
-    color: '#222',
   },
   helperText: {
     fontSize: 13,
-    color: '#888',
     marginTop: 2,
     marginBottom: 10,
     textAlign: 'left',
@@ -114,10 +127,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'white',
     borderRadius: 30,
     width: width * 0.8,
     paddingVertical: 13,
@@ -132,7 +141,7 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
+    textAlign: 'center',
   },
 });
 

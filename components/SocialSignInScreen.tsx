@@ -14,6 +14,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedGradientText from './GradientAnimatedText';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -37,6 +39,7 @@ const SocialSignInScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [currentIndex, setCurrentIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -58,7 +61,7 @@ const SocialSignInScreen = () => {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.centerContent}>
         <View style={styles.headerContainer}>
           <Image
@@ -66,18 +69,18 @@ const SocialSignInScreen = () => {
             style={styles.balloons}
             resizeMode="contain"
           />
-          <Text style={styles.title}>{`What's Poppin?`}</Text>
+          <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>{`What's Poppin?`}</Text>
         </View>
 
         <View style={styles.gradientTextContainer}>
           <AnimatedGradientText 
             phrases={CATCH_PHRASES}
-            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4'] as const}
+            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B'] as const}
           />
         </View>
         
         <View style={styles.buttonGroup}>
-         <Text style={styles.welcomeText}>
+         <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
             By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
           </Text>
          <TouchableOpacity>
@@ -128,7 +131,7 @@ const SocialSignInScreen = () => {
             </LinearGradient>
           </TouchableOpacity>
 
-          <Text style={styles.troubleText}>
+          <Text style={[styles.troubleText, { color: Colors[colorScheme ?? 'light'].text }]}>
             Trouble signing in? 
           </Text>
         </View>
@@ -140,7 +143,6 @@ const SocialSignInScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -167,7 +169,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 25,
     fontWeight: 'bold',
-    color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
@@ -186,7 +187,6 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     fontSize: 12,
-    color: '#666',
     textAlign: 'center',
     marginHorizontal: 20,
     marginBottom: 30,
@@ -221,7 +221,6 @@ const styles = StyleSheet.create({
   },
   troubleText: {
     fontSize: 16,
-    color: '#666',
     textAlign: 'center',
     marginHorizontal: 20,
     marginTop: 15,

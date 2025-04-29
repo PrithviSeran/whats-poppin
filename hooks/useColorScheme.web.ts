@@ -6,15 +6,22 @@ import { useColorScheme as useRNColorScheme } from 'react-native';
  */
 export function useColorScheme() {
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(useRNColorScheme() ?? 'light');
 
   useEffect(() => {
     setHasHydrated(true);
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    const handleChange = (e: MediaQueryListEvent) => {
+      setSystemTheme(e.matches ? 'dark' : 'light');
+    };
+
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
-  const colorScheme = useRNColorScheme();
-
   if (hasHydrated) {
-    return colorScheme;
+    return systemTheme;
   }
 
   return 'light';
