@@ -44,6 +44,7 @@ export default function RootLayout() {
           <Stack.Screen name="create-account-birthday" options={{ headerShown: false }} />
           <Stack.Screen name="create-account-gender" options={{ headerShown: false }} />
           <Stack.Screen name="create-account-password" options={{ headerShown: false }} />
+          <Stack.Screen name="create-account-preferences" options={{ headerShown: false }} />
           <Stack.Screen name="create-account-finished" options={{ headerShown: false }} />
 
         </Stack>

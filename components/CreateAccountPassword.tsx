@@ -17,7 +17,7 @@ import { Colors } from '@/constants/Colors';
 const { width } = Dimensions.get('window');
 
 type RootStackParamList = {
-    'create-account-finished': undefined;
+    'create-account-preferences': undefined;
   };
   
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -82,7 +82,7 @@ const CreateAccountPassword = () => {
           </Text>
         </View>
         <View style={styles.buttonGroup}>
-          <TouchableOpacity onPress={() => navigation.navigate('create-account-finished')}>
+          <TouchableOpacity onPress={() => navigation.navigate('create-account-preferences')}>
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}
