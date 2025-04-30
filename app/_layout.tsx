@@ -46,6 +46,8 @@ export default function RootLayout() {
           <Stack.Screen name="create-account-password" options={{ headerShown: false }} />
           <Stack.Screen name="create-account-preferences" options={{ headerShown: false }} />
           <Stack.Screen name="create-account-finished" options={{ headerShown: false }} />
+          <Stack.Screen name="suggested-events" options={{ headerShown: false }} />
+
 
         </Stack>
         <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />

@@ -3,14 +3,23 @@ import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image } from 'rea
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
+type RootStackParamList = {
+    'suggested-events': undefined;
+};
+  
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+
 export default function CreateAccountFinished() {
   const colorScheme = useColorScheme();
-
+  const navigation = useNavigation<NavigationProp>();
   return (
     <View style={styles.container}>
       {/* Large circular gradient background */}
@@ -36,7 +45,7 @@ export default function CreateAccountFinished() {
         <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
           You have created your account!
         </Text>
-        <TouchableOpacity style={styles.findEventsButton}>
+        <TouchableOpacity style={styles.findEventsButton} onPress={() => navigation.navigate('suggested-events')}>
           <Text style={[styles.findEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
             find events now! <Text style={styles.arrow}>→</Text>
           </Text>
