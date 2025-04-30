@@ -12,6 +12,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
 
 const { width } = Dimensions.get('window');
 
@@ -23,21 +25,31 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const CreateAccountBirthday = () => {
   const [birthday, setBirthday] = useState('');
   const navigation = useNavigation<NavigationProp>();
+  const colorScheme = useColorScheme();
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.centerContent}>
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={styles.titleLarge}>My birthday is</Text>
+          <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>My birthday is</Text>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                borderBottomColor: colorScheme === 'dark' ? '#555' : '#ddd',
+                color: Colors[colorScheme ?? 'light'].text,
+              },
+            ]}
             value={birthday}
             onChangeText={setBirthday}
             placeholder="MM/DD/YYYY"
-            placeholderTextColor="#bbb"
+            placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
             keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
             maxLength={10}
           />
-          <Text style={styles.helperText}>Your age will be public</Text>
+          <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
+            Your age will be public
+          </Text>
         </View>
         <View style={styles.buttonGroup}>
           <TouchableOpacity onPress={() => navigation.navigate('create-account-gender')}>
@@ -60,7 +72,6 @@ const CreateAccountBirthday = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -75,7 +86,6 @@ const styles = StyleSheet.create({
   titleLarge: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#222',
     textAlign: 'center',
     marginBottom: 30,
     marginTop: 40,
@@ -84,15 +94,12 @@ const styles = StyleSheet.create({
     width: '80%',
     fontSize: 22,
     borderBottomWidth: 2,
-    borderBottomColor: '#ddd',
     paddingVertical: 8,
     textAlign: 'left',
     marginBottom: 10,
-    color: '#222',
   },
   helperText: {
     fontSize: 13,
-    color: '#888',
     marginTop: 2,
     marginBottom: 10,
     textAlign: 'left',
@@ -104,10 +111,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'white',
     borderRadius: 30,
     width: width * 0.8,
     paddingVertical: 13,
@@ -122,7 +125,7 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
+    textAlign: 'center',
   },
 });
 
