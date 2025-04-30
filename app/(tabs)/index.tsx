@@ -35,6 +35,3 @@ const styles = StyleSheet.create({
   },
 });
 
-export const unstable_settings = {
-  headerShown: false,
-};

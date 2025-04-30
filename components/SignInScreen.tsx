@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
   buttonGroup: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 90,
+    marginBottom: 20,
   },
   welcomeText: {
     fontSize: 12,

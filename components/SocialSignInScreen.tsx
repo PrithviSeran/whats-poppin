@@ -62,6 +62,20 @@ const SocialSignInScreen = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+        <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+      </TouchableOpacity>
       <View style={styles.centerContent}>
         <View style={styles.headerContainer}>
           <Image
@@ -143,6 +157,7 @@ const SocialSignInScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 20,
@@ -169,6 +184,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 25,
     fontWeight: 'bold',
+    color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
@@ -187,6 +203,7 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     fontSize: 12,
+    color: '#666',
     textAlign: 'center',
     marginHorizontal: 20,
     marginBottom: 30,
@@ -221,6 +238,7 @@ const styles = StyleSheet.create({
   },
   troubleText: {
     fontSize: 16,
+    color: '#666',
     textAlign: 'center',
     marginHorizontal: 20,
     marginTop: 15,

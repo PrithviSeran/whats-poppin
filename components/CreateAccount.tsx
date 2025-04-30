@@ -56,6 +56,20 @@ const CreateAccount = () => {
         { backgroundColor: Colors[colorScheme ?? 'light'].background },
       ]}
     >
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+      </TouchableOpacity>
       <View style={styles.centerContent}>
         <View style={styles.inputSection}>
           <Text

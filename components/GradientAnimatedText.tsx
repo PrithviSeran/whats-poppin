@@ -56,8 +56,8 @@ const AnimatedGradientText: React.FC<AnimatedGradientTextProps> = ({ phrases, co
       <MaskedView
         style={{ 
             width: '100%', 
-            marginTop: 20,
-            marginBottom: 180,
+            marginTop: 10,
+            marginBottom: 230,
         }}
         maskElement={
           <Animated.Text style={styles.catchPhrase} numberOfLines={2}>

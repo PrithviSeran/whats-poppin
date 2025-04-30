@@ -29,6 +29,20 @@ const CreateAccountEmail = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+    <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+      </TouchableOpacity>
       <View style={styles.centerContent}>
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>My email is</Text>
