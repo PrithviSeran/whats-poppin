@@ -12,7 +12,7 @@ export default function CreateAccountFinished() {
   const colorScheme = useColorScheme();
 
   return (
-    <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+    <View style={styles.container}>
       {/* Large circular gradient background */}
       <LinearGradient
         colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4']}
@@ -49,6 +49,7 @@ export default function CreateAccountFinished() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FF1493',
     alignItems: 'center',
     justifyContent: 'center',
   },
