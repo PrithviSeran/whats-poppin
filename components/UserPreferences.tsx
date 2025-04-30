@@ -45,15 +45,36 @@ const PREFERENCES = [
   'Other',
 ];
 
+const TIME_PREFERENCES = ['Morning', 'Afternoon', 'Evening'];
+const LOCATION_PREFERENCES = ['Uptown', 'Midtown', 'Downtown'];
+
 const DEFAULT_SELECTED = ['Bar Hopping', 'Live Music', 'Dancing'];
 
 export default function UserPreferences() {
   const [selected, setSelected] = useState<string[]>(DEFAULT_SELECTED);
+  const [selectedTime, setSelectedTime] = useState<string[]>([]);
+  const [selectedLocation, setSelectedLocation] = useState<string[]>([]);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
 
   const togglePreference = (pref: string) => {
     setSelected((prev) =>
+      prev.includes(pref)
+        ? prev.filter((p) => p !== pref)
+        : [...prev, pref]
+    );
+  };
+
+  const toggleTimePreference = (pref: string) => {
+    setSelectedTime((prev) =>
+      prev.includes(pref)
+        ? prev.filter((p) => p !== pref)
+        : [...prev, pref]
+    );
+  };
+
+  const toggleLocationPreference = (pref: string) => {
+    setSelectedLocation((prev) =>
       prev.includes(pref)
         ? prev.filter((p) => p !== pref)
         : [...prev, pref]
@@ -82,8 +103,8 @@ export default function UserPreferences() {
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
 
-        <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>Almost There! Let us know what you're feeling!</Text>
-        <Text style={[styles.subtitle, { color: isDark ? '#aaa' : '#888' }]}>Choose your interests for tonight</Text>
+      <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>Almost There! Let us know what you're feeling!</Text>
+      <Text style={[styles.subtitle, { color: isDark ? '#aaa' : '#888' }]}>Choose your interests for tonight</Text>
     
       <View style={{ height: height * 0.5, width: '100%', marginTop: -10 }}>
         <ScrollView
@@ -91,36 +112,109 @@ export default function UserPreferences() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={true}
         >
-          <View style={styles.pillContainer}>
-            {PREFERENCES.map((pref) => (
-              <TouchableOpacity
-                key={pref}
-                style={[
-                  styles.pill,
-                  selected.includes(pref) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
-                  {
-                    backgroundColor: selected.includes(pref)
-                      ? (isDark ? '#F45B5B' : '#F45B5B')
-                      : (isDark ? '#222' : '#f5f5f5'),
-                    borderColor: selected.includes(pref)
-                      ? (isDark ? '#FF3366' : '#FF3366')
-                      : (isDark ? '#333' : '#eee'),
-                  }
-                ]}
-                onPress={() => togglePreference(pref)}
-                activeOpacity={0.7}
-              >
-                <Text
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Event Type</Text>
+            <View style={styles.pillContainer}>
+              {PREFERENCES.map((pref) => (
+                <TouchableOpacity
+                  key={pref}
                   style={[
-                    styles.pillText,
-                    selected.includes(pref) && styles.pillTextSelected,
-                    { color: selected.includes(pref) ? '#fff' : (isDark ? '#fff' : '#222') }
+                    styles.pill,
+                    selected.includes(pref) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
+                    {
+                      backgroundColor: selected.includes(pref)
+                        ? (isDark ? '#F45B5B' : '#F45B5B')
+                        : (isDark ? '#222' : '#f5f5f5'),
+                      borderColor: selected.includes(pref)
+                        ? (isDark ? '#FF3366' : '#FF3366')
+                        : (isDark ? '#333' : '#eee'),
+                    }
                   ]}
+                  onPress={() => togglePreference(pref)}
+                  activeOpacity={0.7}
                 >
-                  {pref}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={[
+                      styles.pillText,
+                      selected.includes(pref) && styles.pillTextSelected,
+                      { color: selected.includes(pref) ? '#fff' : (isDark ? '#fff' : '#222') }
+                    ]}
+                  >
+                    {pref}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Time Preference</Text>
+            <View style={styles.pillContainer}>
+              {TIME_PREFERENCES.map((pref) => (
+                <TouchableOpacity
+                  key={pref}
+                  style={[
+                    styles.pill,
+                    selectedTime.includes(pref) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
+                    {
+                      backgroundColor: selectedTime.includes(pref)
+                        ? (isDark ? '#F45B5B' : '#F45B5B')
+                        : (isDark ? '#222' : '#f5f5f5'),
+                      borderColor: selectedTime.includes(pref)
+                        ? (isDark ? '#FF3366' : '#FF3366')
+                        : (isDark ? '#333' : '#eee'),
+                    }
+                  ]}
+                  onPress={() => toggleTimePreference(pref)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.pillText,
+                      selectedTime.includes(pref) && styles.pillTextSelected,
+                      { color: selectedTime.includes(pref) ? '#fff' : (isDark ? '#fff' : '#222') }
+                    ]}
+                  >
+                    {pref}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Location Preference</Text>
+            <View style={styles.pillContainer}>
+              {LOCATION_PREFERENCES.map((pref) => (
+                <TouchableOpacity
+                  key={pref}
+                  style={[
+                    styles.pill,
+                    selectedLocation.includes(pref) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
+                    {
+                      backgroundColor: selectedLocation.includes(pref)
+                        ? (isDark ? '#F45B5B' : '#F45B5B')
+                        : (isDark ? '#222' : '#f5f5f5'),
+                      borderColor: selectedLocation.includes(pref)
+                        ? (isDark ? '#FF3366' : '#FF3366')
+                        : (isDark ? '#333' : '#eee'),
+                    }
+                  ]}
+                  onPress={() => toggleLocationPreference(pref)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.pillText,
+                      selectedLocation.includes(pref) && styles.pillTextSelected,
+                      { color: selectedLocation.includes(pref) ? '#fff' : (isDark ? '#fff' : '#222') }
+                    ]}
+                  >
+                    {pref}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </ScrollView>
       </View>
@@ -214,5 +308,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  section: {
+    width: '100%',
+    marginBottom: 30,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    marginLeft: 10,
   },
 });
