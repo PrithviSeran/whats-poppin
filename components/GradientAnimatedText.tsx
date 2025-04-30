@@ -9,11 +9,18 @@ interface AnimatedGradientTextProps {
 }
 
 const AnimatedGradientText: React.FC<AnimatedGradientTextProps> = ({ phrases, colors }) => {
-  const fadeAnim = useRef(new Animated.Value(10)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
   const [currentIndex, setCurrentIndex] = useState(0);
 
   // Animation for fading in and out
   useEffect(() => {
+    // Start first animation immediately
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+
     const interval = setInterval(() => {
       // Fade out
       Animated.timing(fadeAnim, {
