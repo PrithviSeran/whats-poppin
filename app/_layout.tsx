@@ -36,19 +36,19 @@ export default function RootLayout() {
     <ThemeProvider value={theme}>
       <View style={{ flex: 1, backgroundColor }}>
         <Stack>
-          <Stack.Screen name="(tabs)" options={{headerShown: false}} />
-          <Stack.Screen name="+not-found" />
-          <Stack.Screen name="social-sign-in" options={{ headerShown: false }} />
-          <Stack.Screen name="create-account" options={{ headerShown: false }} />
-          <Stack.Screen name="create-account-email" options={{ headerShown: false }} />
-          <Stack.Screen name="create-account-birthday" options={{ headerShown: false }} />
-          <Stack.Screen name="create-account-gender" options={{ headerShown: false }} />
-          <Stack.Screen name="create-account-password" options={{ headerShown: false }} />
-          <Stack.Screen name="create-account-preferences" options={{ headerShown: false }} />
-          <Stack.Screen name="create-account-finished" options={{ headerShown: false }} />
-          <Stack.Screen name="suggested-events" options={{ headerShown: false }} />
-
-
+          <Stack.Screen name="(tabs)" options={{headerShown: false, gestureEnabled: false}} />
+          <Stack.Screen name="+not-found" options={{gestureEnabled: false}} />
+          <Stack.Screen name="social-sign-in" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-email" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-birthday" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-gender" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-password" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-preferences" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-finished" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="suggested-events" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="discover" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="me" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack>
         <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       </View>

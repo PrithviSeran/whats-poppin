@@ -1,14 +1,20 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, Image, SafeAreaView, Animated, TouchableOpacity, ScrollView } from 'react-native';
 import Swiper from 'react-native-deck-swiper';
 import MainFooter from './MainFooter';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
+import EventFilterOverlay from './EventFilterOverlay';
+import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
 const TOP_BUTTONS_HEIGHT = 60; // Space for top buttons
 const ACTION_BUTTONS_HEIGHT = 80; // Space for action buttons
+const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 
 interface EventCard {
   id: number;
@@ -17,86 +23,258 @@ interface EventCard {
   description: string;
   date: string;
   location: string;
+  isLiked?: boolean;
 }
 
-const EVENTS: EventCard[] = [
-  { 
-    id: 1, 
-    title: 'Live Concert', 
-    image: require('../assets/images/balloons.png'),
-    description: 'Join us for an unforgettable night of live music featuring top artists from around the world. Experience the energy of a live performance in an intimate setting.',
-    date: 'June 15, 2024',
-    location: 'Central Park Amphitheater'
-  },
-  { 
-    id: 2, 
-    title: 'Rooftop Party', 
-    image: require('../assets/images/balloons.png'),
-    description: 'Dance the night away under the stars at our exclusive rooftop party. Featuring top DJs, signature cocktails, and breathtaking city views.',
-    date: 'June 20, 2024',
-    location: 'Sky Lounge Rooftop'
-  },
-  { 
-    id: 3, 
-    title: 'Comedy Night', 
-    image: require('../assets/images/balloons.png'),
-    description: 'Laugh your heart out with some of the best comedians in town. A night filled with humor, good vibes, and great company.',
-    date: 'June 25, 2024',
-    location: 'Comedy Cellar'
-  },
-  // Add more events as needed
-];
+const generateRandomEvents = (count: number): EventCard[] => {
+  const eventTypes = [
+    'Concert', 'Festival', 'Exhibition', 'Workshop', 'Conference', 'Meetup',
+    'Party', 'Show', 'Tour', 'Class', 'Seminar', 'Networking', 'Performance',
+    'Market', 'Fair', 'Gala', 'Auction', 'Competition', 'Race', 'Game'
+  ];
+  
+  const locations = [
+    'Central Park', 'Times Square', 'Madison Square Garden', 'Brooklyn Bridge Park',
+    'Metropolitan Museum', 'Carnegie Hall', 'Lincoln Center', 'Javits Center',
+    'Union Square', 'Bryant Park', 'Chelsea', 'Soho', 'Greenwich Village',
+    'Williamsburg', 'DUMBO', 'Prospect Park', 'Rockefeller Center', 'High Line',
+    'Battery Park', 'Hudson Yards'
+  ];
+
+  const adjectives = [
+    'Amazing', 'Incredible', 'Unforgettable', 'Spectacular', 'Epic', 'Magical',
+    'Enchanting', 'Thrilling', 'Exciting', 'Fabulous', 'Wonderful', 'Fantastic',
+    'Stunning', 'Breathtaking', 'Mesmerizing', 'Captivating', 'Inspiring',
+    'Uplifting', 'Joyful', 'Energizing'
+  ];
+
+  const events: EventCard[] = [];
+  const usedIds = new Set<number>();
+
+  for (let i = 0; i < count; i++) {
+    let id;
+    do {
+      id = Math.floor(Math.random() * 1000) + 1;
+    } while (usedIds.has(id));
+    usedIds.add(id);
+
+    const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
+    const location = locations[Math.floor(Math.random() * locations.length)];
+    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    
+    const month = Math.floor(Math.random() * 12) + 1;
+    const day = Math.floor(Math.random() * 28) + 1;
+    const year = 2024;
+    const date = `${month}/${day}/${year}`;
+
+    events.push({
+      id,
+      title: `${adjective} ${eventType}`,
+      image: require('../assets/images/balloons.png'),
+      description: `Join us for an ${adjective.toLowerCase()} ${eventType.toLowerCase()} at ${location}. This is a must-attend event that you won't want to miss!`,
+      date,
+      location,
+      isLiked: false
+    });
+  }
+
+  return events;
+};
+
+const EVENTS: EventCard[] = generateRandomEvents(100);
+
+// Save the generated events to AsyncStorage
+const saveGeneratedEvents = async () => {
+  try {
+    await AsyncStorage.setItem('suggestedEvents', JSON.stringify(EVENTS));
+  } catch (error) {
+    console.error('Error saving suggested events:', error);
+  }
+};
+
+// Call this function when the component is first loaded
+saveGeneratedEvents();
+
+interface FilterState {
+  eventTypes: string[];
+  timePreferences: string[];
+  locationPreferences: string[];
+}
 
 export default function SuggestedEvents() {
   const [cardIndex, setCardIndex] = useState(0);
   const [expandedCard, setExpandedCard] = useState<EventCard | null>(null);
+  const [isFilterVisible, setIsFilterVisible] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    eventTypes: [],
+    timePreferences: [],
+    locationPreferences: [],
+  });
   const swipeX = useRef(new Animated.Value(0)).current;
   const swiperRef = useRef<Swiper<EventCard>>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const colorScheme = useColorScheme();
+  const router = useRouter();
+  const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
   
   const interpolateColor = swipeX.interpolate({
     inputRange: [-width, 0, width],
-    outputRange: ['#FFE5E5', '#FFFFFF', '#E5FFE5'],
+    outputRange: colorScheme === 'dark' 
+      ? ['#2A1A1A', '#1A1A1A', '#1A2A1A']
+      : ['#FFE5E5', '#FFFFFF', '#E5FFE5'],
+  });
+
+  // Filter the events based on selected filters
+  const filteredEvents = EVENTS.filter(event => {
+    if (filters.eventTypes.length > 0 && !filters.eventTypes.includes(event.title)) {
+      return false;
+    }
+    // Add time and location filtering logic here when those fields are added to the EventCard interface
+    return true;
   });
 
   const handleCardPress = (card: EventCard) => {
     setExpandedCard(card);
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
+    // Reset the scale value
+    fadeAnim.setValue(0);
+    // Start the animation
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      })
+    ]).start();
   };
 
   const handleBackPress = () => {
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 150,
-      useNativeDriver: true,
-    }).start(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 0.8,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      })
+    ]).start(() => {
       setExpandedCard(null);
     });
   };
 
+  const handleApplyFilters = (newFilters: FilterState) => {
+    setFilters(newFilters);
+    setCardIndex(0); // Reset to first card when filters change
+  };
+
+  const handleSwipeRight = async (cardIndex: number) => {
+    const likedEvent = EVENTS[cardIndex];
+    const newLikedEvents = [...likedEvents, likedEvent];
+    setLikedEvents(newLikedEvents);
+    
+    // Save to AsyncStorage
+    try {
+      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+      let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+      savedEvents.push(likedEvent);
+      await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
+    } catch (error) {
+      console.error('Error saving liked events:', error);
+    }
+  };
+
+  // Load liked events on component mount
+  useEffect(() => {
+    const loadLikedEvents = async () => {
+      try {
+        const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+        if (savedEventsJson) {
+          const savedEvents = JSON.parse(savedEventsJson);
+          setLikedEvents(savedEvents);
+        }
+      } catch (error) {
+        console.error('Error loading liked events:', error);
+      }
+    };
+    loadLikedEvents();
+  }, []);
+
+  const toggleLike = async (event: EventCard) => {
+    try {
+      const savedEventsJson = await AsyncStorage.getItem('likedEvents');
+      let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+
+      if (event.isLiked) {
+        // Remove from saved events
+        savedEvents = savedEvents.filter(e => e.id !== event.id);
+      } else {
+        // Add to saved events
+        savedEvents.push(event);
+      }
+
+      await AsyncStorage.setItem('likedEvents', JSON.stringify(savedEvents));
+      
+      // Update the events state
+      setLikedEvents(prevEvents => 
+        prevEvents.map(e => 
+          e.id === event.id ? { ...e, isLiked: !e.isLiked } : e
+        )
+      );
+    } catch (error) {
+      console.error('Error toggling like:', error);
+    }
+  };
+
   if (expandedCard) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Animated.View style={[styles.expandedCard, { opacity: fadeAnim }]}>
-          <Image source={expandedCard.image} style={styles.expandedImage} />
+      <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+        <Animated.View 
+          style={[
+            styles.expandedCard, 
+            { 
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+              backgroundColor: Colors[colorScheme ?? 'light'].background 
+            }
+          ]}
+        >
+          <Image 
+            source={expandedCard.image} 
+            style={[
+              styles.expandedImage,
+              { 
+                height: height * 0.4,
+                width: '100%',
+                resizeMode: 'cover',
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+              }
+            ]} 
+          />
           <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-            <Ionicons name="arrow-back" size={24} color="white" />
+            <Ionicons name="arrow-back" size={24} color={colorScheme === 'dark' ? '#fff' : '#000'} />
           </TouchableOpacity>
           <ScrollView style={styles.expandedContent}>
-            <Text style={styles.expandedTitle}>{expandedCard.title}</Text>
+            <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.title}</Text>
             <View style={styles.infoRow}>
-              <Ionicons name="calendar-outline" size={20} color="#666" />
-              <Text style={styles.infoText}>{expandedCard.date}</Text>
+              <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.date}</Text>
             </View>
             <View style={styles.infoRow}>
-              <Ionicons name="location-outline" size={20} color="#666" />
-              <Text style={styles.infoText}>{expandedCard.location}</Text>
+              <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
             </View>
-            <Text style={styles.description}>{expandedCard.description}</Text>
+            <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
           </ScrollView>
         </Animated.View>
         <Animated.View style={[styles.actionButtons, { opacity: fadeAnim }]}>
@@ -110,7 +288,7 @@ export default function SuggestedEvents() {
             style={[styles.actionButton, styles.likeButton]}
             onPress={() => swiperRef.current?.swipeRight()}
           >
-            <Ionicons name="heart" size={32} color="green" />
+            <Ionicons name="checkmark" size={32} color="green" />
           </TouchableOpacity>
         </Animated.View>
       </SafeAreaView>
@@ -118,9 +296,12 @@ export default function SuggestedEvents() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.topButtons}>
-        <TouchableOpacity style={styles.topButton}>
+        <TouchableOpacity 
+          style={styles.topButton}
+          onPress={() => router.push('/saved-likes')}
+        >
           <LinearGradient
             colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
             start={{ x: 0, y: 0 }}
@@ -131,7 +312,10 @@ export default function SuggestedEvents() {
             <Ionicons name="heart" size={24} color="white" />
           </LinearGradient>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.topButton}>
+        <TouchableOpacity 
+          style={styles.topButton}
+          onPress={() => setIsFilterVisible(true)}
+        >
           <LinearGradient
             colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
             start={{ x: 0, y: 0 }}
@@ -149,7 +333,7 @@ export default function SuggestedEvents() {
       <View style={styles.swiperContainer}>
         <Swiper
           ref={swiperRef}
-          cards={EVENTS}
+          cards={filteredEvents}
           cardIndex={cardIndex}
           renderCard={(card: EventCard, index: number) => {
             const isTopCard = index === cardIndex;
@@ -160,16 +344,16 @@ export default function SuggestedEvents() {
               >
                 <Animated.View style={[
                   styles.card,
-                  isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: '#FFFFFF' }
+                  isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
                 ]}>
                   <Image source={card.image} style={styles.image} />
-                  <Text style={styles.title}>{card.title}</Text>
+                  <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.title}</Text>
                 </Animated.View>
               </TouchableOpacity>
             );
           }}
           onSwipedLeft={() => setCardIndex((i) => i + 1)}
-          onSwipedRight={() => setCardIndex((i) => i + 1)}
+          onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
           onSwiping={(x) => swipeX.setValue(x)}
           backgroundColor="transparent"
           stackSize={3}
@@ -208,24 +392,31 @@ export default function SuggestedEvents() {
       </View>
 
       <Animated.View style={[styles.actionButtons]}>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.nopeButton]}
-            onPress={() => swiperRef.current?.swipeLeft()}
-          >
-            <Ionicons name="close" size={32} color="red" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.likeButton]}
-            onPress={() => swiperRef.current?.swipeRight()}
-          >
-            <Ionicons name="heart" size={32} color="green" />
-          </TouchableOpacity>
-        </Animated.View>
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.nopeButton]}
+          onPress={() => swiperRef.current?.swipeLeft()}
+        >
+          <Ionicons name="close" size={32} color="red" />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.likeButton]}
+          onPress={() => swiperRef.current?.swipeRight()}
+        >
+          <Ionicons name="checkmark" size={32} color="green" />
+        </TouchableOpacity>
+      </Animated.View>
       
 
       <View style={styles.footerContainer}>
         <MainFooter />
       </View>
+
+      <EventFilterOverlay
+        visible={isFilterVisible}
+        onClose={() => setIsFilterVisible(false)}
+        onApplyFilters={handleApplyFilters}
+        currentFilters={filters}
+      />
     </SafeAreaView>
   );
 }
@@ -233,7 +424,6 @@ export default function SuggestedEvents() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
     alignItems: 'center',
   },
   swiperContainer: {
@@ -274,10 +464,10 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#222',
-    marginTop: 16,
+    textAlign: 'center',
+    marginTop: 10,
   },
   actionButtons: {
     flexDirection: 'row',
@@ -341,6 +531,14 @@ const styles = StyleSheet.create({
   expandedCard: {
     flex: 1,
     backgroundColor: '#fff',
+    borderRadius: 24,
+    overflow: 'hidden',
+    margin: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   expandedImage: {
     width: '100%',
@@ -375,13 +573,11 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontSize: 16,
-    color: '#666',
     marginLeft: 10,
   },
   description: {
     fontSize: 16,
     lineHeight: 24,
-    color: '#333',
     marginTop: 20,
   },
 });
