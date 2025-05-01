@@ -231,7 +231,7 @@ export default function SavedLikes() {
                   style={styles.deleteButton}
                   onPress={() => deleteEvent(event.id)}
                 >
-                  <Ionicons name="trash-outline" size={20} color="#fff" />
+                  <Ionicons name="close" size={20} color="#fff" />
                 </TouchableOpacity>
               </TouchableOpacity>
             </Animated.View>
@@ -251,7 +251,7 @@ export default function SavedLikes() {
             locations={[0, 0.3, 0.7, 1]}
             style={styles.clearAllGradient}
           >
-            <Text style={styles.clearAllText}>Clear All</Text>
+            <Ionicons name="trash" size={24} color="#fff" />
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -402,20 +402,19 @@ const styles = StyleSheet.create({
   clearAllContainer: {
     padding: 15,
     paddingBottom: 40,
+    alignItems: 'flex-end',
   },
   clearAllButton: {
+    width: 50,
+    height: 50,
     borderRadius: 25,
     overflow: 'hidden',
   },
   clearAllGradient: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
-  },
-  clearAllText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    justifyContent: 'center',
   },
   modalContainer: {
     flex: 1,

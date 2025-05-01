@@ -55,6 +55,14 @@ const generateRandomEvents = (count: number): EventCard[] => {
     'Uplifting', 'Joyful', 'Energizing'
   ];
 
+  const images = [
+    require('../assets/images/balloons.png'),
+    require('../assets/images/balloons.png'),
+    require('../assets/images/balloons.png'),
+    require('../assets/images/balloons.png'),
+    require('../assets/images/balloons.png'),
+  ];
+
   const events: EventCard[] = [];
   const usedIds = new Set<number>();
 
@@ -68,6 +76,7 @@ const generateRandomEvents = (count: number): EventCard[] => {
     const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
     const location = locations[Math.floor(Math.random() * locations.length)];
     const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const image = images[Math.floor(Math.random() * images.length)];
     
     const month = Math.floor(Math.random() * 12) + 1;
     const day = Math.floor(Math.random() * 28) + 1;
@@ -77,7 +86,7 @@ const generateRandomEvents = (count: number): EventCard[] => {
     events.push({
       id,
       title: `${adjective} ${eventType}`,
-      image: require('../assets/images/balloons.png'),
+      image,
       description: `Join us for an ${adjective.toLowerCase()} ${eventType.toLowerCase()} at ${location}. This is a must-attend event that you won't want to miss!`,
       date,
       location,
@@ -245,6 +254,20 @@ export default function SuggestedEvents() {
   if (expandedCard) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+        <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={handleBackPress}
+      >
+        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+      </TouchableOpacity>
         <Animated.View 
           style={[
             styles.expandedCard, 
@@ -255,22 +278,8 @@ export default function SuggestedEvents() {
             }
           ]}
         >
-          <Image 
-            source={expandedCard.image} 
-            style={[
-              styles.expandedImage,
-              { 
-                height: height * 0.4,
-                width: '100%',
-                resizeMode: 'cover',
-                borderTopLeftRadius: 24,
-                borderTopRightRadius: 24,
-              }
-            ]} 
-          />
-          <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-            <Ionicons name="arrow-back" size={24} color={colorScheme === 'dark' ? '#fff' : '#000'} />
-          </TouchableOpacity>
+          <Image source={require("../assets/images/balloons.png")} style={styles.imageExpanded} />
+
           <ScrollView style={styles.expandedContent}>
             <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.title}</Text>
             <View style={styles.infoRow}>
@@ -462,6 +471,10 @@ const styles = StyleSheet.create({
     elevation: 8,
     paddingBottom: 32,
   },
+  imageExpanded: {
+    height: height * 0.5,
+    width: width * 0.85,
+  },
   image: {
     width: '100%',
     height: '80%',
@@ -565,7 +578,8 @@ const styles = StyleSheet.create({
   },
   expandedContent: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 20,
+    marginBottom: 20,
   },
   expandedTitle: {
     fontSize: 28,
