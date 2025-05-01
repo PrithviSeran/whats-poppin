@@ -6,6 +6,8 @@ import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
@@ -32,7 +34,7 @@ export default function SavedLikes() {
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const cardOpacity = React.useRef(new Animated.Value(1)).current;
   const colorScheme = useColorScheme();
-
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
   useEffect(() => {
     loadSavedEvents();
   }, []);
@@ -144,6 +146,20 @@ export default function SavedLikes() {
   if (savedEvents.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+       <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+      </TouchableOpacity>
         <View style={styles.emptyContainer}>
           <Ionicons name="heart" size={60} color={colorScheme === 'dark' ? '#666' : '#999'} />
           <Text style={[styles.emptyText, { color: Colors[colorScheme ?? 'light'].text }]}>
@@ -153,13 +169,26 @@ export default function SavedLikes() {
             Like events to save them here
           </Text>
         </View>
-        <MainFooter />
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+      </TouchableOpacity>
       <ScrollView style={styles.eventsGrid}>
         <View style={styles.gridContainer}>
           {savedEvents.map((event) => (
@@ -291,8 +320,6 @@ export default function SavedLikes() {
           </TouchableOpacity>
         </Animated.View>
       </Modal>
-
-      <MainFooter />
     </SafeAreaView>
   );
 }
@@ -319,6 +346,7 @@ const styles = StyleSheet.create({
   },
   eventsGrid: {
     flex: 1,
+    paddingTop: 60,
   },
   gridContainer: {
     flexDirection: 'row',
@@ -373,7 +401,7 @@ const styles = StyleSheet.create({
   },
   clearAllContainer: {
     padding: 15,
-    paddingBottom: 80,
+    paddingBottom: 40,
   },
   clearAllButton: {
     borderRadius: 25,

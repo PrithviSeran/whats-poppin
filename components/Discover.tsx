@@ -356,7 +356,7 @@ export default function Discover() {
         </Animated.View>
       </Modal>
 
-      <MainFooter />
+      <MainFooter activeTab="discover" />
     </SafeAreaView>
   );
 }

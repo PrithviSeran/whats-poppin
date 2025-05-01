@@ -7,7 +7,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import EventFilterOverlay from './EventFilterOverlay';
-import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
@@ -15,6 +16,12 @@ const FOOTER_HEIGHT = 80;
 const TOP_BUTTONS_HEIGHT = 60; // Space for top buttons
 const ACTION_BUTTONS_HEIGHT = 80; // Space for action buttons
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
+
+type RootStackParamList = {
+  'saved-likes': undefined;
+};
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 interface EventCard {
   id: number;
@@ -115,7 +122,7 @@ export default function SuggestedEvents() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const colorScheme = useColorScheme();
-  const router = useRouter();
+  const navigation = useNavigation<NavigationProp>();
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
   
   const interpolateColor = swipeX.interpolate({
@@ -300,7 +307,7 @@ export default function SuggestedEvents() {
       <View style={styles.topButtons}>
         <TouchableOpacity 
           style={styles.topButton}
-          onPress={() => router.push('/saved-likes')}
+          onPress={() => navigation.navigate('saved-likes')}
         >
           <LinearGradient
             colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -405,10 +412,9 @@ export default function SuggestedEvents() {
           <Ionicons name="checkmark" size={32} color="green" />
         </TouchableOpacity>
       </Animated.View>
-      
 
       <View style={styles.footerContainer}>
-        <MainFooter />
+        <MainFooter activeTab="home" />
       </View>
 
       <EventFilterOverlay
@@ -579,5 +585,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     marginTop: 20,
+  },
+  backButtonContainer: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    borderRadius: 20,
+    padding: 8,
+  },
+  backButtonText: {
+    fontSize: 28,
+    color: '#FF1493',
   },
 });

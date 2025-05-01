@@ -103,7 +103,7 @@ const CreateAccount = () => {
             This is how it will appear in the app
           </Text>
         </View>
-
+        
         <View style={styles.buttonGroup}>
           <TouchableOpacity
             onPress={() => navigation.navigate('create-account-email')}
@@ -188,4 +188,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CreateAccount;
+export default CreateAccount; 
