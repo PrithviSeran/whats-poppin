@@ -196,12 +196,39 @@ export default function Discover() {
   const closeModal = () => {
     if (!cardLayout) return;
 
-    // Fade in the card
+    // Start fading in the card immediately
     Animated.timing(cardOpacity, {
       toValue: 1,
       duration: 200,
       useNativeDriver: true,
-    }).start(() => {
+    }).start();
+
+    // Animate out the modal
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 0.8,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateXAnim, {
+        toValue: 0,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateYAnim, {
+        toValue: 0,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
       setModalVisible(false);
       setSelectedEvent(null);
       setCardLayout(null);
@@ -315,6 +342,8 @@ export default function Discover() {
                   ]
                 }
               ]}
+              onStartShouldSetResponder={() => true}
+              onTouchEnd={(e) => e.stopPropagation()}
             >
               <TouchableOpacity 
                 style={styles.closeButton}
@@ -445,7 +474,7 @@ const styles = StyleSheet.create({
     width: width * 0.9,
     borderRadius: 20,
     overflow: 'hidden',
-    maxHeight: height * 0.8,
+    maxHeight: height * 0.9,
   },
   closeButton: {
     position: 'absolute',
@@ -456,7 +485,7 @@ const styles = StyleSheet.create({
   },
   modalImage: {
     width: '100%',
-    height: height * 0.3,
+    height: height * 0.4,
     resizeMode: 'cover',
   },
   modalTextContent: {

@@ -171,6 +171,7 @@ export default function SuggestedEvents() {
   };
 
   const handleBackPress = () => {
+    // Animate out
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -184,6 +185,7 @@ export default function SuggestedEvents() {
         useNativeDriver: true,
       })
     ]).start(() => {
+      // Only update state after animation completes
       setExpandedCard(null);
     });
   };
@@ -204,6 +206,23 @@ export default function SuggestedEvents() {
       let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
       savedEvents.push(likedEvent);
       await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
+      
+      // Animate out before closing
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scaleAnim, {
+          toValue: 0.8,
+          friction: 5,
+          tension: 50,
+          useNativeDriver: true,
+        })
+      ]).start(() => {
+        setExpandedCard(null);
+      });
     } catch (error) {
       console.error('Error saving liked events:', error);
     }
@@ -251,66 +270,6 @@ export default function SuggestedEvents() {
     }
   };
 
-  if (expandedCard) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-        <TouchableOpacity
-        style={{
-          position: 'absolute',
-          top: 50,
-          left: 20,
-          zIndex: 10,
-          backgroundColor: 'rgba(0,0,0,0.1)',
-          borderRadius: 20,
-          padding: 8,
-        }}
-        onPress={handleBackPress}
-      >
-        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
-      </TouchableOpacity>
-        <Animated.View 
-          style={[
-            styles.expandedCard, 
-            { 
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-              backgroundColor: Colors[colorScheme ?? 'light'].background 
-            }
-          ]}
-        >
-          <Image source={require("../assets/images/balloons.png")} style={styles.imageExpanded} />
-
-          <ScrollView style={styles.expandedContent}>
-            <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.title}</Text>
-            <View style={styles.infoRow}>
-              <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.date}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
-            </View>
-            <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
-          </ScrollView>
-        </Animated.View>
-        <Animated.View style={[styles.actionButtons, { opacity: fadeAnim }]}>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.nopeButton]}
-            onPress={() => swiperRef.current?.swipeLeft()}
-          >
-            <Ionicons name="close" size={32} color="red" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.likeButton]}
-            onPress={() => swiperRef.current?.swipeRight()}
-          >
-            <Ionicons name="checkmark" size={32} color="green" />
-          </TouchableOpacity>
-        </Animated.View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.topButtons}>
@@ -345,7 +304,7 @@ export default function SuggestedEvents() {
       </View>
       
 
-      {/* Reduced height swiper container */}
+      {/* Main Swiper View */}
       <View style={styles.swiperContainer}>
         <Swiper
           ref={swiperRef}
@@ -368,7 +327,24 @@ export default function SuggestedEvents() {
               </TouchableOpacity>
             );
           }}
-          onSwipedLeft={() => setCardIndex((i) => i + 1)}
+          onSwipedLeft={() => {
+            setCardIndex((i) => i + 1);
+            Animated.parallel([
+              Animated.timing(fadeAnim, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              }),
+              Animated.spring(scaleAnim, {
+                toValue: 0.8,
+                friction: 5,
+                tension: 50,
+                useNativeDriver: true,
+              })
+            ]).start(() => {
+              setExpandedCard(null);
+            });
+          }}
           onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
           onSwiping={(x) => swipeX.setValue(x)}
           backgroundColor="transparent"
@@ -422,6 +398,55 @@ export default function SuggestedEvents() {
         </TouchableOpacity>
       </Animated.View>
 
+      {/* Expanded Card Overlay */}
+      {expandedCard && (
+        <Animated.View 
+          style={[
+            styles.expandedOverlay,
+            { 
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleBackPress}
+          >
+            <Text style={styles.backButtonText}>{'←'}</Text>
+          </TouchableOpacity>
+          <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+            <ScrollView style={styles.expandedContent}>
+              <Image source={expandedCard.image} style={styles.imageExpanded} />
+              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.title}</Text>
+              <View style={styles.infoRow}>
+                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.date}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
+              </View>
+              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
+            </ScrollView>
+            <Animated.View style={[styles.expandedActionButtons, { opacity: fadeAnim }]}>
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.nopeButton]}
+                onPress={() => swiperRef.current?.swipeLeft()}
+              >
+                <Ionicons name="close" size={32} color="red" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.likeButton]}
+                onPress={() => swiperRef.current?.swipeRight()}
+              >
+                <Ionicons name="checkmark" size={32} color="green" />
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+        </Animated.View>
+      )}
+
       <View style={styles.footerContainer}>
         <MainFooter activeTab="home" />
       </View>
@@ -472,8 +497,10 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   imageExpanded: {
-    height: height * 0.5,
-    width: width * 0.85,
+    marginTop: 20,
+    width: '100%',
+    height: height * 0.4,
+    resizeMode: 'cover',
   },
   image: {
     width: '100%',
@@ -548,43 +575,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   expandedCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    overflow: 'hidden',
-    margin: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  expandedImage: {
-    width: '100%',
-    height: height * 0.4,
-    resizeMode: 'cover',
-  },
-  backButton: {
     position: 'absolute',
-    top: 40,
-    left: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
   },
   expandedContent: {
     flex: 1,
     paddingHorizontal: 20,
-    marginBottom: 20,
+    paddingBottom: 100, // Add padding to account for the action buttons
   },
   expandedTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 20,
+    marginBottom: 40,
   },
   infoRow: {
     flexDirection: 'row',
@@ -600,11 +609,22 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginTop: 20,
   },
-  backButtonContainer: {
+  expandedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  backButton: {
     position: 'absolute',
     top: 50,
     left: 20,
-    zIndex: 10,
+    zIndex: 101,
     backgroundColor: 'rgba(0,0,0,0.1)',
     borderRadius: 20,
     padding: 8,
@@ -612,5 +632,16 @@ const styles = StyleSheet.create({
   backButtonText: {
     fontSize: 28,
     color: '#FF1493',
+  },
+  expandedActionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    paddingHorizontal: 40,
+    paddingVertical: 20,
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
   },
 });

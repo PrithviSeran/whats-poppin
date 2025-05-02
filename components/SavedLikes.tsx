@@ -347,6 +347,8 @@ const styles = StyleSheet.create({
   eventsGrid: {
     flex: 1,
     paddingTop: 60,
+    width: '100%',
+    height: '100%',
   },
   gridContainer: {
     flexDirection: 'row',
@@ -400,9 +402,12 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   clearAllContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
     padding: 15,
     paddingBottom: 40,
-    alignItems: 'flex-end',
+    zIndex: 10,
   },
   clearAllButton: {
     width: 50,
