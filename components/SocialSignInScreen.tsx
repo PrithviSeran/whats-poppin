@@ -77,20 +77,13 @@ const SocialSignInScreen = () => {
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
       <View style={styles.centerContent}>
-        <View style={styles.headerContainer}>
+      <View style={styles.headerContainer}>
           <Image
             source={BALLOON_IMAGE}
             style={styles.balloons}
             resizeMode="contain"
           />
-          <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>{`What's Poppin?`}</Text>
-        </View>
-
-        <View style={styles.gradientTextContainer}>
-          <AnimatedGradientText 
-            phrases={CATCH_PHRASES}
-            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B'] as const}
-          />
+          <Text style={styles.title}>{`What's Poppin?`}</Text>
         </View>
         
         <View style={styles.buttonGroup}>
@@ -105,10 +98,12 @@ const SocialSignInScreen = () => {
               locations={[0, 0.3, 0.7, 1]}
               style={styles.socialButton}
             >
+              <View style={styles.iconContainer}>
                 <Image 
-                source={require('../assets/images/google-logo.webp')}
-                style={styles.socialIcon}
+                  source={require('../assets/images/google-logo.webp')}
+                  style={styles.socialIcon}
                 />
+              </View>
               <Text style={styles.socialButtonText}>Sign In with Google</Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -121,10 +116,12 @@ const SocialSignInScreen = () => {
               locations={[0, 0.3, 0.7, 1]}
               style={styles.socialButton}
             >
-            <Image 
-              source={require('../assets/images/meta-logo.png')}
-              style={styles.socialIcon}
-            />
+              <View style={styles.iconContainer}>
+                <Image 
+                  source={require('../assets/images/meta-logo.png')}
+                  style={styles.socialIcon}
+                />
+              </View>
               <Text style={styles.socialButtonText}>Sign In with Facebook</Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -137,15 +134,17 @@ const SocialSignInScreen = () => {
               locations={[0, 0.3, 0.7, 1]}
               style={styles.socialButton}
             >
-            <Image 
-              source={require('../assets/images/phone-logo.png')}
-              style={styles.socialIcon}
-            />
+              <View style={styles.iconContainer}>
+                <Image 
+                  source={require('../assets/images/phone-logo.png')}
+                  style={styles.socialIcon}
+                />
+              </View>
               <Text style={styles.socialButtonText}>Sign In with Number</Text>
             </LinearGradient>
           </TouchableOpacity>
 
-          <Text style={[styles.troubleText, { color: Colors[colorScheme ?? 'light'].text }]}>
+          <Text style={styles.troubleText}>
             Trouble signing in? 
           </Text>
         </View>
@@ -213,28 +212,42 @@ const styles = StyleSheet.create({
   socialButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: 'white',
     borderRadius: 30,
     width: width * 0.8,
-    paddingVertical: 13,
+    height: 50,
     marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.18,
     shadowRadius: 8,
     elevation: 4,
+    paddingLeft: 20,
+    position: 'relative',
+  },
+  iconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'white',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 15,
+    position: 'absolute',
+    left: 20,
   },
   socialIcon: {
-    width: 24,
-    height: 24,
-    marginRight: 10,
+    width: 20,
+    height: 20,
+    resizeMode: 'contain',
   },
   socialButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
     fontFamily: 'Gotham Rounded',
+    width: '100%',
+    textAlign: 'center',
   },
   troubleText: {
     fontSize: 16,
@@ -244,8 +257,10 @@ const styles = StyleSheet.create({
     marginTop: 15,
   },
   gradientTextContainer: {
-    marginTop: -20,
-    marginBottom: 20,
+    marginTop: 10,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

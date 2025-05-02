@@ -227,7 +227,7 @@ export default function UserPreferences() {
                 locations={[0, 0.3, 0.7, 1]}
                 style={styles.socialButton}
             >
-                <Text style={styles.socialButtonText}>CONTINUE</Text>
+                <Text style={styles.socialButtonText}>Next</Text>
             </LinearGradient>
             </TouchableOpacity>
         </View>

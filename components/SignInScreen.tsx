@@ -111,9 +111,6 @@ const SignInScreen = () => {
               <Text style={styles.signupButtonText}>Create Account</Text>
             </LinearGradient>
           </TouchableOpacity>
-          <Text style={styles.troubleText}>
-            Trouble signing in? 
-          </Text>
         </View>
       </View>
     </SafeAreaView>
@@ -160,7 +157,7 @@ const styles = StyleSheet.create({
   buttonGroup: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 40,
   },
   welcomeText: {
     fontSize: 12,

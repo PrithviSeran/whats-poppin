@@ -7,14 +7,18 @@ import {
   SafeAreaView,
   TextInput,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-
+import { Image } from 'react-native';
 const { width } = Dimensions.get('window');
+
+const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+
 
 type RootStackParamList = {
     'create-account-birthday': undefined;
@@ -44,6 +48,14 @@ const CreateAccountEmail = () => {
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
       <View style={styles.centerContent}>
+      <View style={styles.headerContainer}>
+          <Image
+            source={BALLOON_IMAGE}
+            style={styles.balloons}
+            resizeMode="contain"
+          />
+          <Text style={styles.title}>{`What's Poppin?`}</Text>
+        </View>
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>My email is</Text>
           <TextInput
@@ -74,7 +86,7 @@ const CreateAccountEmail = () => {
               locations={[0, 0.3, 0.7, 1]}
               style={styles.socialButton}
             >
-              <Text style={styles.socialButtonText}>CONTINUE</Text>
+              <Text style={styles.socialButtonText}>Next</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -141,6 +153,29 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+    width: '100%',
+    paddingRight: 50,
+  },
+  balloons: {
+    width: width * 0.4,
+    height: width * 0.2,
+  },
+  title: {
+    fontSize: 25,
+    fontWeight: 'bold',
+    color: '#F45B5B',
+    textAlign: 'left',
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 4, height: 4 },
+    textShadowRadius: 6,
+    marginLeft: -50,
+    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
+  }
 });
 
 export default CreateAccountEmail; 
