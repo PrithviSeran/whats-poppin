@@ -318,5 +318,5 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 15,
     marginLeft: 10,
-  },
+  }
 });

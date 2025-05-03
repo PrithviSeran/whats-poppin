@@ -111,12 +111,39 @@ export default function SavedLikes() {
   const closeModal = () => {
     if (!cardLayout) return;
 
-    // Fade in the card
+    // Start fading in the card immediately
     Animated.timing(cardOpacity, {
       toValue: 1,
       duration: 200,
       useNativeDriver: true,
-    }).start(() => {
+    }).start();
+
+    // Animate out the modal
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 0.8,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateXAnim, {
+        toValue: 0,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateYAnim, {
+        toValue: 0,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
       setModalVisible(false);
       setSelectedEvent(null);
       setCardLayout(null);
@@ -256,70 +283,47 @@ export default function SavedLikes() {
         </TouchableOpacity>
       </View>
 
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="none"
-        onRequestClose={closeModal}
-      >
-        <Animated.View style={[styles.modalContainer, { opacity: fadeAnim }]}>
-          <TouchableOpacity 
-            style={styles.modalBackground}
-            activeOpacity={1}
+      {modalVisible && selectedEvent && (
+        <Animated.View 
+          style={[
+            styles.expandedOverlay,
+            { 
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={{
+              position: 'absolute',
+              top: 50,
+              left: 20,
+              zIndex: 10,
+              backgroundColor: 'rgba(0,0,0,0.1)',
+              borderRadius: 20,
+              padding: 8,
+            }}
             onPress={closeModal}
           >
-            <Animated.View 
-              style={[
-                styles.modalContent, 
-                { 
-                  backgroundColor: Colors[colorScheme ?? 'light'].background,
-                  transform: [
-                    { scale: scaleAnim },
-                    { translateX: translateXAnim },
-                    { translateY: translateYAnim }
-                  ]
-                }
-              ]}
-            >
-              <TouchableOpacity 
-                style={styles.closeButton}
-                onPress={closeModal}
-              >
-                <Ionicons name="close" size={24} color={colorScheme === 'dark' ? '#fff' : '#000'} />
-              </TouchableOpacity>
-              
-              {selectedEvent && (
-                <>
-                  <Image 
-                    source={selectedEvent.image} 
-                    style={styles.modalImage}
-                  />
-                  <View style={styles.modalTextContent}>
-                    <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {selectedEvent.title}
-                    </Text>
-                    <View style={styles.modalInfoRow}>
-                      <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                      <Text style={[styles.modalInfoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {selectedEvent.date}
-                      </Text>
-                    </View>
-                    <View style={styles.modalInfoRow}>
-                      <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                      <Text style={[styles.modalInfoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {selectedEvent.location}
-                      </Text>
-                    </View>
-                    <Text style={[styles.modalDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {selectedEvent.description}
-                    </Text>
-                  </View>
-                </>
-              )}
-            </Animated.View>
+            <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
           </TouchableOpacity>
+          <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+            <ScrollView style={styles.expandedContent}>
+              <Image source={selectedEvent.image} style={styles.imageExpanded} />
+              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.title}</Text>
+              <View style={styles.infoRow}>
+                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.date}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.location}</Text>
+              </View>
+              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.description}</Text>
+            </ScrollView>
+          </View>
         </Animated.View>
-      </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -421,12 +425,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalBackground: {
+  expandedOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -435,45 +434,44 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 100,
   },
-  modalContent: {
-    width: width * 0.9,
-    borderRadius: 20,
-    overflow: 'hidden',
-    maxHeight: height * 0.8,
+  backButtonText: {
+    fontSize: 28,
+    color: '#FF1493',
   },
-  closeButton: {
+  expandedCard: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 1,
-    padding: 5,
-  },
-  modalImage: {
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
-    height: height * 0.3,
+    height: '100%',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    paddingTop: 100,
+  },
+  expandedContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+    marginTop: 20,
+  },
+  imageExpanded: {
+    width: '100%',
+    height: height * 0.4,
     resizeMode: 'cover',
+    marginBottom: 20,
   },
-  modalTextContent: {
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 24,
+  expandedTitle: {
+    fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 15,
+    marginBottom: 40,
   },
-  modalInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  modalInfoText: {
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  modalDescription: {
+  description: {
     fontSize: 16,
     lineHeight: 24,
-    marginTop: 15,
+    marginTop: 20,
   },
 }); 

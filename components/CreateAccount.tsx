@@ -76,7 +76,7 @@ const CreateAccount = () => {
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
       <View style={styles.centerContent}>
-      <View style={styles.headerContainer}>
+        <View style={styles.headerContainer}>
           <Image
             source={BALLOON_IMAGE}
             style={styles.balloons}

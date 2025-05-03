@@ -22,7 +22,7 @@ interface Event {
 
 // Sample events data
 const EVENTS: Event[] = [
-  { id: 1, title: 'Summer Festival', image: require('../assets/images/balloons.png'), date: 'June 15, 2024', location: 'Central Park', description: 'Join us for an unforgettable summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages!' },
+  { id: 1, title: 'Summer Festival', image: require('../assets/images/balloons.png'), date: 'June 15, 2024', location: 'Central Park', description: 'Join us for an summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages! Join us for an unforgettable summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages! Join us for an unforgettable summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages! Join us for an unforgettable summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages!' },
   { id: 2, title: 'Music Concert', image: require('../assets/images/balloons.png'), date: 'July 20, 2024', location: 'Madison Square Garden', description: 'Experience an amazing night of live music at Madison Square Garden. Featuring top artists and special guests!' },
   { id: 3, title: 'Food Market', image: require('../assets/images/balloons.png'), date: 'August 5, 2024', location: 'Union Square', description: 'Discover delicious food from around the world at the Union Square Food Market. Local vendors and international cuisine!' },
   { id: 4, title: 'Art Exhibition', image: require('../assets/images/balloons.png'), date: 'June 25, 2024', location: 'Metropolitan Museum', description: 'Explore contemporary art at the Metropolitan Museum. Special exhibition featuring modern artists!' },
@@ -318,72 +318,47 @@ export default function Discover() {
         </View>
       </ScrollView>
 
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="none"
-        onRequestClose={closeModal}
-      >
-        <Animated.View style={[styles.modalContainer, { opacity: fadeAnim }]}>
-          <TouchableOpacity 
-            style={styles.modalBackground}
-            activeOpacity={1}
+      {modalVisible && selectedEvent && (
+        <Animated.View 
+          style={[
+            styles.expandedOverlay,
+            { 
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={{
+              position: 'absolute',
+              top: 50,
+              left: 20,
+              zIndex: 10,
+              backgroundColor: 'rgba(0,0,0,0.1)',
+              borderRadius: 20,
+              padding: 8,
+            }}
             onPress={closeModal}
           >
-            <Animated.View 
-              style={[
-                styles.modalContent, 
-                { 
-                  backgroundColor: Colors[colorScheme ?? 'light'].background,
-                  transform: [
-                    { scale: scaleAnim },
-                    { translateX: translateXAnim },
-                    { translateY: translateYAnim }
-                  ]
-                }
-              ]}
-              onStartShouldSetResponder={() => true}
-              onTouchEnd={(e) => e.stopPropagation()}
-            >
-              <TouchableOpacity 
-                style={styles.closeButton}
-                onPress={closeModal}
-              >
-                <Ionicons name="close" size={24} color={colorScheme === 'dark' ? '#fff' : '#000'} />
-              </TouchableOpacity>
-              
-              {selectedEvent && (
-                <>
-                  <Image 
-                    source={selectedEvent.image} 
-                    style={styles.modalImage}
-                  />
-                  <View style={styles.modalTextContent}>
-                    <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {selectedEvent.title}
-                    </Text>
-                    <View style={styles.modalInfoRow}>
-                      <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                      <Text style={[styles.modalInfoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {selectedEvent.date}
-                      </Text>
-                    </View>
-                    <View style={styles.modalInfoRow}>
-                      <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                      <Text style={[styles.modalInfoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {selectedEvent.location}
-                      </Text>
-                    </View>
-                    <Text style={[styles.modalDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {selectedEvent.description}
-                    </Text>
-                  </View>
-                </>
-              )}
-            </Animated.View>
+            <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
           </TouchableOpacity>
+          <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+            <ScrollView style={styles.expandedContent}>
+              <Image source={selectedEvent.image} style={styles.imageExpanded} />
+              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.title}</Text>
+              <View style={styles.infoRow}>
+                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.date}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.location}</Text>
+              </View>
+              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.description}</Text>
+            </ScrollView>
+          </View>
         </Animated.View>
-      </Modal>
+      )}
 
       <MainFooter activeTab="discover" />
     </SafeAreaView>
@@ -455,61 +430,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 4,
   },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: width * 0.9,
-    borderRadius: 20,
-    overflow: 'hidden',
-    maxHeight: height * 0.9,
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 1,
-    padding: 5,
-  },
-  modalImage: {
-    width: '100%',
-    height: height * 0.4,
-    resizeMode: 'cover',
-  },
-  modalTextContent: {
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 15,
-  },
-  modalInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  modalInfoText: {
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  modalDescription: {
-    fontSize: 16,
-    lineHeight: 24,
-    marginTop: 15,
-  },
   likeButton: {
     position: 'absolute',
     top: 10,
@@ -519,4 +439,49 @@ const styles = StyleSheet.create({
     padding: 5,
     zIndex: 1,
   },
-}); 
+  expandedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  expandedCard: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    paddingTop: 100,
+  },
+  expandedContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+    marginTop: 20,
+  },
+  imageExpanded: {
+    width: '100%',
+    height: height * 0.4,
+    resizeMode: 'cover',
+    marginBottom: 20,
+  },
+  expandedTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 40,
+  },
+  description: {
+    fontSize: 16,
+    lineHeight: 24,
+    marginTop: 20,
+  },
+});
