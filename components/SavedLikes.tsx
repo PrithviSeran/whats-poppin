@@ -6,6 +6,8 @@ import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
@@ -32,7 +34,7 @@ export default function SavedLikes() {
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const cardOpacity = React.useRef(new Animated.Value(1)).current;
   const colorScheme = useColorScheme();
-
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
   useEffect(() => {
     loadSavedEvents();
   }, []);
@@ -109,12 +111,39 @@ export default function SavedLikes() {
   const closeModal = () => {
     if (!cardLayout) return;
 
-    // Fade in the card
+    // Start fading in the card immediately
     Animated.timing(cardOpacity, {
       toValue: 1,
       duration: 200,
       useNativeDriver: true,
-    }).start(() => {
+    }).start();
+
+    // Animate out the modal
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 0.8,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateXAnim, {
+        toValue: 0,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateYAnim, {
+        toValue: 0,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
       setModalVisible(false);
       setSelectedEvent(null);
       setCardLayout(null);
@@ -144,6 +173,20 @@ export default function SavedLikes() {
   if (savedEvents.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+       <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+      </TouchableOpacity>
         <View style={styles.emptyContainer}>
           <Ionicons name="heart" size={60} color={colorScheme === 'dark' ? '#666' : '#999'} />
           <Text style={[styles.emptyText, { color: Colors[colorScheme ?? 'light'].text }]}>
@@ -153,13 +196,26 @@ export default function SavedLikes() {
             Like events to save them here
           </Text>
         </View>
-        <MainFooter />
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+      </TouchableOpacity>
       <ScrollView style={styles.eventsGrid}>
         <View style={styles.gridContainer}>
           {savedEvents.map((event) => (
@@ -202,7 +258,7 @@ export default function SavedLikes() {
                   style={styles.deleteButton}
                   onPress={() => deleteEvent(event.id)}
                 >
-                  <Ionicons name="trash-outline" size={20} color="#fff" />
+                  <Ionicons name="close" size={20} color="#fff" />
                 </TouchableOpacity>
               </TouchableOpacity>
             </Animated.View>
@@ -222,77 +278,52 @@ export default function SavedLikes() {
             locations={[0, 0.3, 0.7, 1]}
             style={styles.clearAllGradient}
           >
-            <Text style={styles.clearAllText}>Clear All</Text>
+            <Ionicons name="trash" size={24} color="#fff" />
           </LinearGradient>
         </TouchableOpacity>
       </View>
 
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="none"
-        onRequestClose={closeModal}
-      >
-        <Animated.View style={[styles.modalContainer, { opacity: fadeAnim }]}>
-          <TouchableOpacity 
-            style={styles.modalBackground}
-            activeOpacity={1}
+      {modalVisible && selectedEvent && (
+        <Animated.View 
+          style={[
+            styles.expandedOverlay,
+            { 
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={{
+              position: 'absolute',
+              top: 50,
+              left: 20,
+              zIndex: 10,
+              backgroundColor: 'rgba(0,0,0,0.1)',
+              borderRadius: 20,
+              padding: 8,
+            }}
             onPress={closeModal}
           >
-            <Animated.View 
-              style={[
-                styles.modalContent, 
-                { 
-                  backgroundColor: Colors[colorScheme ?? 'light'].background,
-                  transform: [
-                    { scale: scaleAnim },
-                    { translateX: translateXAnim },
-                    { translateY: translateYAnim }
-                  ]
-                }
-              ]}
-            >
-              <TouchableOpacity 
-                style={styles.closeButton}
-                onPress={closeModal}
-              >
-                <Ionicons name="close" size={24} color={colorScheme === 'dark' ? '#fff' : '#000'} />
-              </TouchableOpacity>
-              
-              {selectedEvent && (
-                <>
-                  <Image 
-                    source={selectedEvent.image} 
-                    style={styles.modalImage}
-                  />
-                  <View style={styles.modalTextContent}>
-                    <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {selectedEvent.title}
-                    </Text>
-                    <View style={styles.modalInfoRow}>
-                      <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                      <Text style={[styles.modalInfoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {selectedEvent.date}
-                      </Text>
-                    </View>
-                    <View style={styles.modalInfoRow}>
-                      <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                      <Text style={[styles.modalInfoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {selectedEvent.location}
-                      </Text>
-                    </View>
-                    <Text style={[styles.modalDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {selectedEvent.description}
-                    </Text>
-                  </View>
-                </>
-              )}
-            </Animated.View>
+            <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
           </TouchableOpacity>
+          <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+            <ScrollView style={styles.expandedContent}>
+              <Image source={selectedEvent.image} style={styles.imageExpanded} />
+              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.title}</Text>
+              <View style={styles.infoRow}>
+                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.date}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.location}</Text>
+              </View>
+              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.description}</Text>
+            </ScrollView>
+          </View>
         </Animated.View>
-      </Modal>
-
-      <MainFooter />
+      )}
     </SafeAreaView>
   );
 }
@@ -319,6 +350,9 @@ const styles = StyleSheet.create({
   },
   eventsGrid: {
     flex: 1,
+    paddingTop: 60,
+    width: '100%',
+    height: '100%',
   },
   gridContainer: {
     flexDirection: 'row',
@@ -372,29 +406,26 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   clearAllContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
     padding: 15,
-    paddingBottom: 80,
+    paddingBottom: 40,
+    zIndex: 10,
   },
   clearAllButton: {
+    width: 50,
+    height: 50,
     borderRadius: 25,
     overflow: 'hidden',
   },
   clearAllGradient: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
-  },
-  clearAllText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  modalContainer: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  modalBackground: {
+  expandedOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -403,45 +434,44 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 100,
   },
-  modalContent: {
-    width: width * 0.9,
-    borderRadius: 20,
-    overflow: 'hidden',
-    maxHeight: height * 0.8,
+  backButtonText: {
+    fontSize: 28,
+    color: '#FF1493',
   },
-  closeButton: {
+  expandedCard: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 1,
-    padding: 5,
-  },
-  modalImage: {
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
-    height: height * 0.3,
+    height: '100%',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    paddingTop: 100,
+  },
+  expandedContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+    marginTop: 20,
+  },
+  imageExpanded: {
+    width: '100%',
+    height: height * 0.4,
     resizeMode: 'cover',
+    marginBottom: 20,
   },
-  modalTextContent: {
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 24,
+  expandedTitle: {
+    fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 15,
+    marginBottom: 40,
   },
-  modalInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  modalInfoText: {
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  modalDescription: {
+  description: {
     fontSize: 16,
     lineHeight: 24,
-    marginTop: 15,
+    marginTop: 20,
   },
 }); 

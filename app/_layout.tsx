@@ -46,9 +46,33 @@ export default function RootLayout() {
           <Stack.Screen name="create-account-password" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-preferences" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-finished" options={{ headerShown: false, gestureEnabled: false }} />
-          <Stack.Screen name="suggested-events" options={{ headerShown: false, gestureEnabled: false }} />
-          <Stack.Screen name="discover" options={{ headerShown: false, gestureEnabled: false }} />
-          <Stack.Screen name="me" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen 
+            name="suggested-events" 
+            options={{ 
+              headerShown: false, 
+              gestureEnabled: false, 
+              animation: 'fade',
+              animationDuration: 100
+            }} 
+          />
+          <Stack.Screen 
+            name="discover" 
+            options={{ 
+              headerShown: false, 
+              gestureEnabled: false, 
+              animation: 'fade',
+              animationDuration: 100
+            }} 
+          />
+          <Stack.Screen 
+            name="me" 
+            options={{ 
+              headerShown: false, 
+              gestureEnabled: false, 
+              animation: 'fade',
+              animationDuration: 100
+            }} 
+          />
         </Stack>
         <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       </View>

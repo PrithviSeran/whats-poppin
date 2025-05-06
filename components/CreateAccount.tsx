@@ -15,6 +15,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { Image } from 'react-native';
+
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -22,8 +24,11 @@ type RootStackParamList = {
   'create-account-birthday': undefined;
 };
 
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const { width } = Dimensions.get('window');
+
+const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
 
 const CreateAccount = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -71,6 +76,14 @@ const CreateAccount = () => {
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
       <View style={styles.centerContent}>
+        <View style={styles.headerContainer}>
+          <Image
+            source={BALLOON_IMAGE}
+            style={styles.balloons}
+            resizeMode="contain"
+          />
+          <Text style={styles.title}>{`What's Poppin?`}</Text>
+        </View>
         <View style={styles.inputSection}>
           <Text
             style={[
@@ -103,7 +116,7 @@ const CreateAccount = () => {
             This is how it will appear in the app
           </Text>
         </View>
-
+        
         <View style={styles.buttonGroup}>
           <TouchableOpacity
             onPress={() => navigation.navigate('create-account-email')}
@@ -158,6 +171,29 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     textAlign: 'center',
   },
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+    width: '100%',
+    paddingRight: 50,
+  },
+  balloons: {
+    width: width * 0.4,
+    height: width * 0.2,
+  },
+  title: {
+    fontSize: 25,
+    fontWeight: 'bold',
+    color: '#F45B5B',
+    textAlign: 'left',
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 4, height: 4 },
+    textShadowRadius: 6,
+    marginLeft: -50,
+    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
+  },
   helperText: {
     fontSize: 14,
     marginTop: 8,
@@ -188,4 +224,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CreateAccount;
+export default CreateAccount; 
