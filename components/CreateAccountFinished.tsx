@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { UserData } from '@/types/user';
+import { Amplify } from 'aws-amplify';
+import { signUp } from 'aws-amplify/auth';
 
 const { width } = Dimensions.get('window');
 
@@ -14,12 +17,36 @@ type RootStackParamList = {
     'suggested-events': undefined;
 };
   
+type CreateAccountFinishedRouteProp = RouteProp<{
+  'create-account-finished': { userData: UserData };
+}, 'create-account-finished'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-
-export default function CreateAccountFinished() {
+export default function CreateAccountFinished({ route }: { route: CreateAccountFinishedRouteProp }) {
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
+  const { userData } = route.params;
+
+  async function signUpAWS() {
+    try {
+      const { userId } = await signUp({
+        username: userData.email,
+        password: userData.password,
+        
+      });
+      console.log('Sign up successful!', userId);
+    } catch (error) {
+      console.log('Error signing up:', error);
+    }
+  }
+
+  useEffect(() => {
+    if (userData) {
+      signUpAWS();
+    }
+  }, [userData]);
+
   return (
     <View style={styles.container}>
       {/* Large circular gradient background */}
@@ -43,8 +70,22 @@ export default function CreateAccountFinished() {
       />
       <View style={styles.content}>
         <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
-          You have created your account!
+          Welcome, {userData.name}!
         </Text>
+        <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+          Your account has been created successfully.
+        </Text>
+        <View style={styles.userInfo}>
+          <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+            Email: {userData.email}
+          </Text>
+          <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+            Birthday: {userData.birthday}
+          </Text>
+          <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+            Gender: {userData.gender}
+          </Text>
+        </View>
         <TouchableOpacity style={styles.findEventsButton} onPress={() => navigation.navigate('suggested-events')}>
           <Text style={[styles.findEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
             find events now! <Text style={styles.arrow}>→</Text>
@@ -95,6 +136,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 30,
     marginBottom: 32,
+  },
+  subtitle: {
+    fontSize: 18,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  userInfo: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 30,
+    width: '80%',
+  },
+  infoText: {
+    fontSize: 16,
+    marginBottom: 10,
+    textAlign: 'center',
   },
   findEventsButton: {
     alignItems: 'center',

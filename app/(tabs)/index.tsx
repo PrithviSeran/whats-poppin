@@ -9,6 +9,11 @@ import SignInScreen from '@/components/SignInScreen';
 import SocialSignInScreen from '@/components/SocialSignInScreen';
 import ExpoGoogleSignin from '@/components/ExpoGoogleSignIn';
 
+import { Amplify } from 'aws-amplify';
+import awsconfig from '../../src/aws-exports';
+
+Amplify.configure(awsconfig);
+
 export default function HomeScreen() {
   return (
     <SignInScreen />

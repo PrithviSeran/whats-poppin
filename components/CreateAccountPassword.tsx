@@ -15,24 +15,32 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Image } from 'react-native';
+import { UserData } from '@/types/user';
+import { RouteProp } from '@react-navigation/native';
+
 const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
 
-
 type RootStackParamList = {
-    'create-account-preferences': undefined;
-  };
-  
+  'create-account-preferences': { userData: string };
+  'create-account-finished': { userData: string };
+};
+
+type CreateAccountPasswordRouteProp = RouteProp<{
+  'create-account-password': { userData: Partial<UserData> };
+}, 'create-account-password'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const CreateAccountPassword = () => {
+const CreateAccountPassword = ({ route }: { route?: CreateAccountPasswordRouteProp }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const userData = route?.params?.userData || {};
 
   const checkPasswordRequirements = (text: string) => {
     return {
@@ -92,7 +100,9 @@ const CreateAccountPassword = () => {
     const isConfirmPasswordValid = validateConfirmPassword(confirmPassword);
     
     if (isPasswordValid && isConfirmPasswordValid) {
-      navigation.navigate('create-account-preferences');
+      navigation.navigate('create-account-finished', {
+        userData: JSON.stringify({ ...userData, password } as UserData)
+      });
     }
   };
 

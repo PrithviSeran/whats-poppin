@@ -16,11 +16,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Image } from 'react-native';
+import { UserData } from '@/types/user';
 
 
 type RootStackParamList = {
   'social-sign-in': undefined;
-  'create-account-email': undefined;
+  'create-account-email': { userData: string };
   'create-account-birthday': undefined;
 };
 
@@ -48,7 +49,9 @@ const CreateAccount = () => {
 
   const handleNext = () => {
     if (validateName(name)) {
-      navigation.navigate('create-account-email');
+      navigation.navigate('create-account-email', {
+        userData: JSON.stringify({ name })
+      });
     }
   };
 

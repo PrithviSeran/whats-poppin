@@ -15,21 +15,36 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Image } from 'react-native';
+import { UserData } from '@/types/user';
+import { RouteProp } from '@react-navigation/native';
+
 const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
 
-
 type RootStackParamList = {
-    'create-account-password': undefined;
-  };
-  
+  'create-account-password': { userData: string };
+};
+
+type CreateAccountGenderRouteProp = RouteProp<{
+  'create-account-gender': { userData: Partial<UserData> };
+}, 'create-account-gender'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const CreateAccountGender = () => {
+const CreateAccountGender = ({ route }: { route?: CreateAccountGenderRouteProp }) => {
   const [selectedGender, setSelectedGender] = useState<'Male' | 'Female' | null>(null);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const userData = route?.params?.userData || {};
+
+  const handleNext = () => {
+    if (selectedGender) {
+      navigation.navigate('create-account-password', {
+        userData: JSON.stringify({ ...userData, gender: selectedGender })
+      });
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -90,13 +105,19 @@ const CreateAccountGender = () => {
           </View>
         </View>
         <View style={styles.buttonGroup}>
-          <TouchableOpacity onPress={() => navigation.navigate('create-account-password')} disabled={!selectedGender}>
+          <TouchableOpacity 
+            onPress={handleNext} 
+            disabled={!selectedGender}
+          >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
+              style={[
+                styles.socialButton,
+                !selectedGender && styles.disabledButton
+              ]}
             >
               <Text style={styles.socialButtonText}>Next</Text>
             </LinearGradient>
@@ -222,7 +243,10 @@ const styles = StyleSheet.create({
     textShadowRadius: 6,
     marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
-  }
+  },
+  disabledButton: {
+    backgroundColor: '#888',
+  },
 });
 
 export default CreateAccountGender; 

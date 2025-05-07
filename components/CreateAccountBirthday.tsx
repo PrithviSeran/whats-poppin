@@ -10,26 +10,33 @@ import {
   Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Image } from 'react-native';
+import { UserData } from '@/types/user';
+
 const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
 
-
 type RootStackParamList = {
-    'create-account-gender': undefined;
-  };
-  
+  'create-account-gender': { userData: string };
+};
+
+type CreateAccountBirthdayRouteProp = RouteProp<{
+  'create-account-birthday': { userData: Partial<UserData> };
+}, 'create-account-birthday'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-const CreateAccountBirthday = () => {
+
+const CreateAccountBirthday = ({ route }: { route?: CreateAccountBirthdayRouteProp }) => {
   const [birthday, setBirthday] = useState('');
   const [birthdayError, setBirthdayError] = useState('');
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const userData = route?.params?.userData || {};
 
   const validateBirthday = (text: string) => {
     const dateRegex = /^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/;
@@ -63,7 +70,9 @@ const CreateAccountBirthday = () => {
 
   const handleNext = () => {
     if (validateBirthday(birthday)) {
-      navigation.navigate('create-account-gender');
+      navigation.navigate('create-account-gender', {
+        userData: JSON.stringify({ ...userData, birthday })
+      });
     }
   };
 

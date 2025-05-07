@@ -10,27 +10,33 @@ import {
   Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Image } from 'react-native';
+import { UserData } from '@/types/user';
+
 const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
 
-
 type RootStackParamList = {
-    'create-account-birthday': undefined;
-  };
-  
+  'create-account-birthday': { userData: string };
+};
+
+type CreateAccountEmailRouteProp = RouteProp<{
+  'create-account-email': { userData: Partial<UserData> };
+}, 'create-account-email'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const CreateAccountEmail = () => {
+const CreateAccountEmail = ({ route }: { route?: CreateAccountEmailRouteProp }) => {
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const userData = route?.params?.userData || {};
 
   const validateEmail = (text: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,7 +54,9 @@ const CreateAccountEmail = () => {
 
   const handleNext = () => {
     if (validateEmail(email)) {
-      navigation.navigate('create-account-birthday');
+      navigation.navigate('create-account-birthday', {
+        userData: JSON.stringify({ ...userData, email })
+      });
     }
   };
 
