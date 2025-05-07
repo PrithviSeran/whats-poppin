@@ -1,25 +1,53 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { UserData } from '@/types/user';
+import { supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 type RootStackParamList = {
-    'suggested-events': undefined;
+  'suggested-events': undefined;
 };
-  
+
+type CreateAccountFinishedRouteProp = RouteProp<{
+  'create-account-finished': { userData: string };
+}, 'create-account-finished'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-
-export default function CreateAccountFinished() {
+export default function CreateAccountFinished({ route }: { route: CreateAccountFinishedRouteProp }) {
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
+  const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
+
+  async function createUser() {
+    const { data, error } = await supabase.auth.signUp({
+      email: userData.email,
+      password: userData.password,
+      options: {
+        data: {
+          username: userData.name || undefined,
+          gender: userData.gender || undefined,
+          birthday: userData.birthday || undefined,
+          preferences: userData.preferences || undefined,
+        },
+      },
+    });
+
+    if (error) throw error; 
+  }
+
+  useEffect(() => {
+    createUser();
+  }, []);
+
   return (
     <View style={styles.container}>
       {/* Large circular gradient background */}
@@ -45,10 +73,12 @@ export default function CreateAccountFinished() {
         <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
           You have created your account!
         </Text>
+        <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>{userData.name}</Text>
         <TouchableOpacity style={styles.findEventsButton} onPress={() => navigation.navigate('suggested-events')}>
           <Text style={[styles.findEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
             find events now! <Text style={styles.arrow}>→</Text>
           </Text>
+
         </TouchableOpacity>
       </View>
     </View>

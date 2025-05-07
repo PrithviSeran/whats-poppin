@@ -9,7 +9,7 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -17,9 +17,13 @@ import { Colors } from '@/constants/Colors';
 const { width, height } = Dimensions.get('window');
 
 type RootStackParamList = {
-    'create-account-finished': undefined;
-  };
-  
+  'create-account-finished': { userData: string };
+};
+
+type UserPreferencesRouteProp = RouteProp<{
+  'user-preferences': { userData: string };
+}, 'user-preferences'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const PREFERENCES = [
@@ -50,12 +54,13 @@ const LOCATION_PREFERENCES = ['Uptown', 'Midtown', 'Downtown'];
 
 const DEFAULT_SELECTED = ['Bar Hopping', 'Live Music', 'Dancing'];
 
-export default function UserPreferences() {
+export default function UserPreferences({ route }: { route: UserPreferencesRouteProp }) {
   const [selected, setSelected] = useState<string[]>(DEFAULT_SELECTED);
   const [selectedTime, setSelectedTime] = useState<string[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string[]>([]);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
   const togglePreference = (pref: string) => {
     setSelected((prev) =>
@@ -82,6 +87,18 @@ export default function UserPreferences() {
   };
 
   const isDark = colorScheme === 'dark';
+
+  const handleNext = () => {
+    const preferences = {
+      eventTypes: selected,
+      timePreferences: selectedTime,
+      locationPreferences: selectedLocation
+    };
+    
+    navigation.navigate('create-account-finished', {
+      userData: JSON.stringify({ ...userData, preferences })
+    });
+  };
 
   return (
     <SafeAreaView style={[
@@ -219,7 +236,7 @@ export default function UserPreferences() {
         </ScrollView>
       </View>
         <View style={styles.buttonGroup}>
-            <TouchableOpacity onPress={() => navigation.navigate('create-account-finished')}>
+            <TouchableOpacity onPress={handleNext}>
             <LinearGradient
                 colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
                 start={{x: 0, y: 0}}

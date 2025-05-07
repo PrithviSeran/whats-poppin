@@ -319,16 +319,16 @@ export default function Discover() {
       </ScrollView>
 
       {modalVisible && selectedEvent && (
-        <Animated.View 
-          style={[
+            <Animated.View 
+              style={[
             styles.expandedOverlay,
-            { 
+                { 
               opacity: fadeAnim,
               transform: [{ scale: scaleAnim }],
-            }
-          ]}
-        >
-          <TouchableOpacity
+                }
+              ]}
+            >
+              <TouchableOpacity 
             style={{
               position: 'absolute',
               top: 50,
@@ -338,25 +338,25 @@ export default function Discover() {
               borderRadius: 20,
               padding: 8,
             }}
-            onPress={closeModal}
-          >
+                onPress={closeModal}
+              >
             <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
-          </TouchableOpacity>
+              </TouchableOpacity>
           <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
             <ScrollView style={styles.expandedContent}>
               <Image source={selectedEvent.image} style={styles.imageExpanded} />
               <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.title}</Text>
               <View style={styles.infoRow}>
-                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                      <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.date}</Text>
-              </View>
+                    </View>
               <View style={styles.infoRow}>
-                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                      <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.location}</Text>
-              </View>
+                    </View>
               <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.description}</Text>
             </ScrollView>
-          </View>
+                  </View>
         </Animated.View>
       )}
 
@@ -484,4 +484,4 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginTop: 20,
   },
-});
+}); 

@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -19,17 +19,29 @@ const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
 
-
 type RootStackParamList = {
-    'create-account-password': undefined;
-  };
-  
+  'create-account-password': { userData: string };
+};
+
+type CreateAccountGenderRouteProp = RouteProp<{
+  'create-account-gender': { userData: string };
+}, 'create-account-gender'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const CreateAccountGender = () => {
+const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp }) => {
   const [selectedGender, setSelectedGender] = useState<'Male' | 'Female' | null>(null);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
+
+  const handleNext = () => {
+    if (selectedGender) {
+      navigation.navigate('create-account-password', {
+        userData: JSON.stringify({ ...userData, gender: selectedGender })
+      });
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -90,7 +102,7 @@ const CreateAccountGender = () => {
           </View>
         </View>
         <View style={styles.buttonGroup}>
-          <TouchableOpacity onPress={() => navigation.navigate('create-account-password')} disabled={!selectedGender}>
+          <TouchableOpacity onPress={handleNext} disabled={!selectedGender}>
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}

@@ -6,14 +6,26 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 
 import SignInScreen from '@/components/SignInScreen';
-import SocialSignInScreen from '@/components/SocialSignInScreen';
-import ExpoGoogleSignin from '@/components/ExpoGoogleSignIn';
+import SuggestedEvents from '@/components/SuggestedEvents';
+import { supabase } from '@/lib/supabase';
+import { useEffect, useState } from 'react';
+import { Session } from '@supabase/supabase-js';
 
 export default function HomeScreen() {
-  return (
-    <SignInScreen />
-    
-  );
+  const [session, setSession] = useState<Session | null>(null)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      console.log(session)
+    })
+    supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+      console.log(session)
+    })
+  }, [])
+
+  return session ? <SuggestedEvents /> : <SignInScreen />;
 }
 
 const styles = StyleSheet.create({

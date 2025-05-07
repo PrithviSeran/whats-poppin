@@ -1,12 +1,12 @@
 import { StyleSheet } from 'react-native';
-import CreateAccountFinished from '@/components/CreateAccountFinished';
+import UserPreferences from '@/components/UserPreferences';
 import { useLocalSearchParams } from 'expo-router';
 
-export default function CreateAccountFinishedRoute() {
+export default function UserPreferencesRoute() {
   const params = useLocalSearchParams<{ userData: string }>();
-  return <CreateAccountFinished route={{ 
-    key: 'create-account-finished',
-    name: 'create-account-finished',
+  return <UserPreferences route={{ 
+    key: 'user-preferences',
+    name: 'user-preferences',
     params 
   }} />;
 }
