@@ -29,8 +29,74 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const CreateAccountPassword = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+
+  const checkPasswordRequirements = (text: string) => {
+    return {
+      length: text.length >= 8,
+      uppercase: /[A-Z]/.test(text),
+      lowercase: /[a-z]/.test(text),
+      number: /[0-9]/.test(text),
+      special: /[!@#$%^&*]/.test(text),
+    };
+  };
+
+  const validatePassword = (text: string) => {
+    const requirements = checkPasswordRequirements(text);
+    if (!text.trim()) {
+      setPasswordError('Password is required');
+      return false;
+    }
+    if (!requirements.length) {
+      setPasswordError('Password must be at least 8 characters long');
+      return false;
+    }
+    if (!requirements.uppercase) {
+      setPasswordError('Password must contain at least one uppercase letter');
+      return false;
+    }
+    if (!requirements.lowercase) {
+      setPasswordError('Password must contain at least one lowercase letter');
+      return false;
+    }
+    if (!requirements.number) {
+      setPasswordError('Password must contain at least one number');
+      return false;
+    }
+    if (!requirements.special) {
+      setPasswordError('Password must contain at least one special character (!@#$%^&*)');
+      return false;
+    }
+    setPasswordError('');
+    return true;
+  };
+
+  const validateConfirmPassword = (text: string) => {
+    if (!text.trim()) {
+      setConfirmPasswordError('Please confirm your password');
+      return false;
+    }
+    if (text !== password) {
+      setConfirmPasswordError('Passwords do not match');
+      return false;
+    }
+    setConfirmPasswordError('');
+    return true;
+  };
+
+  const handleNext = () => {
+    const isPasswordValid = validatePassword(password);
+    const isConfirmPasswordValid = validateConfirmPassword(confirmPassword);
+    
+    if (isPasswordValid && isConfirmPasswordValid) {
+      navigation.navigate('create-account-preferences');
+    }
+  };
+
+  const requirements = checkPasswordRequirements(password);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -63,44 +129,91 @@ const CreateAccountPassword = () => {
             style={[
               styles.input,
               {
-                borderBottomColor: colorScheme === 'dark' ? '#555' : '#ddd',
+                borderBottomColor: passwordError ? '#FF3B30' : colorScheme === 'dark' ? '#555' : '#ddd',
                 color: Colors[colorScheme ?? 'light'].text,
               },
             ]}
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              validatePassword(text);
+              if (confirmPassword) validateConfirmPassword(confirmPassword);
+            }}
             placeholder="Enter your password"
             placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
             autoCapitalize="none"
             secureTextEntry
           />
+          {passwordError ? (
+            <Text style={styles.errorText}>{passwordError}</Text>
+          ) : (
+            <View style={styles.requirementsContainer}>
+              <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
+                Password requirements:
+              </Text>
+              <View style={styles.requirementRow}>
+                <Text style={[styles.requirementText, requirements.length && styles.requirementMet]}>
+                  {requirements.length ? '✓' : '○'} At least 8 characters
+                </Text>
+              </View>
+              <View style={styles.requirementRow}>
+                <Text style={[styles.requirementText, requirements.uppercase && styles.requirementMet]}>
+                  {requirements.uppercase ? '✓' : '○'} One uppercase letter
+                </Text>
+              </View>
+              <View style={styles.requirementRow}>
+                <Text style={[styles.requirementText, requirements.lowercase && styles.requirementMet]}>
+                  {requirements.lowercase ? '✓' : '○'} One lowercase letter
+                </Text>
+              </View>
+              <View style={styles.requirementRow}>
+                <Text style={[styles.requirementText, requirements.number && styles.requirementMet]}>
+                  {requirements.number ? '✓' : '○'} One number
+                </Text>
+              </View>
+              <View style={styles.requirementRow}>
+                <Text style={[styles.requirementText, requirements.special && styles.requirementMet]}>
+                  {requirements.special ? '✓' : '○'} One special character (!@#$%^&*)
+                </Text>
+              </View>
+            </View>
+          )}
           <TextInput
             style={[
               styles.input,
               {
-                borderBottomColor: colorScheme === 'dark' ? '#555' : '#ddd',
+                borderBottomColor: confirmPasswordError ? '#FF3B30' : colorScheme === 'dark' ? '#555' : '#ddd',
                 color: Colors[colorScheme ?? 'light'].text,
               },
             ]}
             value={confirmPassword}
-            onChangeText={setConfirmPassword}
+            onChangeText={(text) => {
+              setConfirmPassword(text);
+              validateConfirmPassword(text);
+            }}
             placeholder="Confirm your password"
             placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
             autoCapitalize="none"
             secureTextEntry
           />
-          <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
-            Please enter your password and confirm it.
-          </Text>
+          {confirmPasswordError && (
+            <Text style={styles.errorText}>{confirmPasswordError}</Text>
+          )}
         </View>
         <View style={styles.buttonGroup}>
-          <TouchableOpacity onPress={() => navigation.navigate('create-account-preferences')}>
+          <TouchableOpacity 
+            onPress={handleNext}
+            disabled={!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError}
+          >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
+              style={[
+                styles.socialButton,
+                (!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError) && styles.disabledButton
+              ]}
             >
               <Text style={styles.socialButtonText}>Next</Text>
             </LinearGradient>
@@ -191,7 +304,35 @@ const styles = StyleSheet.create({
     textShadowRadius: 6,
     marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
-  }
+  },
+  errorText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    width: '80%',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  requirementsContainer: {
+    width: '80%',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  requirementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 2,
+  },
+  requirementText: {
+    fontSize: 14,
+    color: '#888',
+    marginLeft: 4,
+  },
+  requirementMet: {
+    color: '#34C759',
+  },
 });
 
 export default CreateAccountPassword; 

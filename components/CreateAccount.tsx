@@ -34,7 +34,23 @@ const CreateAccount = () => {
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const [name, setName] = useState('');
+  const [nameError, setNameError] = useState('');
   const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  const validateName = (text: string) => {
+    if (text.trim().length < 2) {
+      setNameError('Name must be at least 2 characters long');
+      return false;
+    }
+    setNameError('');
+    return true;
+  };
+
+  const handleNext = () => {
+    if (validateName(name)) {
+      navigation.navigate('create-account-email');
+    }
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -97,36 +113,47 @@ const CreateAccount = () => {
             style={[
               styles.input,
               {
-                borderBottomColor: colorScheme === 'dark' ? '#555' : '#ddd',
+                borderBottomColor: nameError ? '#FF3B30' : colorScheme === 'dark' ? '#555' : '#ddd',
                 color: Colors[colorScheme ?? 'light'].text,
               },
             ]}
             value={name}
-            onChangeText={setName}
+            onChangeText={(text) => {
+              setName(text);
+              validateName(text);
+            }}
             placeholder="Enter your name"
             placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
             autoCapitalize="words"
           />
-          <Text
-            style={[
-              styles.helperText,
-              { color: colorScheme === 'dark' ? '#aaa' : '#888' },
-            ]}
-          >
-            This is how it will appear in the app
-          </Text>
+          {nameError ? (
+            <Text style={styles.errorText}>{nameError}</Text>
+          ) : (
+            <Text
+              style={[
+                styles.helperText,
+                { color: colorScheme === 'dark' ? '#aaa' : '#888' },
+              ]}
+            >
+              This is how it will appear in the app
+            </Text>
+          )}
         </View>
         
         <View style={styles.buttonGroup}>
           <TouchableOpacity
-            onPress={() => navigation.navigate('create-account-email')}
+            onPress={handleNext}
+            disabled={!name.trim() || !!nameError}
           >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
-              style={styles.nextButton}
+              style={[
+                styles.nextButton,
+                (!name.trim() || !!nameError) && styles.disabledButton
+              ]}
             >
               <Text style={styles.nextButtonText}>Next</Text>
             </LinearGradient>
@@ -221,6 +248,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     fontFamily: 'Gotham Rounded',
+  },
+  errorText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    width: '80%',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });
 

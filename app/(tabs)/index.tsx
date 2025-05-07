@@ -7,7 +7,7 @@ import { ThemedView } from '@/components/ThemedView';
 
 import SignInScreen from '@/components/SignInScreen';
 import SocialSignInScreen from '@/components/SocialSignInScreen';
-
+import ExpoGoogleSignin from '@/components/ExpoGoogleSignIn';
 
 export default function HomeScreen() {
   return (

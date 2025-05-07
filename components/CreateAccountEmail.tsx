@@ -28,8 +28,29 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const CreateAccountEmail = () => {
   const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+
+  const validateEmail = (text: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!text.trim()) {
+      setEmailError('Email is required');
+      return false;
+    }
+    if (!emailRegex.test(text)) {
+      setEmailError('Please enter a valid email address');
+      return false;
+    }
+    setEmailError('');
+    return true;
+  };
+
+  const handleNext = () => {
+    if (validateEmail(email)) {
+      navigation.navigate('create-account-birthday');
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -62,29 +83,42 @@ const CreateAccountEmail = () => {
             style={[
               styles.input,
               {
-                borderBottomColor: colorScheme === 'dark' ? '#555' : '#ddd',
+                borderBottomColor: emailError ? '#FF3B30' : colorScheme === 'dark' ? '#555' : '#ddd',
                 color: Colors[colorScheme ?? 'light'].text,
               },
             ]}
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text);
+              validateEmail(text);
+            }}
             placeholder="Enter your email"
             placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
             autoCapitalize="none"
             keyboardType="email-address"
           />
-          <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
-            Please enter your email in order to recover your account later.
-          </Text>
+          {emailError ? (
+            <Text style={styles.errorText}>{emailError}</Text>
+          ) : (
+            <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
+              Please enter your email in order to recover your account later.
+            </Text>
+          )}
         </View>
         <View style={styles.buttonGroup}>
-          <TouchableOpacity onPress={() => navigation.navigate('create-account-birthday')}>
+          <TouchableOpacity 
+            onPress={handleNext}
+            disabled={!email.trim() || !!emailError}
+          >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
+              style={[
+                styles.socialButton,
+                (!email.trim() || !!emailError) && styles.disabledButton
+              ]}
             >
               <Text style={styles.socialButtonText}>Next</Text>
             </LinearGradient>
@@ -175,7 +209,17 @@ const styles = StyleSheet.create({
     textShadowRadius: 6,
     marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
-  }
+  },
+  errorText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    width: '80%',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
 });
 
 export default CreateAccountEmail; 

@@ -27,8 +27,45 @@ type RootStackParamList = {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const CreateAccountBirthday = () => {
   const [birthday, setBirthday] = useState('');
+  const [birthdayError, setBirthdayError] = useState('');
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+
+  const validateBirthday = (text: string) => {
+    const dateRegex = /^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/;
+    if (!text.trim()) {
+      setBirthdayError('Birthday is required');
+      return false;
+    }
+    if (!dateRegex.test(text)) {
+      setBirthdayError('Please enter a valid date (MM/DD/YYYY)');
+      return false;
+    }
+    
+    const [month, day, year] = text.split('/').map(Number);
+    const date = new Date(year, month - 1, day);
+    const today = new Date();
+    const age = today.getFullYear() - date.getFullYear();
+    
+    if (age < 13) {
+      setBirthdayError('You must be at least 13 years old');
+      return false;
+    }
+    
+    if (age > 100) {
+      setBirthdayError('Please enter a valid age');
+      return false;
+    }
+
+    setBirthdayError('');
+    return true;
+  };
+
+  const handleNext = () => {
+    if (validateBirthday(birthday)) {
+      navigation.navigate('create-account-gender');
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -61,29 +98,42 @@ const CreateAccountBirthday = () => {
             style={[
               styles.input,
               {
-                borderBottomColor: colorScheme === 'dark' ? '#555' : '#ddd',
+                borderBottomColor: birthdayError ? '#FF3B30' : colorScheme === 'dark' ? '#555' : '#ddd',
                 color: Colors[colorScheme ?? 'light'].text,
               },
             ]}
             value={birthday}
-            onChangeText={setBirthday}
+            onChangeText={(text) => {
+              setBirthday(text);
+              validateBirthday(text);
+            }}
             placeholder="MM/DD/YYYY"
             placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
             keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
             maxLength={10}
           />
-          <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
-            Your age will be public
-          </Text>
+          {birthdayError ? (
+            <Text style={styles.errorText}>{birthdayError}</Text>
+          ) : (
+            <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
+              Your age will be public
+            </Text>
+          )}
         </View>
         <View style={styles.buttonGroup}>
-          <TouchableOpacity onPress={() => navigation.navigate('create-account-gender')}>
+          <TouchableOpacity 
+            onPress={handleNext}
+            disabled={!birthday.trim() || !!birthdayError}
+          >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
+              style={[
+                styles.socialButton,
+                (!birthday.trim() || !!birthdayError) && styles.disabledButton
+              ]}
             >
               <Text style={styles.socialButtonText}>Next</Text>
             </LinearGradient>
@@ -174,7 +224,17 @@ const styles = StyleSheet.create({
     textShadowRadius: 6,
     marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
-  }
+  },
+  errorText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    width: '80%',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
 });
 
 export default CreateAccountBirthday; 
