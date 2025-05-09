@@ -13,6 +13,7 @@ import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
@@ -88,16 +89,25 @@ export default function UserPreferences({ route }: { route: UserPreferencesRoute
 
   const isDark = colorScheme === 'dark';
 
-  const handleNext = () => {
+  const handleNext = async () => {
     const preferences = {
       eventTypes: selected,
       timePreferences: selectedTime,
       locationPreferences: selectedLocation
     };
     
-    navigation.navigate('create-account-finished', {
-      userData: JSON.stringify({ ...userData, preferences })
-    });
+    try {
+      // Save preferences to AsyncStorage
+      const updatedUserData = { ...userData, preferences };
+      await AsyncStorage.setItem('userData', JSON.stringify(updatedUserData));
+      
+      // Navigate to next screen
+      navigation.navigate('create-account-finished', {
+        userData: JSON.stringify(updatedUserData)
+      });
+    } catch (error) {
+      console.error('Error saving preferences:', error);
+    }
   };
 
   return (

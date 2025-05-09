@@ -9,6 +9,10 @@ import {
   Dimensions,
   Platform,
   Animated,
+  TextInput,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedGradientText from './GradientAnimatedText';
@@ -16,9 +20,11 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { supabase } from '@/lib/supabase';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
+  'suggested-events': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -40,6 +46,62 @@ const SocialSignInScreen = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const colorScheme = useColorScheme();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isEmailValid, setIsEmailValid] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const getErrorMessage = (error: any): string => {
+    switch (error.message) {
+      case 'Invalid login credentials':
+        return 'Invalid email or password. Please try again.';
+      case 'Email not confirmed':
+        return 'Please verify your email address before signing in.';
+      case 'Too many requests':
+        return 'Too many attempts. Please try again later.';
+      default:
+        return 'An error occurred. Please try again.';
+    }
+  };
+
+  const handleSignIn = async () => {
+    if (!isEmailValid) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    if (!password) {
+      setError('Please enter your password');
+      return;
+    }
+
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password,
+      });
+
+      if (error) {
+        setError(getErrorMessage(error));
+        throw error;
+      }
+      
+      console.log('Sign in successful:', data);
+      navigation.navigate('suggested-events');
+    } catch (error) {
+      console.error('Error during sign in:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -62,93 +124,107 @@ const SocialSignInScreen = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-        <TouchableOpacity
-        style={{
-          position: 'absolute',
-          top: 50,
-          left: 20,
-          zIndex: 10,
-          backgroundColor: 'rgba(0,0,0,0.1)',
-          borderRadius: 20,
-          padding: 8,
-        }}
-        onPress={() => navigation.goBack()}
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidingView}
       >
-        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
-      </TouchableOpacity>
-      <View style={styles.centerContent}>
-      <View style={styles.headerContainer}>
-          <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>{`What's Poppin?`}</Text>
-        </View>
-        
-        <View style={styles.buttonGroup}>
-         <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
-            By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
-          </Text>
-         <TouchableOpacity>
-            <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.centerContent}>
+            <TouchableOpacity
+              style={{
+                position: 'absolute',
+                top: 50,
+                left: 20,
+                zIndex: 10,
+                backgroundColor: 'rgba(0,0,0,0.1)',
+                borderRadius: 20,
+                padding: 8,
+              }}
+              onPress={() => navigation.goBack()}
             >
-              <View style={styles.iconContainer}>
-                <Image 
-                  source={require('../assets/images/google-logo.webp')}
-                  style={styles.socialIcon}
+              <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+            </TouchableOpacity>
+
+            <View style={styles.headerContainer}>
+              <Image
+                source={BALLOON_IMAGE}
+                style={styles.balloons}
+                resizeMode="contain"
+              />
+              <Text style={styles.title}>{`What's Poppin?`}</Text>
+            </View>
+            
+            <View style={styles.buttonGroup}>
+              <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
+              </Text>
+
+              {error && (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              )}
+
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={[styles.input, { color: '#333' }]}
+                  placeholder="Email"
+                  placeholderTextColor="#999"
+                  value={email}
+                  onChangeText={(text) => {
+                    setEmail(text);
+                    setError(null);
+                    setIsEmailValid(validateEmail(text));
+                  }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!isLoading}
                 />
               </View>
-              <Text style={styles.socialButtonText}>Sign In with Google</Text>
-            </LinearGradient>
-          </TouchableOpacity>
 
-          <TouchableOpacity>
-            <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
-            >
-              <View style={styles.iconContainer}>
-                <Image 
-                  source={require('../assets/images/meta-logo.png')}
-                  style={styles.socialIcon}
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={[styles.input, { color: '#333' }]}
+                  placeholder="Password"
+                  placeholderTextColor="#999"
+                  value={password}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    setError(null);
+                  }}
+                  secureTextEntry
+                  editable={!isLoading}
                 />
               </View>
-              <Text style={styles.socialButtonText}>Sign In with Facebook</Text>
-            </LinearGradient>
-          </TouchableOpacity>
 
-          <TouchableOpacity>
-            <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
-            >
-              <View style={styles.iconContainer}>
-                <Image 
-                  source={require('../assets/images/phone-logo.png')}
-                  style={styles.socialIcon}
-                />
-              </View>
-              <Text style={styles.socialButtonText}>Sign In with Number</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={[
+                  styles.signInButton, 
+                  (!isEmailValid || isLoading) && styles.disabledButton
+                ]} 
+                onPress={handleSignIn}
+                disabled={!isEmailValid || isLoading}
+              >
+                <LinearGradient
+                  colors={isEmailValid && !isLoading ? ['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B'] : ['#ccc', '#ccc']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 1}}
+                  locations={[0, 0.3, 0.7, 1]}
+                  style={styles.gradientButton}
+                >
+                  <Text style={styles.signInButtonText}>
+                    {isLoading ? 'Signing in...' : 'Sign In'}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
 
-          <Text style={styles.troubleText}>
-            Trouble signing in? 
-          </Text>
-        </View>
-      </View>
+              <Text style={styles.troubleText}>
+                Trouble signing in? 
+              </Text>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -157,16 +233,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'white',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 20,
-    paddingBottom: 40,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   centerContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
+    paddingTop: 20,
+    paddingBottom: 40,
   },
   headerContainer: {
     flexDirection: 'row',
@@ -209,45 +286,45 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     width: width * 0.8,
   },
-  socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
+  inputContainer: {
+    width: width * 0.8,
+    marginBottom: 15,
     borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  input: {
+    height: 50,
+    paddingHorizontal: 20,
+    fontSize: 16,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+  },
+  signInButton: {
     width: width * 0.8,
     height: 50,
     marginBottom: 20,
+    borderRadius: 30,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.18,
     shadowRadius: 8,
     elevation: 4,
-    paddingLeft: 20,
-    position: 'relative',
   },
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'white',
+  gradientButton: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 15,
-    position: 'absolute',
-    left: 20,
   },
-  socialIcon: {
-    width: 20,
-    height: 20,
-    resizeMode: 'contain',
-  },
-  socialButtonText: {
+  signInButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
     fontFamily: 'Gotham Rounded',
-    width: '100%',
-    textAlign: 'center',
   },
   troubleText: {
     fontSize: 16,
@@ -261,6 +338,23 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 15,
+    width: width * 0.8,
+    borderWidth: 1,
+    borderColor: '#FF6B6B',
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    textAlign: 'center',
   },
 });
 

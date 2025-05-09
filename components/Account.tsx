@@ -1,74 +1,118 @@
-import React, { useState } from 'react';
-import { Alert, StyleSheet, View, TextInput, Button, Text } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Alert, Button, TextInput } from 'react-native';
+import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { ThemedView } from './ThemedView';
 import { ThemedText } from './ThemedText';
 
-export default function Auth() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+interface AccountProps {
+  session: Session;
+}
 
-  async function signInWithEmail() {
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+export default function Account({ session }: AccountProps) {
+  const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
 
-    if (error) {
-      Alert.alert('Error', error.message);
+  useEffect(() => {
+    if (session) getProfile();
+  }, [session]);
+
+  async function getProfile() {
+    try {
+      setLoading(true);
+      if (!session?.user) throw new Error('No user on the session!');
+
+      const { data, error, status } = await supabase
+        .from('profiles')
+        .select(`username, full_name, avatar_url`)
+        .eq('id', session?.user.id)
+        .single();
+
+      if (error && status !== 406) {
+        throw error;
+      }
+
+      if (data) {
+        setUsername(data.username);
+        setFullName(data.full_name);
+        setAvatarUrl(data.avatar_url);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        Alert.alert('Error', error.message);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
-  async function signUpWithEmail() {
-    setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+  async function updateProfile({
+    username,
+    fullName,
+    avatarUrl,
+  }: {
+    username: string;
+    fullName: string;
+    avatarUrl: string;
+  }) {
+    try {
+      setLoading(true);
+      if (!session?.user) throw new Error('No user on the session!');
 
-    if (error) {
-      Alert.alert('Error', error.message);
-    } else {
-      Alert.alert('Success', 'Check your email for the confirmation link!');
+      const updates = {
+        id: session?.user.id,
+        username,
+        full_name: fullName,
+        avatar_url: avatarUrl,
+        updated_at: new Date(),
+      };
+
+      const { error } = await supabase.from('profiles').upsert(updates);
+
+      if (error) {
+        throw error;
+      }
+      Alert.alert('Success', 'Profile updated!');
+    } catch (error) {
+      if (error instanceof Error) {
+        Alert.alert('Error', error.message);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
   }
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText style={styles.header}>Sign in or Sign up</ThemedText>
+      <ThemedText style={styles.header}>Account</ThemedText>
+      <ThemedText>Email: {session?.user?.email}</ThemedText>
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.input}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
+          placeholder="Username"
+          value={username || ''}
+          onChangeText={setUsername}
         />
         <TextInput
           style={styles.input}
-          placeholder="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoCapitalize="none"
+          placeholder="Full Name"
+          value={fullName || ''}
+          onChangeText={setFullName}
         />
       </View>
       <View style={styles.buttonContainer}>
         <Button
-          title="Sign In"
-          onPress={signInWithEmail}
+          title="Update Profile"
+          onPress={() => updateProfile({ username, fullName, avatarUrl })}
           disabled={loading}
         />
-        <Button
-          title="Sign Up"
-          onPress={signUpWithEmail}
-          disabled={loading}
-        />
+        <Button title="Sign Out" onPress={signOut} />
       </View>
     </ThemedView>
   );
@@ -85,7 +129,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   inputContainer: {
-    marginBottom: 20,
+    marginVertical: 20,
   },
   input: {
     height: 40,

@@ -28,20 +28,30 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
   async function createUser() {
-    const { data, error } = await supabase.auth.signUp({
-      email: userData.email,
-      password: userData.password,
-      options: {
-        data: {
-          username: userData.name || undefined,
-          gender: userData.gender || undefined,
-          birthday: userData.birthday || undefined,
-          preferences: userData.preferences || undefined,
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            username: userData.name || undefined,
+            gender: userData.gender || undefined,
+            birthday: userData.birthday || undefined,
+            preferences: userData.preferences || undefined,
+          },
         },
-      },
-    });
+      });
 
-    if (error) throw error; 
+      if (error) {
+        console.error('Signup error:', error.message);
+        throw error;
+      }
+      
+      console.log('Signup successful:', data);
+    } catch (error) {
+      console.error('Error during signup:', error);
+      // Handle error appropriately
+    }
   }
 
   useEffect(() => {
@@ -73,7 +83,7 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
           You have created your account!
         </Text>
-        <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>{userData.name}</Text>
+
         <TouchableOpacity style={styles.findEventsButton} onPress={() => navigation.navigate('suggested-events')}>
           <Text style={[styles.findEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
             find events now! <Text style={styles.arrow}>→</Text>

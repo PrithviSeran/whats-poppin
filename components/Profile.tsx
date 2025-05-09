@@ -5,28 +5,36 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
+import { supabase } from '@/lib/supabase';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 interface UserProfile {
   name: string;
   email: string;
   birthday: string;
   gender: string;
-  preferences: string[];
   profileImage?: string;
 }
+
+type RootStackParamList = {
+  '(tabs)': undefined;
+};
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const sampleProfile: UserProfile = {
   name: "John Doe",
   email: "john.doe@example.com",
   birthday: "January 15, 1995",
   gender: "Male",
-  preferences: ["Music", "Sports", "Food", "Art", "Technology"],
   profileImage: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
 };
 
 export default function Profile() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const colorScheme = useColorScheme();
+  const navigation = useNavigation<NavigationProp>();
 
   useEffect(() => {
     // Simulate loading delay
@@ -36,6 +44,16 @@ export default function Profile() {
     
     return () => clearTimeout(timer);
   }, []);
+
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      navigation.navigate('(tabs)');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
 
   const renderInfoRow = (icon: string, label: string, value: string) => (
     <View style={styles.infoRow}>
@@ -90,16 +108,16 @@ export default function Profile() {
           {renderInfoRow('calendar-outline', 'Birthday', profile.birthday)}
           {renderInfoRow('person-outline', 'Gender', profile.gender)}
           
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Preferences</Text>
-            <View style={styles.preferencesContainer}>
-              {profile.preferences.map((pref, index) => (
-                <View key={index} style={styles.preferenceTag}>
-                  <Text style={styles.preferenceText}>{pref}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
+          <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.signOutGradient}
+            >
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
       </ScrollView>
       <View style={styles.footerContainer}>
@@ -175,28 +193,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  section: {
-    marginTop: 20,
+  signOutButton: {
+    marginTop: 30,
+    borderRadius: 25,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
-  sectionTitle: {
-    fontSize: 20,
+  signOutGradient: {
+    paddingVertical: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  signOutText: {
+    color: '#fff',
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 15,
-  },
-  preferencesContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  preferenceTag: {
-    backgroundColor: 'rgba(255,107,107,0.1)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  preferenceText: {
-    color: '#FF6B6B',
-    fontWeight: '500',
   },
   footerContainer: {
     position: 'absolute',
