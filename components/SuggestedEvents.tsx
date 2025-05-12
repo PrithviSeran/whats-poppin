@@ -142,8 +142,9 @@ export default function SuggestedEvents() {
   const [imageUrls, setImageUrls] = useState<string[]>([])
 
   useEffect(() => {
-    loadImages()
-  }, [])
+    loadImages();
+    loadSavedFilters();
+  }, []);
 
   const loadImages = async () => {
     try {
@@ -157,7 +158,6 @@ export default function SuggestedEvents() {
         return
       }
 
-      console.log("files", files)
 
       if (files) {
         setFiles(files)
@@ -224,6 +224,33 @@ export default function SuggestedEvents() {
       : ['#FFE5E5', '#FFFFFF', '#E5FFE5'],
   });
 
+  const loadSavedFilters = async () => {
+    try {
+      const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
+      if (savedFiltersJson) {
+        const savedFilters = JSON.parse(savedFiltersJson);
+        console.log('Loaded saved filters:', savedFilters); // Debug log
+        setFilters(savedFilters);
+      }
+    } catch (error) {
+      console.error('Error loading saved filters:', error);
+    }
+  };
+
+  const handleApplyFilters = async (newFilters: FilterState) => {
+    try {
+      // Save to AsyncStorage first
+      await AsyncStorage.setItem('eventFilters', JSON.stringify(newFilters));
+      console.log('Saved new filters:', newFilters); // Debug log
+      
+      // Then update state
+      setFilters(newFilters);
+      setCardIndex(0); // Reset to first card when filters change
+    } catch (error) {
+      console.error('Error saving filters:', error);
+    }
+  };
+
   // Filter the events based on selected filters
   const filteredEvents = EVENTS.filter(event => {
     if (filters.eventTypes.length > 0) {
@@ -234,10 +261,27 @@ export default function SuggestedEvents() {
         return false;
       }
     }
+
+    if (filters.timePreferences.length > 0) {
+      const matchesTimePref = filters.timePreferences.some(time => 
+        event.time_pref.toLowerCase().includes(time.toLowerCase())
+      );
+      if (!matchesTimePref) {
+        return false;
+      }
+    }
+
+    if (filters.locationPreferences.length > 0) {
+      const matchesLocationPref = filters.locationPreferences.some(location => 
+        event.location_pref.toLowerCase().includes(location.toLowerCase())
+      );
+      if (!matchesLocationPref) {
+        return false;
+      }
+    }
+
     return true;
   });
-
-  
 
   const handleCardPress = (card: EventCard) => {
     setExpandedCard(card);
@@ -277,11 +321,6 @@ export default function SuggestedEvents() {
       // Only update state after animation completes
       setExpandedCard(null);
     });
-  };
-
-  const handleApplyFilters = (newFilters: FilterState) => {
-    setFilters(newFilters);
-    setCardIndex(0); // Reset to first card when filters change
   };
 
   const handleSwipeRight = async (cardIndex: number) => {
