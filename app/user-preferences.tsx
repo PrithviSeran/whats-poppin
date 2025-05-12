@@ -1,8 +1,6 @@
 import { StyleSheet } from 'react-native';
-import CreateAccountPassword from '@/components/CreateAccountPassword';
 import UserPreferences from '@/components/UserPreferences';
 import { useLocalSearchParams } from 'expo-router';
-
 
 export default function UserPreferencesRoute() {
   const params = useLocalSearchParams<{ userData: string }>();

@@ -10,6 +10,8 @@ import EventFilterOverlay from './EventFilterOverlay';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '@/lib/supabase';
+import { FileObject } from '@supabase/storage-js';
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
@@ -25,79 +27,79 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 interface EventCard {
   id: number;
-  title: string;
-  image: any;
+  created_at: string;
+  name: string;
+  organization: string;
+  event_at: string;
+  event_type: string;
+  time_pref: string;
+  location_pref: string;
+  cost: number;
+  age_restriction: number;
+  group: string;
   description: string;
-  date: string;
-  location: string;
+  image: any;
+  title?: string; // For backward compatibility
+  date?: string; // For backward compatibility
+  location?: string; // For backward compatibility
   isLiked?: boolean;
 }
 
-const generateRandomEvents = (count: number): EventCard[] => {
+const generateRandomEvents = (count: number) => {
   const eventTypes = [
-    'Concert', 'Festival', 'Exhibition', 'Workshop', 'Conference', 'Meetup',
-    'Party', 'Show', 'Tour', 'Class', 'Seminar', 'Networking', 'Performance',
-    'Market', 'Fair', 'Gala', 'Auction', 'Competition', 'Race', 'Game'
+    'Bar Hopping',
+    'Live Music',
+    'Dancing',
+    'Karaoke',
+    'Chill Lounge',
+    'Rooftop',
+    'Comedy Show',
+    'Game Night',
+    'Food Crawl',
+    'Sports Bar',
+    'Trivia Night',
+    'Outdoor Patio',
+    'Late Night Eats',
+    'Themed Party',
+    'Open Mic',
+    'Wine Tasting',
+    'Hookah',
+    'Board Games',
+    'Silent Disco',
+    'Other'
   ];
+  const organizations = ['LiveNation', 'EventBrite', 'Local Venues', 'Community Center', 'Art Gallery'];
+  const timePrefs = ['Morning', 'Afternoon', 'Evening'];
+  const locationPrefs = ['Uptown', 'Midtown', 'Downtown'];
+  const groups = ['Music', 'Art', 'Technology', 'Sports', 'Food & Drink'];
   
-  const locations = [
-    'Central Park', 'Times Square', 'Madison Square Garden', 'Brooklyn Bridge Park',
-    'Metropolitan Museum', 'Carnegie Hall', 'Lincoln Center', 'Javits Center',
-    'Union Square', 'Bryant Park', 'Chelsea', 'Soho', 'Greenwich Village',
-    'Williamsburg', 'DUMBO', 'Prospect Park', 'Rockefeller Center', 'High Line',
-    'Battery Park', 'Hudson Yards'
-  ];
-
-  const adjectives = [
-    'Amazing', 'Incredible', 'Unforgettable', 'Spectacular', 'Epic', 'Magical',
-    'Enchanting', 'Thrilling', 'Exciting', 'Fabulous', 'Wonderful', 'Fantastic',
-    'Stunning', 'Breathtaking', 'Mesmerizing', 'Captivating', 'Inspiring',
-    'Uplifting', 'Joyful', 'Energizing'
-  ];
-
-  const images = [
-    require('../assets/images/balloons.png'),
-    require('../assets/images/balloons.png'),
-    require('../assets/images/balloons.png'),
-    require('../assets/images/balloons.png'),
-    require('../assets/images/balloons.png'),
-  ];
-
-  const events: EventCard[] = [];
-  const usedIds = new Set<number>();
-
+  const events = [];
+  
   for (let i = 0; i < count; i++) {
-    let id;
-    do {
-      id = Math.floor(Math.random() * 1000) + 1;
-    } while (usedIds.has(id));
-    usedIds.add(id);
-
-    const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
-    const location = locations[Math.floor(Math.random() * locations.length)];
-    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const image = images[Math.floor(Math.random() * images.length)];
+    const event = {
+      id: i + 1,
+      created_at: new Date().toISOString(),
+      name: `${eventTypes[Math.floor(Math.random() * eventTypes.length)]} Event ${i + 1}`,
+      organization: organizations[Math.floor(Math.random() * organizations.length)],
+      event_at: new Date(Date.now() + Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(), // Random date within next 30 days
+      event_type: eventTypes[Math.floor(Math.random() * eventTypes.length)],
+      time_pref: timePrefs[Math.floor(Math.random() * timePrefs.length)],
+      location_pref: locationPrefs[Math.floor(Math.random() * locationPrefs.length)],
+      cost: Math.floor(Math.random() * 200), // Random price between 0 and 200
+      age_restriction: Math.floor(Math.random() * 3) * 7 + 18, // 18, 21, or 25
+      group: groups[Math.floor(Math.random() * groups.length)],
+      description: `This is a sample description for event ${i + 1}. Join us for an amazing experience!`,
+      image: require('../assets/images/balloons.png') // You'll need to handle actual image data differently
+    };
     
-    const month = Math.floor(Math.random() * 12) + 1;
-    const day = Math.floor(Math.random() * 28) + 1;
-    const year = 2024;
-    const date = `${month}/${day}/${year}`;
-
-    events.push({
-      id,
-      title: `${adjective} ${eventType}`,
-      image,
-      description: `Join us for an ${adjective.toLowerCase()} ${eventType.toLowerCase()} at ${location}. This is a must-attend event that you won't want to miss!`,
-      date,
-      location,
-      isLiked: false
-    });
+    events.push(event);
   }
-
+  
   return events;
 };
 
-const EVENTS: EventCard[] = generateRandomEvents(100);
+// Generate 10 sample events
+const EVENTS = generateRandomEvents(10);
 
 // Save the generated events to AsyncStorage
 const saveGeneratedEvents = async () => {
@@ -133,6 +135,87 @@ export default function SuggestedEvents() {
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
+  const [data, setData] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [files, setFiles] = useState<FileObject[]>([])
+  const [imageUrls, setImageUrls] = useState<string[]>([])
+
+  useEffect(() => {
+    loadImages()
+  }, [])
+
+  const loadImages = async () => {
+    try {
+      // Get list of files in the bucket
+      const { data: files, error: listError } = await supabase.storage
+        .from('event-images')
+        .list()
+
+      if (listError) {
+        console.error('Error listing files:', listError)
+        return
+      }
+
+      console.log("files", files)
+
+      if (files) {
+        setFiles(files)
+        
+        // Get public URLs for each file
+        const urls = files.map(file => {
+          const { data: { publicUrl } } = supabase.storage
+            .from('event-images')
+            .getPublicUrl(file.name)
+          return publicUrl
+        })
+        
+        setImageUrls(urls)
+      }
+    } catch (error) {
+      console.error('Error loading images:', error)
+    }
+  }
+
+  // Example of how to use the image URLs in your render
+  const renderImage = (imageUrl: string) => {
+    return (
+      <Image 
+        source={{ uri: imageUrl }}
+        style={styles.image}
+        resizeMode="cover"
+      />
+    )
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [])
+
+  const fetchData = async () => {
+    try {
+      setLoading(true)
+      
+      // Replace 'your_table' with your actual table name
+      const { data, error } = await supabase
+        .from('all_events')
+        .select('*')
+        // Add filters if needed
+        // .eq('column_name', 'value')
+        // .order('created_at', { ascending: false })
+        // .limit(10)
+      
+      if (error) {
+        throw error
+      }
+
+    } catch (error) {
+      console.error('Error fetching data:', error)
+
+    } finally {
+      setLoading(false)
+    }
+  }
   
   const interpolateColor = swipeX.interpolate({
     inputRange: [-width, 0, width],
@@ -143,12 +226,18 @@ export default function SuggestedEvents() {
 
   // Filter the events based on selected filters
   const filteredEvents = EVENTS.filter(event => {
-    if (filters.eventTypes.length > 0 && !filters.eventTypes.includes(event.title)) {
-      return false;
+    if (filters.eventTypes.length > 0) {
+      const matchesEventType = filters.eventTypes.some(type => 
+        event.event_type.toLowerCase().includes(type.toLowerCase())
+      );
+      if (!matchesEventType) {
+        return false;
+      }
     }
-    // Add time and location filtering logic here when those fields are added to the EventCard interface
     return true;
   });
+
+  
 
   const handleCardPress = (card: EventCard) => {
     setExpandedCard(card);
@@ -199,6 +288,8 @@ export default function SuggestedEvents() {
     const likedEvent = EVENTS[cardIndex];
     const newLikedEvents = [...likedEvents, likedEvent];
     setLikedEvents(newLikedEvents);
+
+    loadImages()
     
     // Save to AsyncStorage
     try {
@@ -270,6 +361,28 @@ export default function SuggestedEvents() {
     }
   };
 
+  useEffect(() => {
+    const loadUserPreferences = async () => {
+      try {
+        const userDataJson = await AsyncStorage.getItem('userData');
+        if (userDataJson) {
+          const userData = JSON.parse(userDataJson);
+          if (userData.preferences) {
+            setFilters({
+              eventTypes: userData.preferences.eventTypes || [],
+              timePreferences: userData.preferences.timePreferences || [],
+              locationPreferences: userData.preferences.locationPreferences || [],
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error loading user preferences:', error);
+      }
+    };
+
+    loadUserPreferences();
+  }, []);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.topButtons}>
@@ -302,101 +415,134 @@ export default function SuggestedEvents() {
           </LinearGradient>
         </TouchableOpacity>
       </View>
-      
 
-      {/* Main Swiper View */}
-      <View style={styles.swiperContainer}>
-        <Swiper
-          ref={swiperRef}
-          cards={filteredEvents}
-          cardIndex={cardIndex}
-          renderCard={(card: EventCard, index: number) => {
-            const isTopCard = index === cardIndex;
-            return (
-              <TouchableOpacity 
-                onPress={() => handleCardPress(card)}
-                activeOpacity={1}
-              >
-                <Animated.View style={[
-                  styles.card,
-                  isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                ]}>
-                  <Image source={card.image} style={styles.image} />
-                  <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.title}</Text>
-                </Animated.View>
-              </TouchableOpacity>
-            );
-          }}
-          onSwipedLeft={() => {
-            setCardIndex((i) => i + 1);
-            Animated.parallel([
-              Animated.timing(fadeAnim, {
-                toValue: 0,
-                duration: 200,
-                useNativeDriver: true,
-              }),
-              Animated.spring(scaleAnim, {
-                toValue: 0.8,
-                friction: 5,
-                tension: 50,
-                useNativeDriver: true,
-              })
-            ]).start(() => {
-              setExpandedCard(null);
-            });
-          }}
-          onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-          onSwiping={(x) => swipeX.setValue(x)}
-          backgroundColor="transparent"
-          stackSize={3}
-          stackSeparation={15}
-          overlayLabels={{
-            left: {
-              style: { 
-                label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
-                wrapper: { 
-                  flexDirection: 'column', 
-                  alignItems: 'flex-end', 
-                  justifyContent: 'flex-start', 
-                  marginTop: 30, 
-                  marginLeft: -30 
-                } 
-              }
-            },
-            right: {
-              style: { 
-                label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
-                wrapper: { 
-                  flexDirection: 'column', 
-                  alignItems: 'flex-start', 
-                  justifyContent: 'flex-start', 
-                  marginTop: 30, 
-                  marginLeft: 30 
-                } 
-              }
-            }
-          }}
-          disableTopSwipe
-          disableBottomSwipe
-          pointerEvents="box-none"
-          useViewOverflow={false}
-        />
+      {filteredEvents.length > 0 ? (
+        <>
+          {/* Main Swiper View */}
+          <View style={styles.swiperContainer}>
+            <Swiper
+              ref={swiperRef}
+              cards={filteredEvents}
+              cardIndex={cardIndex}
+              renderCard={(card: EventCard, index: number) => {
+                const isTopCard = index === cardIndex;
+                const imageUrl = imageUrls[index % imageUrls.length]; // Cycle through available images
+                return (
+                  <TouchableOpacity 
+                    onPress={() => handleCardPress(card)}
+                    activeOpacity={1}
+                  >
+                    <Animated.View style={[
+                      styles.card,
+                      isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                    ]}>
+                      {imageUrl ? (
+                        <Image 
+                          source={{ uri: imageUrl }} 
+                          style={styles.image} 
+                        />
+                      ) : (
+                        <Image source={card.image} style={styles.image} />
+                      )}
+                      <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
+                    </Animated.View>
+                  </TouchableOpacity>
+                );
+              }}
+              onSwipedLeft={() => {
+                setCardIndex((i) => i + 1);
+                Animated.parallel([
+                  Animated.timing(fadeAnim, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                  }),
+                  Animated.spring(scaleAnim, {
+                    toValue: 0.8,
+                    friction: 5,
+                    tension: 50,
+                    useNativeDriver: true,
+                  })
+                ]).start(() => {
+                  setExpandedCard(null);
+                });
+              }}
+              onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
+              onSwiping={(x) => swipeX.setValue(x)}
+              backgroundColor="transparent"
+              stackSize={3}
+              stackSeparation={15}
+              overlayLabels={{
+                left: {
+                  style: { 
+                    label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
+                    wrapper: { 
+                      flexDirection: 'column', 
+                      alignItems: 'flex-end', 
+                      justifyContent: 'flex-start', 
+                      marginTop: 30, 
+                      marginLeft: -30 
+                    } 
+                  }
+                },
+                right: {
+                  style: { 
+                    label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
+                    wrapper: { 
+                      flexDirection: 'column', 
+                      alignItems: 'flex-start', 
+                      justifyContent: 'flex-start', 
+                      marginTop: 30, 
+                      marginLeft: 30 
+                    } 
+                  }
+                }
+              }}
+              disableTopSwipe
+              disableBottomSwipe
+              pointerEvents="box-none"
+              useViewOverflow={false}
+            />
+          </View>
+
+          <Animated.View style={[styles.actionButtons]}>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.nopeButton]}
+              onPress={() => swiperRef.current?.swipeLeft()}
+            >
+              <Ionicons name="close" size={32} color="red" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.likeButton]}
+              onPress={() => swiperRef.current?.swipeRight()}
+            >
+              <Ionicons name="checkmark" size={32} color="green" />
+            </TouchableOpacity>
+          </Animated.View>
+        </>
+      ) : (
+        <View style={styles.noEventsContainer}>
+          <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+            No Events Found
+          </Text>
+          <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
+            <Text style={styles.adjustFiltersText}>
+              Try adjusting your filters
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <View style={styles.footerContainer}>
+        <MainFooter activeTab="home" />
       </View>
 
-      <Animated.View style={[styles.actionButtons]}>
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.nopeButton]}
-          onPress={() => swiperRef.current?.swipeLeft()}
-        >
-          <Ionicons name="close" size={32} color="red" />
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.likeButton]}
-          onPress={() => swiperRef.current?.swipeRight()}
-        >
-          <Ionicons name="checkmark" size={32} color="green" />
-        </TouchableOpacity>
-      </Animated.View>
+      <EventFilterOverlay
+        visible={isFilterVisible}
+        onClose={() => setIsFilterVisible(false)}
+        onApplyFilters={handleApplyFilters}
+        currentFilters={filters}
+      />
 
       {/* Expanded Card Overlay */}
       {expandedCard && (
@@ -418,14 +564,14 @@ export default function SuggestedEvents() {
           <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
             <ScrollView style={styles.expandedContent}>
               <Image source={expandedCard.image} style={styles.imageExpanded} />
-              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.title}</Text>
+              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.name}</Text>
               <View style={styles.infoRow}>
                 <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.date}</Text>
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{new Date(expandedCard.event_at).toLocaleDateString()}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location_pref}</Text>
               </View>
               <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
             </ScrollView>
@@ -446,17 +592,6 @@ export default function SuggestedEvents() {
           </View>
         </Animated.View>
       )}
-
-      <View style={styles.footerContainer}>
-        <MainFooter activeTab="home" />
-      </View>
-
-      <EventFilterOverlay
-        visible={isFilterVisible}
-        onClose={() => setIsFilterVisible(false)}
-        onApplyFilters={handleApplyFilters}
-        currentFilters={filters}
-      />
     </SafeAreaView>
   );
 }
@@ -643,5 +778,20 @@ const styles = StyleSheet.create({
     bottom: 40,
     left: 0,
     right: 0,
+  },
+  noEventsContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noEventsText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  adjustFiltersText: {
+    fontSize: 18,
+    color: '#FF1493',
+    marginTop: 20,
   },
 });

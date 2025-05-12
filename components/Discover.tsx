@@ -89,24 +89,41 @@ export default function Discover() {
   };
 
   const searchEvents = (query: string) => {
-    const lowerQuery = query.toLowerCase();
-    
-    const filteredEvents = allEvents.filter(event => 
-      event.title.toLowerCase().includes(lowerQuery) ||
-      event.location.toLowerCase().includes(lowerQuery) ||
-      event.description.toLowerCase().includes(lowerQuery) ||
-      event.date.toLowerCase().includes(lowerQuery)
-    );
+    try {
+      const lowerQuery = query.toLowerCase();
+      
+      const filteredEvents = allEvents.filter(event => {
+        // Add null checks for all properties
+        const title = event?.title?.toLowerCase() || '';
+        const location = event?.location?.toLowerCase() || '';
+        const description = event?.description?.toLowerCase() || '';
+        const date = event?.date?.toLowerCase() || '';
+        
+        return title.includes(lowerQuery) ||
+               location.includes(lowerQuery) ||
+               description.includes(lowerQuery) ||
+               date.includes(lowerQuery);
+      });
 
-    setEvents(filteredEvents);
+      setEvents(filteredEvents);
+    } catch (error) {
+      console.error('Error in searchEvents:', error);
+      // Fallback to showing all events if there's an error
+      setEvents(EVENTS);
+    }
   };
 
   const handleSearch = (text: string) => {
-    setSearchQuery(text);
-    if (text.trim() === '') {
+    try {
+      setSearchQuery(text);
+      if (text.trim() === '') {
+        setEvents(EVENTS);
+      } else {
+        searchEvents(text);
+      }
+    } catch (error) {
+      console.error('Error in handleSearch:', error);
       setEvents(EVENTS);
-    } else {
-      searchEvents(text);
     }
   };
 
@@ -269,9 +286,9 @@ export default function Discover() {
 
       <ScrollView style={styles.eventsGrid}>
         <View style={styles.gridContainer}>
-          {events.map((event) => (
+          {events.map((event, index) => (
             <Animated.View
-              key={event.id}
+              key={`${event.id}-${index}`}
               style={{
                 opacity: event.id === hiddenCardId ? cardOpacity : 1,
               }}
@@ -319,16 +336,16 @@ export default function Discover() {
       </ScrollView>
 
       {modalVisible && selectedEvent && (
-        <Animated.View 
-          style={[
+            <Animated.View 
+              style={[
             styles.expandedOverlay,
-            { 
+                { 
               opacity: fadeAnim,
               transform: [{ scale: scaleAnim }],
-            }
-          ]}
-        >
-          <TouchableOpacity
+                }
+              ]}
+            >
+              <TouchableOpacity 
             style={{
               position: 'absolute',
               top: 50,
@@ -338,25 +355,25 @@ export default function Discover() {
               borderRadius: 20,
               padding: 8,
             }}
-            onPress={closeModal}
-          >
+                onPress={closeModal}
+              >
             <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
-          </TouchableOpacity>
+              </TouchableOpacity>
           <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
             <ScrollView style={styles.expandedContent}>
               <Image source={selectedEvent.image} style={styles.imageExpanded} />
               <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.title}</Text>
               <View style={styles.infoRow}>
-                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                      <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.date}</Text>
-              </View>
+                    </View>
               <View style={styles.infoRow}>
-                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                      <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.location}</Text>
-              </View>
+                    </View>
               <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.description}</Text>
             </ScrollView>
-          </View>
+                  </View>
         </Animated.View>
       )}
 
@@ -484,4 +501,4 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginTop: 20,
   },
-});
+}); 
