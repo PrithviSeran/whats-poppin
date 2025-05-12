@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import EventFilterOverlay from './EventFilterOverlay';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
@@ -140,6 +140,7 @@ export default function SuggestedEvents() {
   const [error, setError] = useState(null)
   const [files, setFiles] = useState<FileObject[]>([])
   const [imageUrls, setImageUrls] = useState<string[]>([])
+  const [filteredEvents, setFilteredEvents] = useState<EventCard[]>(EVENTS);
 
   useEffect(() => {
     loadImages();
@@ -224,64 +225,79 @@ export default function SuggestedEvents() {
       : ['#FFE5E5', '#FFFFFF', '#E5FFE5'],
   });
 
+  // Add focus effect to reload filters when returning to this screen
+  useFocusEffect(
+    React.useCallback(() => {
+      loadSavedFilters();
+    }, [])
+  );
+
   const loadSavedFilters = async () => {
     try {
       const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
       if (savedFiltersJson) {
         const savedFilters = JSON.parse(savedFiltersJson);
-        console.log('Loaded saved filters:', savedFilters); // Debug log
+        console.log('Loaded saved filters:', savedFilters);
         setFilters(savedFilters);
+        // Apply filters immediately
+        applyFilters(savedFilters);
+        // Reset card index to show filtered results from the beginning
+        setCardIndex(0);
       }
     } catch (error) {
       console.error('Error loading saved filters:', error);
     }
   };
 
+  const applyFilters = (filtersToApply: FilterState) => {
+    const filtered = EVENTS.filter(event => {
+      if (filtersToApply.eventTypes.length > 0) {
+        const matchesEventType = filtersToApply.eventTypes.some(type => 
+          event.event_type.toLowerCase().includes(type.toLowerCase())
+        );
+        if (!matchesEventType) {
+          return false;
+        }
+      }
+
+      if (filtersToApply.timePreferences.length > 0) {
+        const matchesTimePref = filtersToApply.timePreferences.some(time => 
+          event.time_pref.toLowerCase().includes(time.toLowerCase())
+        );
+        if (!matchesTimePref) {
+          return false;
+        }
+      }
+
+      if (filtersToApply.locationPreferences.length > 0) {
+        const matchesLocationPref = filtersToApply.locationPreferences.some(location => 
+          event.location_pref.toLowerCase().includes(location.toLowerCase())
+        );
+        if (!matchesLocationPref) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    setFilteredEvents(filtered);
+  };
+
   const handleApplyFilters = async (newFilters: FilterState) => {
     try {
       // Save to AsyncStorage first
       await AsyncStorage.setItem('eventFilters', JSON.stringify(newFilters));
-      console.log('Saved new filters:', newFilters); // Debug log
+      console.log('Saved new filters:', newFilters);
       
-      // Then update state
+      // Then update state and apply filters
       setFilters(newFilters);
+      applyFilters(newFilters);
       setCardIndex(0); // Reset to first card when filters change
     } catch (error) {
       console.error('Error saving filters:', error);
     }
   };
-
-  // Filter the events based on selected filters
-  const filteredEvents = EVENTS.filter(event => {
-    if (filters.eventTypes.length > 0) {
-      const matchesEventType = filters.eventTypes.some(type => 
-        event.event_type.toLowerCase().includes(type.toLowerCase())
-      );
-      if (!matchesEventType) {
-        return false;
-      }
-    }
-
-    if (filters.timePreferences.length > 0) {
-      const matchesTimePref = filters.timePreferences.some(time => 
-        event.time_pref.toLowerCase().includes(time.toLowerCase())
-      );
-      if (!matchesTimePref) {
-        return false;
-      }
-    }
-
-    if (filters.locationPreferences.length > 0) {
-      const matchesLocationPref = filters.locationPreferences.some(location => 
-        event.location_pref.toLowerCase().includes(location.toLowerCase())
-      );
-      if (!matchesLocationPref) {
-        return false;
-      }
-    }
-
-    return true;
-  });
 
   const handleCardPress = (card: EventCard) => {
     setExpandedCard(card);
