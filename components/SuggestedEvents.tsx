@@ -341,17 +341,29 @@ export default function SuggestedEvents() {
 
   const handleSwipeRight = async (cardIndex: number) => {
     const likedEvent = EVENTS[cardIndex];
-    const newLikedEvents = [...likedEvents, likedEvent];
-    setLikedEvents(newLikedEvents);
-
-    loadImages()
     
-    // Save to AsyncStorage
     try {
+      // Get current saved events
       const savedEventsJson = await AsyncStorage.getItem('savedEvents');
       let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      savedEvents.push(likedEvent);
-      await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
+      
+      // Check if event is already saved
+      const isAlreadySaved = savedEvents.some(event => event.id === likedEvent.id);
+      
+      if (!isAlreadySaved) {
+        // Only add if not already saved
+        savedEvents.push(likedEvent);
+        await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
+        console.log('Event saved successfully');
+      } else {
+        console.log('Event already saved');
+      }
+      
+      // Update local state
+      const newLikedEvents = [...likedEvents, likedEvent];
+      setLikedEvents(newLikedEvents);
+      
+      loadImages();
       
       // Animate out before closing
       Animated.parallel([
@@ -370,7 +382,7 @@ export default function SuggestedEvents() {
         setExpandedCard(null);
       });
     } catch (error) {
-      console.error('Error saving liked events:', error);
+      console.error('Error saving liked event:', error);
     }
   };
 
