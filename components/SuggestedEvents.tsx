@@ -11,6 +11,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
+import { FileObject } from '@supabase/storage-js';
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
@@ -137,6 +138,55 @@ export default function SuggestedEvents() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [files, setFiles] = useState<FileObject[]>([])
+  const [imageUrls, setImageUrls] = useState<string[]>([])
+
+  useEffect(() => {
+    loadImages()
+  }, [])
+
+  const loadImages = async () => {
+    try {
+      // Get list of files in the bucket
+      const { data: files, error: listError } = await supabase.storage
+        .from('event-images')
+        .list()
+
+      if (listError) {
+        console.error('Error listing files:', listError)
+        return
+      }
+
+      console.log("files", files)
+
+      if (files) {
+        setFiles(files)
+        
+        // Get public URLs for each file
+        const urls = files.map(file => {
+          const { data: { publicUrl } } = supabase.storage
+            .from('event-images')
+            .getPublicUrl(file.name)
+          return publicUrl
+        })
+        
+        setImageUrls(urls)
+      }
+    } catch (error) {
+      console.error('Error loading images:', error)
+    }
+  }
+
+  // Example of how to use the image URLs in your render
+  const renderImage = (imageUrl: string) => {
+    return (
+      <Image 
+        source={{ uri: imageUrl }}
+        style={styles.image}
+        resizeMode="cover"
+      />
+    )
+  }
 
   useEffect(() => {
     fetchData()
@@ -186,8 +236,6 @@ export default function SuggestedEvents() {
     }
     return true;
   });
-
-  console.log(filteredEvents)
 
   
 
@@ -240,6 +288,8 @@ export default function SuggestedEvents() {
     const likedEvent = EVENTS[cardIndex];
     const newLikedEvents = [...likedEvents, likedEvent];
     setLikedEvents(newLikedEvents);
+
+    loadImages()
     
     // Save to AsyncStorage
     try {
@@ -376,6 +426,7 @@ export default function SuggestedEvents() {
               cardIndex={cardIndex}
               renderCard={(card: EventCard, index: number) => {
                 const isTopCard = index === cardIndex;
+                const imageUrl = imageUrls[index % imageUrls.length]; // Cycle through available images
                 return (
                   <TouchableOpacity 
                     onPress={() => handleCardPress(card)}
@@ -385,7 +436,14 @@ export default function SuggestedEvents() {
                       styles.card,
                       isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
                     ]}>
-                      <Image source={card.image} style={styles.image} />
+                      {imageUrl ? (
+                        <Image 
+                          source={{ uri: imageUrl }} 
+                          style={styles.image} 
+                        />
+                      ) : (
+                        <Image source={card.image} style={styles.image} />
+                      )}
                       <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
                     </Animated.View>
                   </TouchableOpacity>

@@ -89,24 +89,41 @@ export default function Discover() {
   };
 
   const searchEvents = (query: string) => {
-    const lowerQuery = query.toLowerCase();
-    
-    const filteredEvents = allEvents.filter(event => 
-      event.title.toLowerCase().includes(lowerQuery) ||
-      event.location.toLowerCase().includes(lowerQuery) ||
-      event.description.toLowerCase().includes(lowerQuery) ||
-      event.date.toLowerCase().includes(lowerQuery)
-    );
+    try {
+      const lowerQuery = query.toLowerCase();
+      
+      const filteredEvents = allEvents.filter(event => {
+        // Add null checks for all properties
+        const title = event?.title?.toLowerCase() || '';
+        const location = event?.location?.toLowerCase() || '';
+        const description = event?.description?.toLowerCase() || '';
+        const date = event?.date?.toLowerCase() || '';
+        
+        return title.includes(lowerQuery) ||
+               location.includes(lowerQuery) ||
+               description.includes(lowerQuery) ||
+               date.includes(lowerQuery);
+      });
 
-    setEvents(filteredEvents);
+      setEvents(filteredEvents);
+    } catch (error) {
+      console.error('Error in searchEvents:', error);
+      // Fallback to showing all events if there's an error
+      setEvents(EVENTS);
+    }
   };
 
   const handleSearch = (text: string) => {
-    setSearchQuery(text);
-    if (text.trim() === '') {
+    try {
+      setSearchQuery(text);
+      if (text.trim() === '') {
+        setEvents(EVENTS);
+      } else {
+        searchEvents(text);
+      }
+    } catch (error) {
+      console.error('Error in handleSearch:', error);
       setEvents(EVENTS);
-    } else {
-      searchEvents(text);
     }
   };
 
@@ -269,9 +286,9 @@ export default function Discover() {
 
       <ScrollView style={styles.eventsGrid}>
         <View style={styles.gridContainer}>
-          {events.map((event) => (
+          {events.map((event, index) => (
             <Animated.View
-              key={event.id}
+              key={`${event.id}-${index}`}
               style={{
                 opacity: event.id === hiddenCardId ? cardOpacity : 1,
               }}

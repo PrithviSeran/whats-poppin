@@ -146,7 +146,7 @@ const CreateAccount = () => {
                 styles.helperText,
                 { color: colorScheme === 'dark' ? '#aaa' : '#888' },
               ]}
-            >
+      >
               This is how it will appear in the app
             </Text>
           )}

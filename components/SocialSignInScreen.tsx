@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
   buttonGroup: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: -20,
   },
   termsLink: {
     color: '#F45B5B',
@@ -298,14 +298,14 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   input: {
-    height: 50,
+    height: 46,
     paddingHorizontal: 20,
     fontSize: 16,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
   },
   signInButton: {
     width: width * 0.8,
-    height: 50,
+    height: 46,
     marginBottom: 20,
     borderRadius: 30,
     overflow: 'hidden',
@@ -359,3 +359,67 @@ const styles = StyleSheet.create({
 });
 
 export default SocialSignInScreen; 
+
+
+
+{/*
+          <View style={styles.dividerContainer}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <TouchableOpacity>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.socialButton}
+            >
+              <View style={styles.iconContainer}>
+                <Image 
+                  source={require('../assets/images/google-logo.webp')}
+                  style={styles.socialIcon}
+                />
+              </View>
+              <Text style={styles.socialButtonText}>Sign In with Google</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.socialButton}
+            >
+              <View style={styles.iconContainer}>
+                <Image 
+                  source={require('../assets/images/meta-logo.png')}
+                  style={styles.socialIcon}
+                />
+              </View>
+              <Text style={styles.socialButtonText}>Sign In with Facebook</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.socialButton}
+            >
+              <View style={styles.iconContainer}>
+                <Image 
+                  source={require('../assets/images/phone-logo.png')}
+                  style={styles.socialIcon}
+                />
+              </View>
+              <Text style={styles.socialButtonText}>Sign In with Number</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          */}

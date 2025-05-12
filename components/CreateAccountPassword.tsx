@@ -21,8 +21,8 @@ const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your ba
 
 type RootStackParamList = {
   'user-preferences': { userData: string };
-};
-
+  };
+  
 type CreateAccountPasswordRouteProp = RouteProp<{
   'create-account-password': { userData: string };
 }, 'create-account-password'>;
