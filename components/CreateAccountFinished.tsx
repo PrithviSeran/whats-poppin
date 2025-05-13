@@ -27,6 +27,8 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
   const navigation = useNavigation<NavigationProp>();
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
+  console.log(userData)
+
   async function createUser() {
     try {
       const { data, error } = await supabase.auth.signUp({

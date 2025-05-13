@@ -39,12 +39,8 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   
-  console.log('CreateAccountEmail - route:', route);
-  console.log('CreateAccountEmail - route.params:', route?.params);
-  console.log('CreateAccountEmail - route.params.userData:', route?.params?.userData);
-  
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
-  console.log('CreateAccountEmail - parsed userData:', userData);
+
 
   const validateEmail = (text: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
