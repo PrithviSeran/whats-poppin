@@ -90,8 +90,8 @@ export default function Discover() {
 
   const searchEvents = (query: string) => {
     try {
-      const lowerQuery = query.toLowerCase();
-      
+    const lowerQuery = query.toLowerCase();
+    
       const filteredEvents = allEvents.filter(event => {
         // Add null checks for all properties
         const title = event?.title?.toLowerCase() || '';
@@ -105,7 +105,7 @@ export default function Discover() {
                date.includes(lowerQuery);
       });
 
-      setEvents(filteredEvents);
+    setEvents(filteredEvents);
     } catch (error) {
       console.error('Error in searchEvents:', error);
       // Fallback to showing all events if there's an error
@@ -115,11 +115,11 @@ export default function Discover() {
 
   const handleSearch = (text: string) => {
     try {
-      setSearchQuery(text);
-      if (text.trim() === '') {
-        setEvents(EVENTS);
-      } else {
-        searchEvents(text);
+    setSearchQuery(text);
+    if (text.trim() === '') {
+      setEvents(EVENTS);
+    } else {
+      searchEvents(text);
       }
     } catch (error) {
       console.error('Error in handleSearch:', error);

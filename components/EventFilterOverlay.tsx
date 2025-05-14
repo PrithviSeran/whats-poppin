@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
@@ -68,6 +69,41 @@ export default function EventFilterOverlay({
   const [selectedLocationPreferences, setSelectedLocationPreferences] = useState<string[]>(currentFilters.locationPreferences);
   const colorScheme = useColorScheme();
 
+  // Load saved filters when the overlay becomes visible
+  useEffect(() => {
+    if (visible) {
+      loadSavedFilters();
+    }
+  }, [visible]);
+
+  const loadSavedFilters = async () => {
+    try {
+      const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
+      if (savedFiltersJson) {
+        const savedFilters = JSON.parse(savedFiltersJson);
+        console.log('Loading saved filters in overlay:', savedFilters); // Debug log
+        setSelectedEventTypes(savedFilters.eventTypes);
+        setSelectedTimePreferences(savedFilters.timePreferences);
+        setSelectedLocationPreferences(savedFilters.locationPreferences);
+      }
+    } catch (error) {
+      console.error('Error loading saved filters in overlay:', error);
+    }
+  };
+
+  const saveFiltersToStorage = async (filters: {
+    eventTypes: string[];
+    timePreferences: string[];
+    locationPreferences: string[];
+  }) => {
+    try {
+      await AsyncStorage.setItem('eventFilters', JSON.stringify(filters));
+      console.log('Saving filters to storage:', filters); // Debug log
+    } catch (error) {
+      console.error('Error saving filters:', error);
+    }
+  };
+
   const toggleEventType = (type: string) => {
     setSelectedEventTypes(prev =>
       prev.includes(type)
@@ -92,13 +128,35 @@ export default function EventFilterOverlay({
     );
   };
 
-  const handleApply = () => {
-    onApplyFilters({
+  const handleApply = async () => {
+    const newFilters = {
       eventTypes: selectedEventTypes,
       timePreferences: selectedTimePreferences,
       locationPreferences: selectedLocationPreferences,
-    });
+    };
+    
+    // Save to AsyncStorage
+    await saveFiltersToStorage(newFilters);
+    
+    // Apply filters
+    onApplyFilters(newFilters);
     onClose();
+  };
+
+  const handleReset = async () => {
+    const emptyFilters = {
+      eventTypes: [],
+      timePreferences: [],
+      locationPreferences: [],
+    };
+    
+    // Save empty filters to AsyncStorage
+    await saveFiltersToStorage(emptyFilters);
+    
+    // Reset local state
+    setSelectedEventTypes([]);
+    setSelectedTimePreferences([]);
+    setSelectedLocationPreferences([]);
   };
 
   const isDark = colorScheme === 'dark';
@@ -238,11 +296,7 @@ export default function EventFilterOverlay({
           <View style={styles.footer}>
             <TouchableOpacity
               style={styles.resetButton}
-              onPress={() => {
-                setSelectedEventTypes([]);
-                setSelectedTimePreferences([]);
-                setSelectedLocationPreferences([]);
-              }}
+              onPress={handleReset}
             >
               <Text style={[styles.resetButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>Reset</Text>
             </TouchableOpacity>

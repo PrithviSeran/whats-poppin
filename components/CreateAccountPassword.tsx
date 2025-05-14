@@ -15,13 +15,14 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Image } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 const { width } = Dimensions.get('window');
 
 const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
 
 type RootStackParamList = {
-  'user-preferences': { userData: string };
-  };
+  'create-account-location': { userData: string };
+};
   
 type CreateAccountPasswordRouteProp = RouteProp<{
   'create-account-password': { userData: string };
@@ -34,6 +35,7 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
@@ -96,13 +98,16 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
     const isConfirmPasswordValid = validateConfirmPassword(confirmPassword);
     
     if (isPasswordValid && isConfirmPasswordValid) {
-      navigation.navigate('user-preferences', {
+      console.log(userData)
+      navigation.navigate('create-account-location', {
         userData: JSON.stringify({ ...userData, password })
       });
     }
   };
 
   const requirements = checkPasswordRequirements(password);
+
+  console.log(userData)
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
