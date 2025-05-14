@@ -154,27 +154,27 @@ export default function Profile() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-      <View style={styles.header}>
-        <LinearGradient
-          colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          locations={[0, 0.3, 0.7, 1]}
-          style={styles.headerGradient}
-        >
-          {editedProfile?.bannerImage && (
-            <Image source={{ uri: editedProfile.bannerImage }} style={styles.bannerImage} />
-          )}
-          <TouchableOpacity style={styles.editButton} onPress={handleEditImages}>
-            <Ionicons name="images" size={24} color="#fff" />
+    <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+      <LinearGradient
+        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        locations={[0, 0.3, 0.7, 1]}
+        style={styles.headerGradient}
+      >
+        {editedProfile?.bannerImage && (
+          <Image source={{ uri: editedProfile.bannerImage }} style={styles.bannerImage} />
+        )}
+        <TouchableOpacity style={styles.editButton} onPress={handleEditImages}>
+          <Ionicons name="images" size={24} color="#fff" />
+        </TouchableOpacity>
+        {isEditMode && (
+          <TouchableOpacity style={styles.bannerEditButton} onPress={() => pickImage('banner')}>
+            <Ionicons name="image" size={24} color="#fff" />
           </TouchableOpacity>
-          {isEditMode && (
-            <TouchableOpacity style={styles.bannerEditButton} onPress={() => pickImage('banner')}>
-              <Ionicons name="image" size={24} color="#fff" />
-            </TouchableOpacity>
-          )}
-          <View style={styles.profileImageContainer}>
+        )}
+        <View style={styles.profileImageContainer}>
+          <View style={styles.profileImageWrapper}>
             {editedProfile?.profileImage ? (
               <Image source={{ uri: editedProfile.profileImage }} style={styles.profileImage} />
             ) : (
@@ -188,58 +188,60 @@ export default function Profile() {
               </TouchableOpacity>
             )}
           </View>
-          <Text style={styles.name}>{editedProfile?.name}</Text>
-        </LinearGradient>
-      </View>
+        </View>
+        <Text style={styles.name}>{editedProfile?.name}</Text>
+      </LinearGradient>
 
-      <View style={styles.content}>
-        {renderInfoRow('mail-outline', 'Email', editedProfile?.email || '', true)}
-        {renderInfoRow('calendar-outline', 'Birthday', editedProfile?.birthday || '')}
-        {renderInfoRow('person-outline', 'Gender', editedProfile?.gender || '')}
-        
-        {isEditMode && (
-          <View style={styles.editActions}>
-            <TouchableOpacity style={styles.saveButton} onPress={handleSaveImages}>
-              <LinearGradient
-                colors={['#4CAF50', '#45a049']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.saveButtonGradient}
-              >
-                <Ionicons name="checkmark" size={24} color="#fff" style={styles.buttonIcon} />
-                <Text style={styles.saveButtonText}>Save</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCancelImages}>
-              <LinearGradient
-                colors={['#f44336', '#e53935']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.cancelButtonGradient}
-              >
-                <Ionicons name="close" size={24} color="#fff" style={styles.buttonIcon} />
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        )}
-        
-        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-          <LinearGradient
-            colors={['#FF6B6B', '#FF1493']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.signOutGradient}
-          >
-            <Text style={styles.signOutText}>Sign Out</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
+          {renderInfoRow('mail-outline', 'Email', editedProfile?.email || '', true)}
+          {renderInfoRow('calendar-outline', 'Birthday', editedProfile?.birthday || '')}
+          {renderInfoRow('person-outline', 'Gender', editedProfile?.gender || '')}
+          
+          {isEditMode && (
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.saveButton} onPress={handleSaveImages}>
+                <LinearGradient
+                  colors={['#4CAF50', '#45a049']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.saveButtonGradient}
+                >
+                  <Ionicons name="checkmark" size={24} color="#fff" style={styles.buttonIcon} />
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelButton} onPress={handleCancelImages}>
+                <LinearGradient
+                  colors={['#f44336', '#e53935']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.cancelButtonGradient}
+                >
+                  <Ionicons name="close" size={24} color="#fff" style={styles.buttonIcon} />
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.signOutGradient}
+            >
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.footerContainer}>
-        <MainFooter activeTab="me" />
-      </View>
-    </SafeAreaView>
+        <View style={styles.footerContainer}>
+          <MainFooter activeTab="me" />
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -247,19 +249,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  safeArea: {
+    flex: 1,
+  },
+  headerGradient: {
+    width: '100%',
+    paddingTop: 50,
+    paddingBottom: 20,
+    alignItems: 'center',
+    minHeight: 300,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  header: {
-    height: 300,
-    width: '100%',
-  },
-  headerGradient: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   bannerImage: {
     position: 'absolute',
@@ -269,7 +272,7 @@ const styles = StyleSheet.create({
   },
   editButton: {
     position: 'absolute',
-    top: 20,
+    top: 80,
     right: 20,
     width: 40,
     height: 40,
@@ -290,8 +293,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   profileImageContainer: {
+    marginTop: 60,
     marginBottom: 20,
+    alignItems: 'center',
+  },
+  profileImageWrapper: {
     position: 'relative',
+    width: 120,
+    height: 120,
   },
   profileImage: {
     width: 120,
@@ -307,11 +316,12 @@ const styles = StyleSheet.create({
   },
   uploadButton: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
+    bottom: -10,
+    right: -10,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 20,
     padding: 8,
+    zIndex: 1,
   },
   name: {
     fontSize: 24,
