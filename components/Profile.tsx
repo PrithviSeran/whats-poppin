@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Animated, Easing } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -55,6 +55,10 @@ export default function Profile() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
   const params = route.params as RouteParams;
+  
+  // Add animation values
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -73,6 +77,34 @@ export default function Profile() {
       setEditedProfile(updatedProfile);
     }
   }, [params]);
+
+  // Start the animations when component mounts
+  useEffect(() => {
+    Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 0,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.timing(rotateAnim, {
+          toValue: 1,
+          duration: 2000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -141,10 +173,33 @@ export default function Profile() {
   );
 
   if (!profile) {
+    const spin = rotateAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
+
+    const scale = pulseAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.8, 1.2],
+    });
+
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
         <View style={styles.loadingContainer}>
-          <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>Loading profile...</Text>
+          <Animated.View
+            style={[
+              styles.loadingCircle,
+              {
+                transform: [{ scale }, { rotate: spin }],
+                borderColor: '#FF1493',
+              },
+            ]}
+          >
+            <View style={styles.innerCircle} />
+          </Animated.View>
+          <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>
+            Loading profile...
+          </Text>
         </View>
         <View style={styles.footerContainer}>
           <MainFooter activeTab="me" />
@@ -263,6 +318,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'transparent',
   },
   bannerImage: {
     position: 'absolute',
@@ -418,7 +474,23 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
+  loadingCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 3,
+    borderColor: '#FF1493',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  innerCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 20, 147, 0.1)',
+  },
   loadingText: {
     fontSize: 16,
+    fontWeight: '500',
   },
 }); 
