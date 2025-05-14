@@ -14,13 +14,38 @@ const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 
 interface Event {
   id: number;
-  title: string;
+  name: string;
+  title?: string;
   image: any;
-  date: string;
-  location: string;
+  event_at: string;
+  date?: string;
+  location_pref: string;
+  location?: string;
   description: string;
   isLiked?: boolean;
 }
+
+const formatDate = (dateString: string) => {
+  // If the date is already in a readable format (e.g., "June 15, 2024"), return it as is
+  if (dateString.match(/^[A-Za-z]+\s+\d{1,2},\s+\d{4}$/)) {
+    return dateString;
+  }
+
+  // Otherwise, try to parse it as an ISO date
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return dateString; // Return original string if date is invalid
+    }
+    return date.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  } catch (error) {
+    return dateString; // Return original string if parsing fails
+  }
+};
 
 export default function SavedLikes() {
   const [savedEvents, setSavedEvents] = useState<Event[]>([]);
@@ -170,6 +195,58 @@ export default function SavedLikes() {
     }
   };
 
+  const renderEventCard = (event: Event) => (
+    <Animated.View
+      key={event.id}
+      style={[
+        styles.cardContainer,
+        {
+          opacity: event.id === hiddenCardId ? cardOpacity : 1,
+        }
+      ]}
+    >
+      <TouchableOpacity
+        style={[
+          styles.card,
+          { backgroundColor: Colors[colorScheme ?? 'light'].card }
+        ]}
+        onPress={(e) => {
+          e.target.measure((x, y, width, height, pageX, pageY) => {
+            openModal(event, { x: pageX, y: pageY, width, height });
+          });
+        }}
+      >
+        <Image 
+          source={event.image} 
+          style={styles.cardImage}
+        />
+        <View style={styles.cardContent}>
+          <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+            {event.name || event.title}
+          </Text>
+          <View style={styles.infoRow}>
+            <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+            <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {formatDate(event.event_at || event.date || '')}
+            </Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+            <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {event.location_pref || event.location}
+            </Text>
+          </View>
+        </View>
+        <TouchableOpacity 
+          style={styles.deleteButton}
+          onPress={() => deleteEvent(event.id)}
+        >
+          <Ionicons name="close" size={20} color="#fff" />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
   if (savedEvents.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -218,51 +295,7 @@ export default function SavedLikes() {
       </TouchableOpacity>
       <ScrollView style={styles.eventsGrid}>
         <View style={styles.gridContainer}>
-          {savedEvents.map((event) => (
-            <Animated.View
-              key={event.id}
-              style={[
-                styles.cardContainer,
-                {
-                  opacity: event.id === hiddenCardId ? cardOpacity : 1,
-                }
-              ]}
-            >
-              <TouchableOpacity 
-                style={[
-                  styles.card,
-                  { backgroundColor: Colors[colorScheme ?? 'light'].card }
-                ]}
-                onPress={(e) => {
-                  e.target.measure((x, y, width, height, pageX, pageY) => {
-                    openModal(event, { x: pageX, y: pageY, width, height });
-                  });
-                }}
-              >
-                <Image 
-                  source={event.image} 
-                  style={styles.cardImage}
-                />
-                <View style={styles.cardContent}>
-                  <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{event.title}</Text>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.date}</Text>
-                  </View>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.location}</Text>
-                  </View>
-                </View>
-                <TouchableOpacity 
-                  style={styles.deleteButton}
-                  onPress={() => deleteEvent(event.id)}
-                >
-                  <Ionicons name="close" size={20} color="#fff" />
-                </TouchableOpacity>
-              </TouchableOpacity>
-            </Animated.View>
-          ))}
+          {savedEvents.map(renderEventCard)}
         </View>
       </ScrollView>
 
@@ -307,21 +340,28 @@ export default function SavedLikes() {
           >
             <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
           </TouchableOpacity>
-          <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-            <ScrollView style={styles.expandedContent}>
-              <Image source={selectedEvent.image} style={styles.imageExpanded} />
-              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.title}</Text>
-              <View style={styles.infoRow}>
-                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.date}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.location}</Text>
-              </View>
-              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.description}</Text>
-            </ScrollView>
-          </View>
+          
+          <ScrollView style={styles.expandedContent}>
+            <Image source={selectedEvent.image} style={styles.imageExpanded} />
+            <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {selectedEvent.name || selectedEvent.title}
+            </Text>
+            <View style={styles.infoRow}>
+              <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {formatDate(selectedEvent.event_at || selectedEvent.date || '')}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {selectedEvent.location_pref || selectedEvent.location}
+              </Text>
+            </View>
+            <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {selectedEvent.description}
+            </Text>
+          </ScrollView>
         </Animated.View>
       )}
     </SafeAreaView>

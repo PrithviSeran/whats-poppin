@@ -47,6 +47,8 @@ export default function RootLayout() {
           <Stack.Screen name="create-account-location" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="user-preferences" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-finished" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="edit-profile" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="edit-images" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen 
             name="suggested-events" 
             options={{ 
