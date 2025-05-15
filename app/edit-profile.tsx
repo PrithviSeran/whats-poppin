@@ -1,23 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { supabase } from '@/lib/supabase';
 
 interface UserProfile {
+  id: number;
+  created_at: string;
   name: string;
   email: string;
   birthday: string;
   gender: string;
+  saved_events?: string[];
+  preferences?: string[];
   profileImage?: string;
   bannerImage?: string;
 }
 
 type RootStackParamList = {
-  '(tabs)': undefined;
   'edit-profile': { currentProfile: UserProfile };
 };
 
@@ -29,16 +33,24 @@ type RouteParams = {
 
 export default function EditProfileScreen() {
   const [profile, setProfile] = useState<UserProfile>({
+    id: 0,
+    created_at: "",
     name: "",
     email: "",
     birthday: "",
     gender: "",
+    saved_events: [],
+    preferences: [],
+    profileImage: "",
+    bannerImage: "",
   });
+  const [isLoading, setIsLoading] = useState(false);
 
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
   const params = route.params as RouteParams;
+  
 
   useEffect(() => {
     if (params?.currentProfile) {
@@ -46,10 +58,30 @@ export default function EditProfileScreen() {
     }
   }, [params]);
 
-  const handleSave = () => {
-    navigation.goBack();
-    // Pass the updated profile back to the previous screen
-    navigation.setParams({ updatedProfile: profile });
+  const handleSave = async () => {
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('all_users')
+        .update({
+          name: profile.name,
+          birthday: profile.birthday,
+          gender: profile.gender,
+          // add other fields as needed
+        })
+        .eq('email', profile.email);
+
+      if (error) {
+        Alert.alert('Error', 'Failed to update profile: ' + error.message);
+        return false;
+      }
+
+      navigation.goBack();
+    } catch (error) {
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCancel = () => {
@@ -62,15 +94,25 @@ export default function EditProfileScreen() {
         <TouchableOpacity onPress={handleCancel} style={styles.backButton}>
           <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
+        <TouchableOpacity 
+          onPress={handleSave} 
+          style={styles.saveButton}
+          disabled={isLoading}
+        >
           <LinearGradient
             colors={['#4CAF50', '#45a049']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.saveButtonGradient}
           >
-            <Ionicons name="checkmark" size={24} color="#fff" style={styles.buttonIcon} />
-            <Text style={styles.saveButtonText}>Save</Text>
+            {isLoading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Ionicons name="checkmark" size={24} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </>
+            )}
           </LinearGradient>
         </TouchableOpacity>
       </View>

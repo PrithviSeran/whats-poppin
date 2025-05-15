@@ -7,14 +7,18 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import { supabase } from '@/lib/supabase';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 interface UserProfile {
+  id: number;
+  created_at: string;
   name: string;
   email: string;
   birthday: string;
   gender: string;
+  saved_events?: string[]; // or string, depending on your usage
+  preferences?: string[];  // or string, depending on your usage
   profileImage?: string;
   bannerImage?: string;
 }
@@ -38,14 +42,6 @@ type RouteParams = {
   };
 };
 
-const sampleProfile: UserProfile = {
-  name: "John Doe",
-  email: "john.doe@example.com",
-  birthday: "January 15, 1995",
-  gender: "Male",
-  profileImage: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
-  bannerImage: undefined
-};
 
 export default function Profile() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -60,23 +56,43 @@ export default function Profile() {
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
+  const fetchUserProfile = async () => {
+    // Get the current user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Query the all_users table for this user's profile
+    const { data, error } = await supabase
+      .from('all_users')
+      .select('*')
+      .eq('email', user.email)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error fetching user profile:', error);
+      return;
+    }
+
+    if (!data) {
+      console.log('No user profile found for email:', user.email);
+      return;
+    }
+
+    setProfile(data);
+    setEditedProfile(data);
+  };
+
+  // Initial fetch
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setProfile(sampleProfile);
-      setEditedProfile(sampleProfile);
-    }, 500);
-    
-    return () => clearTimeout(timer);
+    fetchUserProfile();
   }, []);
 
-  // Listen for updates from edit profile page
-  useEffect(() => {
-    if (params?.params?.updatedProfile) {
-      const updatedProfile = params.params.updatedProfile;
-      setProfile(updatedProfile);
-      setEditedProfile(updatedProfile);
-    }
-  }, [params]);
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchUserProfile();
+    }, [])
+  );
 
   // Start the animations when component mounts
   useEffect(() => {
@@ -122,14 +138,23 @@ export default function Profile() {
 
   const handleEditProfile = () => {
     if (editedProfile) {
+
       navigation.navigate('edit-profile', { currentProfile: editedProfile });
     }
   };
 
-  const handleSaveImages = () => {
+    
+
+  const handleSaveImages = async () => {
     if (editedProfile) {
-      setProfile(editedProfile);
-      setIsEditMode(false);
+      const cleanPreferences = Array.isArray(editedProfile.preferences)
+        ? editedProfile.preferences.map((pref: any) =>
+            typeof pref === 'string' ? pref : (pref.value || JSON.stringify(pref))
+          )
+        : [];
+
+
+
     }
   };
 
