@@ -48,8 +48,36 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         console.error('Signup error:', error.message);
         throw error;
       }
-      
-      console.log('Signup successful:', data);
+
+      // If sign up is successful, insert into all_users
+      const user = data.user;
+      if (user) {
+        const preferences = Array.isArray(userData.preferences)
+          ? `{${userData.preferences.map(String).join(',')}}`
+          : userData.preferences
+            ? `{${String(userData.preferences)}}`
+            : '{}';
+
+        const saved_events = Array.isArray(userData.saved_events)
+          ? `{${userData.saved_events.map(String).join(',')}}`
+          : '{}';
+
+        const { error: insertError } = await supabase
+          .from('all_users')
+          .insert([{
+            name: userData.name,
+            email: userData.email,
+            birthday: userData.birthday,
+            gender: userData.gender,
+            preferences,
+            saved_events,
+          }]);
+        if (insertError) {
+          console.error('Error inserting into all_users:', insertError.message);
+        }
+      }
+
+      console.log('Signup and all_users insert successful:', data);
     } catch (error) {
       console.error('Error during signup:', error);
       // Handle error appropriately

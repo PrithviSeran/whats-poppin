@@ -1,23 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Alert } from 'react-native';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { supabase } from '@/lib/supabase';
 
 interface UserProfile {
+  id: number;
+  created_at: string;
   name: string;
   email: string;
   birthday: string;
   gender: string;
+  saved_events?: string[];
+  preferences?: string[];
   profileImage?: string;
   bannerImage?: string;
 }
 
 type RootStackParamList = {
-  '(tabs)': undefined;
   'edit-profile': { currentProfile: UserProfile };
 };
 
@@ -29,16 +33,25 @@ type RouteParams = {
 
 export default function EditProfileScreen() {
   const [profile, setProfile] = useState<UserProfile>({
+    id: 0,
+    created_at: "",
     name: "",
     email: "",
     birthday: "",
     gender: "",
+    saved_events: [],
+    preferences: [],
+    profileImage: "",
+    bannerImage: "",
   });
+
+
 
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
   const params = route.params as RouteParams;
+  
 
   useEffect(() => {
     if (params?.currentProfile) {
@@ -46,10 +59,25 @@ export default function EditProfileScreen() {
     }
   }, [params]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+
+    const { error } = await supabase
+    .from('all_users')
+    .update({
+      name: profile.name,
+      birthday: profile.birthday,
+      gender: profile.gender,
+      // add other fields as needed
+    })
+    .eq('email', profile.email);
+
+  if (error) {
+    Alert.alert('Error', 'Failed to update profile: ' + error.message);
+    return false;
+  }
+
+    
     navigation.goBack();
-    // Pass the updated profile back to the previous screen
-    navigation.setParams({ updatedProfile: profile });
   };
 
   const handleCancel = () => {
