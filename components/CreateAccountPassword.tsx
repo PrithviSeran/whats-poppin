@@ -8,22 +8,23 @@ import {
   TextInput,
   Dimensions,
   Platform,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { Image } from 'react-native';
+import MaskedView from '@react-native-masked-view/masked-view';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+const { width } = Dimensions.get('window');
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 type RootStackParamList = {
   'create-account-location': { userData: string };
 };
-  
+
 type CreateAccountPasswordRouteProp = RouteProp<{
   'create-account-password': { userData: string };
 }, 'create-account-password'>;
@@ -40,74 +41,43 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
   const colorScheme = useColorScheme();
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
-  const checkPasswordRequirements = (text: string) => {
-    return {
-      length: text.length >= 8,
-      uppercase: /[A-Z]/.test(text),
-      lowercase: /[a-z]/.test(text),
-      number: /[0-9]/.test(text),
-      special: /[!@#$%^&*]/.test(text),
-    };
-  };
+  const checkPasswordRequirements = (text: string) => ({
+    length: text.length >= 8,
+    uppercase: /[A-Z]/.test(text),
+    lowercase: /[a-z]/.test(text),
+    number: /[0-9]/.test(text),
+    special: /[!@#$%^&*]/.test(text),
+  });
 
   const validatePassword = (text: string) => {
     const requirements = checkPasswordRequirements(text);
-    if (!text.trim()) {
-      setPasswordError('Password is required');
-      return false;
-    }
-    if (!requirements.length) {
-      setPasswordError('Password must be at least 8 characters long');
-      return false;
-    }
-    if (!requirements.uppercase) {
-      setPasswordError('Password must contain at least one uppercase letter');
-      return false;
-    }
-    if (!requirements.lowercase) {
-      setPasswordError('Password must contain at least one lowercase letter');
-      return false;
-    }
-    if (!requirements.number) {
-      setPasswordError('Password must contain at least one number');
-      return false;
-    }
-    if (!requirements.special) {
-      setPasswordError('Password must contain at least one special character (!@#$%^&*)');
-      return false;
-    }
+    if (!text.trim()) return setPasswordError('Password is required'), false;
+    if (!requirements.length) return setPasswordError('At least 8 characters'), false;
+    if (!requirements.uppercase) return setPasswordError('One uppercase letter required'), false;
+    if (!requirements.lowercase) return setPasswordError('One lowercase letter required'), false;
+    if (!requirements.number) return setPasswordError('One number required'), false;
+    if (!requirements.special) return setPasswordError('One special character required'), false;
     setPasswordError('');
     return true;
   };
 
   const validateConfirmPassword = (text: string) => {
-    if (!text.trim()) {
-      setConfirmPasswordError('Please confirm your password');
-      return false;
-    }
-    if (text !== password) {
-      setConfirmPasswordError('Passwords do not match');
-      return false;
-    }
+    if (!text.trim()) return setConfirmPasswordError('Please confirm your password'), false;
+    if (text !== password) return setConfirmPasswordError('Passwords do not match'), false;
     setConfirmPasswordError('');
     return true;
   };
 
   const handleNext = () => {
-    const isPasswordValid = validatePassword(password);
-    const isConfirmPasswordValid = validateConfirmPassword(confirmPassword);
-    
-    if (isPasswordValid && isConfirmPasswordValid) {
-      console.log(userData)
+    const valid = validatePassword(password) && validateConfirmPassword(confirmPassword);
+    if (valid) {
       navigation.navigate('create-account-location', {
-        userData: JSON.stringify({ ...userData, password })
+        userData: JSON.stringify({ ...userData, password }),
       });
     }
   };
 
   const requirements = checkPasswordRequirements(password);
-
-  console.log(userData)
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -125,17 +95,35 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
       >
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
+
       <View style={styles.centerContent}>
-      <View style={styles.headerContainer}>
-          <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>{`What's Poppin?`}</Text>
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow}>
+            <Image
+              source={BALLOON_IMAGE}
+              style={styles.balloons}
+              resizeMode="contain"
+            />
+            <MaskedView
+              maskElement={
+                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
+              }
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+              >
+                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
+              </LinearGradient>
+            </MaskedView>
+          </View>
         </View>
+
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>Set your password</Text>
+
           <TextInput
             style={[
               styles.input,
@@ -162,33 +150,27 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
               <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
                 Password requirements:
               </Text>
-              <View style={styles.requirementRow}>
-                <Text style={[styles.requirementText, requirements.length && styles.requirementMet]}>
-                  {requirements.length ? '✓' : '○'} At least 8 characters
-                </Text>
-              </View>
-              <View style={styles.requirementRow}>
-                <Text style={[styles.requirementText, requirements.uppercase && styles.requirementMet]}>
-                  {requirements.uppercase ? '✓' : '○'} One uppercase letter
-                </Text>
-              </View>
-              <View style={styles.requirementRow}>
-                <Text style={[styles.requirementText, requirements.lowercase && styles.requirementMet]}>
-                  {requirements.lowercase ? '✓' : '○'} One lowercase letter
-                </Text>
-              </View>
-              <View style={styles.requirementRow}>
-                <Text style={[styles.requirementText, requirements.number && styles.requirementMet]}>
-                  {requirements.number ? '✓' : '○'} One number
-                </Text>
-              </View>
-              <View style={styles.requirementRow}>
-                <Text style={[styles.requirementText, requirements.special && styles.requirementMet]}>
-                  {requirements.special ? '✓' : '○'} One special character (!@#$%^&*)
-                </Text>
-              </View>
+              {[
+                { key: 'length', label: 'At least 8 characters' },
+                { key: 'uppercase', label: 'One uppercase letter' },
+                { key: 'lowercase', label: 'One lowercase letter' },
+                { key: 'number', label: 'One number' },
+                { key: 'special', label: 'One special character (!@#$%^&*)' },
+              ].map(({ key, label }) => (
+                <View key={key} style={styles.requirementRow}>
+                  <Text
+                    style={[
+                      styles.requirementText,
+                      requirements[key as keyof typeof requirements] && styles.requirementMet,
+                    ]}
+                  >
+                    {requirements[key as keyof typeof requirements] ? '✓' : '○'} {label}
+                  </Text>
+                </View>
+              ))}
             </View>
           )}
+
           <TextInput
             style={[
               styles.input,
@@ -211,19 +193,26 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
             <Text style={styles.errorText}>{confirmPasswordError}</Text>
           )}
         </View>
+
         <View style={styles.buttonGroup}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={handleNext}
-            disabled={!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError}
+            disabled={
+              !password.trim() ||
+              !confirmPassword.trim() ||
+              !!passwordError ||
+              !!confirmPasswordError
+            }
           >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
               style={[
                 styles.socialButton,
-                (!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError) && styles.disabledButton
+                (!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError) &&
+                  styles.disabledButton,
               ]}
             >
               <Text style={styles.socialButtonText}>Next</Text>
@@ -294,26 +283,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
-    paddingRight: 50,
   },
   balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
+    width: width * 0.22,
+    height: width * 0.22,
+    marginRight: -6,
   },
   title: {
-    fontSize: 25,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
     textShadowRadius: 6,
-    marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
   },
   errorText: {
@@ -346,4 +336,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CreateAccountPassword; 
+export default CreateAccountPassword;

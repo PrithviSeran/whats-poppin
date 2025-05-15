@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,11 +21,11 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Image } from 'react-native';
-
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+import MaskedView from '@react-native-masked-view/masked-view';
 
 const { width } = Dimensions.get('window');
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
+
 type RootStackParamList = {
   'user-preferences': { userData: string };
 };
@@ -52,30 +53,19 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       setLocationPermission(status === 'granted');
-      
-      if (status === 'granted') {
-        getCurrentLocation();
-      }
+      if (status === 'granted') getCurrentLocation();
     } catch (error) {
       console.error('Error checking location permission:', error);
       Alert.alert('Error', 'Failed to check location permission');
     }
   };
 
-  console.log(userData)
-
   const getCurrentLocation = async () => {
     try {
       setIsLoading(true);
       const location = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = location.coords;
-      
-      // Get address from coordinates
-      const [address] = await Location.reverseGeocodeAsync({
-        latitude,
-        longitude
-      });
-
+      const [address] = await Location.reverseGeocodeAsync({ latitude, longitude });
       if (address) {
         const locationString = `${address.city}, ${address.region}`;
         setCurrentLocation(locationString);
@@ -92,18 +82,13 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
   const handleContinue = async () => {
     try {
       setIsLoading(true);
-      
-      // Save location preference
       const locationData = {
         useLocation: locationPermission,
-        location: locationPermission ? currentLocation : manualLocation
+        location: locationPermission ? currentLocation : manualLocation,
       };
-      
       await AsyncStorage.setItem('userLocation', JSON.stringify(locationData));
-      
-      // Navigate to main app
       navigation.navigate('user-preferences', {
-        userData: JSON.stringify({ ...userData, location: locationData })
+        userData: JSON.stringify({ ...userData, location: locationData }),
       });
     } catch (error) {
       console.error('Error saving location:', error);
@@ -115,112 +100,79 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
 
   const handlePermissionChange = async (allow: boolean) => {
     setLocationPermission(allow);
-    if (allow) {
-      await getCurrentLocation();
-    }
+    if (allow) await getCurrentLocation();
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-    <TouchableOpacity
-        style={{
-          position: 'absolute',
-          top: 50,
-          left: 20,
-          zIndex: 10,
-          backgroundColor: 'rgba(0,0,0,0.1)',
-          borderRadius: 20,
-          padding: 8,
-        }}
+      <TouchableOpacity
+        style={styles.backButton}
         onPress={() => navigation.goBack()}
       >
-        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+        <Text style={styles.backIcon}>{'←'}</Text>
       </TouchableOpacity>
 
-        <View style={styles.headerContainer}>
-            <Image
-                source={BALLOON_IMAGE}
-                style={styles.balloons}
-                resizeMode="contain"
-            />
-            <Text style={styles.title}>{`What's Poppin?`}</Text>
+      <View style={styles.headerContainer}>
+        <View style={styles.headerRow}>
+          <Image
+            source={BALLOON_IMAGE}
+            style={styles.balloons}
+            resizeMode="contain"
+          />
+          <MaskedView
+            maskElement={<Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>}
+          >
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+            >
+              <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
+            </LinearGradient>
+          </MaskedView>
         </View>
-        
-      <KeyboardAvoidingView 
-        style={styles.content}
-      >
+      </View>
+
+      <KeyboardAvoidingView style={styles.content}>
         <View style={styles.header}>
-          <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>
-            Almost there!
-          </Text>
-          <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-            Help us personalize your experience
-          </Text>
+          <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>Almost there!</Text>
+          <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>Help us personalize your experience</Text>
         </View>
 
         <View style={styles.locationSection}>
-          <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-            Location Access
-          </Text>
-          <Text style={[styles.sectionDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
-            Allow location access to find events near you and get personalized recommendations.
-          </Text>
+          <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Location Access</Text>
+          <Text style={[styles.sectionDescription, { color: Colors[colorScheme ?? 'light'].text }]}>Allow location access to find events near you and get personalized recommendations.</Text>
 
           <View style={styles.permissionButtons}>
             <TouchableOpacity
-              style={[
-                styles.permissionButton,
-                locationPermission === true && styles.permissionButtonSelected
-              ]}
+              style={[styles.permissionButton, locationPermission === true && styles.permissionButtonSelected]}
               onPress={() => handlePermissionChange(true)}
             >
-              <Ionicons 
-                name="location" 
-                size={24} 
-                color={locationPermission === true ? '#fff' : Colors[colorScheme ?? 'light'].text} 
-              />
-              <Text style={[
-                styles.permissionButtonText,
-                { color: locationPermission === true ? '#fff' : Colors[colorScheme ?? 'light'].text }
-              ]}>
-                Allow
-              </Text>
+              <Ionicons name="location" size={24} color={locationPermission === true ? '#fff' : Colors[colorScheme ?? 'light'].text} />
+              <Text style={[styles.permissionButtonText, { color: locationPermission === true ? '#fff' : Colors[colorScheme ?? 'light'].text }]}>Allow</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[
-                styles.permissionButton,
-                locationPermission === false && styles.permissionButtonSelected
-              ]}
+              style={[styles.permissionButton, locationPermission === false && styles.permissionButtonSelected]}
               onPress={() => handlePermissionChange(false)}
             >
-              <Ionicons 
-                name="location-off" 
-                size={24} 
-                color={locationPermission === false ? '#fff' : Colors[colorScheme ?? 'light'].text} 
-              />
-              <Text style={[
-                styles.permissionButtonText,
-                { color: locationPermission === false ? '#fff' : Colors[colorScheme ?? 'light'].text }
-              ]}>
-                Don't Allow
-              </Text>
+              <Ionicons name="location-off" size={24} color={locationPermission === false ? '#fff' : Colors[colorScheme ?? 'light'].text} />
+              <Text style={[styles.permissionButtonText, { color: locationPermission === false ? '#fff' : Colors[colorScheme ?? 'light'].text }]}>Don't Allow</Text>
             </TouchableOpacity>
           </View>
 
           {locationPermission === false && (
             <View style={styles.manualLocationContainer}>
-              <Text style={[styles.manualLocationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                Enter your location
-              </Text>
+              <Text style={[styles.manualLocationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Enter your location</Text>
               <TextInput
                 style={[
                   styles.manualLocationInput,
-                  { 
+                  {
                     backgroundColor: Colors[colorScheme ?? 'light'].card,
                     color: Colors[colorScheme ?? 'light'].text,
-                    borderColor: Colors[colorScheme ?? 'light'].border
-                  }
+                    borderColor: Colors[colorScheme ?? 'light'].border,
+                  },
                 ]}
                 placeholder="e.g., New York, NY"
                 placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
@@ -249,9 +201,7 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
             locations={[0, 0.3, 0.7, 1]}
             style={styles.gradientButton}
           >
-            <Text style={styles.continueButtonText}>
-              {isLoading ? 'Setting up...' : 'Complete Setup'}
-            </Text>
+            <Text style={styles.continueButtonText}>{isLoading ? 'Setting up...' : 'Complete Setup'}</Text>
           </LinearGradient>
         </TouchableOpacity>
       </KeyboardAvoidingView>
@@ -267,34 +217,42 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 40,
   },
-  centerContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
   headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
-    paddingRight: 50,
   },
   balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
+    width: width * 0.22,
+    height: width * 0.22,
+    marginRight: -6,
   },
   title: {
-    fontSize: 25,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
     textShadowRadius: 6,
-    marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    borderRadius: 20,
+    padding: 8,
+  },
+  backIcon: {
+    fontSize: 28,
+    color: '#FF1493',
   },
   titleLarge: {
     fontSize: 28,
@@ -322,7 +280,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     textAlign: 'center',
-
     marginBottom: 10,
   },
   sectionDescription: {
@@ -387,4 +344,4 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-}); 
+});

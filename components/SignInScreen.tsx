@@ -16,6 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import MaskedView from '@react-native-masked-view/masked-view';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -26,7 +27,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 const CATCH_PHRASES = [
   "Any Plans Tonight?",
@@ -35,8 +36,7 @@ const CATCH_PHRASES = [
   "Plans or Nah?",
   "Where's the Spot?",
   "Wagwan Cro?"
-
-]
+];
 
 const SignInScreen = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -46,23 +46,19 @@ const SignInScreen = () => {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      // Fade out
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 600,
         useNativeDriver: true,
       }).start(() => {
-        // Update index after fade out
         setCurrentIndex((prevIndex) => (prevIndex + 1) % CATCH_PHRASES.length);
-        
-        // Fade in
         Animated.timing(fadeAnim, {
           toValue: 1,
           duration: 600,
           useNativeDriver: true,
         }).start();
       });
-    }, 5000); // Change every 5 seconds
+    }, 5000);
 
     return () => clearInterval(interval);
   }, []);
@@ -71,20 +67,34 @@ const SignInScreen = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.centerContent}>
         <View style={styles.headerContainer}>
-          <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>{`What's Poppin?`}</Text>
+          <View style={styles.headerRow}>
+            <Image
+              source={BALLOON_IMAGE}
+              style={styles.balloons}
+              resizeMode="contain"
+            />
+            <MaskedView
+              maskElement={
+                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
+              }
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+              >
+                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
+              </LinearGradient>
+            </MaskedView>
+          </View>
         </View>
 
-
-        <AnimatedGradientText 
+        <AnimatedGradientText
           phrases={CATCH_PHRASES}
           colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4'] as const}
         />
-        
+
         <View style={styles.buttonGroup}>
           <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
             By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
@@ -92,8 +102,8 @@ const SignInScreen = () => {
           <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
               style={styles.loginButton}
             >
@@ -103,8 +113,8 @@ const SignInScreen = () => {
           <TouchableOpacity onPress={() => navigation.navigate('create-account')}>
             <LinearGradient
               colors={['#FF9A9E', '#FF69B4', '#9D4EDD', '#FF9A9E']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
               style={styles.signupButton}
             >
@@ -132,26 +142,27 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   headerContainer: {
+    width: '100%',
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
-    paddingRight: 50,
   },
   balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
+    width: width * 0.22, // bigger balloon
+    height: width * 0.22,
+    marginRight: -6, // slight overlap to keep it snug
   },
   title: {
-    fontSize: 25,
+    fontSize: 32, // bigger text
     fontWeight: 'bold',
     color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
     textShadowRadius: 6,
-    marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
   },
   buttonGroup: {
@@ -201,7 +212,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.18,
     shadowRadius: 8,
-    elevation: 4, 
+    elevation: 4,
   },
   signupButtonText: {
     color: '#FFF',
@@ -215,4 +226,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default SignInScreen; 
+export default SignInScreen;

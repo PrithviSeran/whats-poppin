@@ -8,17 +8,18 @@ import {
   TextInput,
   Dimensions,
   Platform,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { Image } from 'react-native';
+import MaskedView from '@react-native-masked-view/masked-view';
 
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 type RootStackParamList = {
   'create-account-birthday': { userData: string };
@@ -38,9 +39,8 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
   const [emailError, setEmailError] = useState('');
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
-  
-  const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
+  const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
   const validateEmail = (text: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -59,14 +59,14 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
   const handleNext = () => {
     if (validateEmail(email)) {
       navigation.navigate('create-account-birthday', {
-        userData: JSON.stringify({ ...userData, email })
+        userData: JSON.stringify({ ...userData, email }),
       });
     }
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-    <TouchableOpacity
+      <TouchableOpacity
         style={{
           position: 'absolute',
           top: 50,
@@ -80,15 +80,32 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
       >
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
+
       <View style={styles.centerContent}>
-      <View style={styles.headerContainer}>
-          <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>{`What's Poppin?`}</Text>
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow}>
+            <Image
+              source={BALLOON_IMAGE}
+              style={styles.balloons}
+              resizeMode="contain"
+            />
+            <MaskedView
+              maskElement={
+                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
+              }
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+              >
+                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
+              </LinearGradient>
+            </MaskedView>
+          </View>
         </View>
+
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>My email is</Text>
           <TextInput
@@ -117,19 +134,20 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
             </Text>
           )}
         </View>
+
         <View style={styles.buttonGroup}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={handleNext}
             disabled={!email.trim() || !!emailError}
           >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
               style={[
                 styles.socialButton,
-                (!email.trim() || !!emailError) && styles.disabledButton
+                (!email.trim() || !!emailError) && styles.disabledButton,
               ]}
             >
               <Text style={styles.socialButtonText}>Next</Text>
@@ -200,26 +218,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
-    paddingRight: 50,
   },
   balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
+    width: width * 0.22, // updated balloon size
+    height: width * 0.22,
+    marginRight: -6,
   },
   title: {
-    fontSize: 25,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
     textShadowRadius: 6,
-    marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
   },
   errorText: {
@@ -234,4 +253,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CreateAccountEmail; 
+export default CreateAccountEmail;
