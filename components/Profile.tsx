@@ -7,7 +7,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import { supabase } from '@/lib/supabase';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 interface UserProfile {
@@ -52,52 +52,43 @@ export default function Profile() {
   const route = useRoute();
   const params = route.params as RouteParams;
 
+  const fetchUserProfile = async () => {
+    // Get the current user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Query the all_users table for this user's profile
+    const { data, error } = await supabase
+      .from('all_users')
+      .select('*')
+      .eq('email', user.email)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error fetching user profile:', error);
+      return;
+    }
+
+    if (!data) {
+      console.log('No user profile found for email:', user.email);
+      return;
+    }
+
+    setProfile(data);
+    setEditedProfile(data);
+  };
+
+  // Initial fetch
   useEffect(() => {
-
-    const fetchUserProfile = async () => {
-      // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Query the all_users table for this user's profile
-      const { data, error } = await supabase
-        .from('all_users')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error fetching user profile:', error);
-        return;
-      }
-
-      if (!data) {
-        console.log('No user profile found for email:', user.email);
-        // Optionally, prompt to create a profile or show a message
-        return;
-      }
-
-      setProfile(data);
-      setEditedProfile(data);
-    };
-
     fetchUserProfile();
   }, []);
 
-  // Listen for updates from edit profile page
-  useEffect(() => {
-
-    console.log('params', params);
-
-    if (params?.params?.updatedProfile) {
-      const updatedProfile = params.params.updatedProfile;
-
-      console.log('updatedProfile', updatedProfile);
-      // Clean preferences: convert any objects to strings (extract value or JSON)
-      setProfile(updatedProfile);
-      setEditedProfile(updatedProfile);
-    }
-  }, [params]);
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchUserProfile();
+    }, [])
+  );
 
   const handleSignOut = async () => {
     try {
@@ -115,52 +106,12 @@ export default function Profile() {
 
   const handleEditProfile = () => {
     if (editedProfile) {
-      console.log('editedProfile', editedProfile);
+
       navigation.navigate('edit-profile', { currentProfile: editedProfile });
     }
   };
 
-  const cleanPreferences = Array.isArray(editedProfile?.preferences)
-    ? editedProfile.preferences.map((pref: any) =>
-        typeof pref === 'string' ? pref : (pref.value || JSON.stringify(pref))
-      )
-    : [];
-
-  const updatedProfile: UserProfile = {
-    id: editedProfile?.id ?? profile?.id ?? 0,
-    created_at: editedProfile?.created_at ?? profile?.created_at ?? '',
-    name: editedProfile?.name ?? profile?.name ?? '',
-    email: editedProfile?.email ?? profile?.email ?? '',
-    birthday: editedProfile?.birthday ?? profile?.birthday ?? '',
-    gender: editedProfile?.gender ?? profile?.gender ?? '',
-    saved_events: editedProfile?.saved_events ?? profile?.saved_events ?? [],
-    preferences: cleanPreferences,
-    profileImage: editedProfile?.profileImage ?? profile?.profileImage,
-    bannerImage: editedProfile?.bannerImage ?? profile?.bannerImage,
-  };
-
-  const updateProfile = async (updatedProfile: UserProfile) => {
-
-    console.log('updatedProfile', updatedProfile);
-
-    /*
-    const { error } = await supabase
-      .from('all_users')
-      .update({
-        name: updatedProfile.name,
-        birthday: updatedProfile.birthday,
-        gender: updatedProfile.gender,
-        // add other fields as needed
-      })
-      .eq('email', updatedProfile.email);
-
-    if (error) {
-      Alert.alert('Error', 'Failed to update profile: ' + error.message);
-      return false;
-    }
-    */
-    return true;
-  };
+    
 
   const handleSaveImages = async () => {
     if (editedProfile) {
@@ -170,17 +121,8 @@ export default function Profile() {
           )
         : [];
 
-      const updatedProfile: UserProfile = {
-        ...editedProfile,
-        preferences: cleanPreferences,
-      };
 
-      const success = await updateProfile(updatedProfile);
-      if (success) {
-        setProfile(updatedProfile);
-        setIsEditMode(false);
-        Alert.alert('Success', 'Profile updated!');
-      }
+
     }
   };
 

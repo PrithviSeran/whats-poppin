@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -44,8 +44,7 @@ export default function EditProfileScreen() {
     profileImage: "",
     bannerImage: "",
   });
-
-
+  const [isLoading, setIsLoading] = useState(false);
 
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
@@ -60,24 +59,29 @@ export default function EditProfileScreen() {
   }, [params]);
 
   const handleSave = async () => {
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('all_users')
+        .update({
+          name: profile.name,
+          birthday: profile.birthday,
+          gender: profile.gender,
+          // add other fields as needed
+        })
+        .eq('email', profile.email);
 
-    const { error } = await supabase
-    .from('all_users')
-    .update({
-      name: profile.name,
-      birthday: profile.birthday,
-      gender: profile.gender,
-      // add other fields as needed
-    })
-    .eq('email', profile.email);
+      if (error) {
+        Alert.alert('Error', 'Failed to update profile: ' + error.message);
+        return false;
+      }
 
-  if (error) {
-    Alert.alert('Error', 'Failed to update profile: ' + error.message);
-    return false;
-  }
-
-    
-    navigation.goBack();
+      navigation.goBack();
+    } catch (error) {
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCancel = () => {
@@ -90,15 +94,25 @@ export default function EditProfileScreen() {
         <TouchableOpacity onPress={handleCancel} style={styles.backButton}>
           <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
+        <TouchableOpacity 
+          onPress={handleSave} 
+          style={styles.saveButton}
+          disabled={isLoading}
+        >
           <LinearGradient
             colors={['#4CAF50', '#45a049']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.saveButtonGradient}
           >
-            <Ionicons name="checkmark" size={24} color="#fff" style={styles.buttonIcon} />
-            <Text style={styles.saveButtonText}>Save</Text>
+            {isLoading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Ionicons name="checkmark" size={24} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </>
+            )}
           </LinearGradient>
         </TouchableOpacity>
       </View>
