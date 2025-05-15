@@ -9,17 +9,17 @@ import {
   Dimensions,
   Platform,
   Animated,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { Image } from 'react-native';
-import 'react-native-url-polyfill/auto'
-import { Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
-
+import 'react-native-url-polyfill/auto';
+import { Session } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+import MaskedView from '@react-native-masked-view/masked-view';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -27,11 +27,10 @@ type RootStackParamList = {
   'create-account': { userData: string };
 };
 
-
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 const CreateAccount = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -39,8 +38,7 @@ const CreateAccount = () => {
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const [session, setSession] = useState<Session | null>(null)
-
+  const [session, setSession] = useState<Session | null>(null);
 
   const validateName = (text: string) => {
     if (text.trim().length < 2) {
@@ -57,9 +55,9 @@ const CreateAccount = () => {
       console.log('CreateAccount - name value:', name);
       console.log('CreateAccount - userDataToSend:', userDataToSend);
       console.log('CreateAccount - stringified userData:', JSON.stringify(userDataToSend));
-      
+
       navigation.navigate('create-account-email', {
-        userData: JSON.stringify(userDataToSend)
+        userData: JSON.stringify(userDataToSend),
       });
     }
   };
@@ -103,15 +101,32 @@ const CreateAccount = () => {
       >
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
+
       <View style={styles.centerContent}>
         <View style={styles.headerContainer}>
-          <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>{`What's Poppin?`}</Text>
+          <View style={styles.headerRow}>
+            <Image
+              source={BALLOON_IMAGE}
+              style={styles.balloons}
+              resizeMode="contain"
+            />
+            <MaskedView
+              maskElement={
+                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
+              }
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+              >
+                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
+              </LinearGradient>
+            </MaskedView>
+          </View>
         </View>
+
         <View style={styles.inputSection}>
           <Text
             style={[
@@ -125,7 +140,11 @@ const CreateAccount = () => {
             style={[
               styles.input,
               {
-                borderBottomColor: nameError ? '#FF3B30' : colorScheme === 'dark' ? '#555' : '#ddd',
+                borderBottomColor: nameError
+                  ? '#FF3B30'
+                  : colorScheme === 'dark'
+                  ? '#555'
+                  : '#ddd',
                 color: Colors[colorScheme ?? 'light'].text,
               },
             ]}
@@ -146,12 +165,12 @@ const CreateAccount = () => {
                 styles.helperText,
                 { color: colorScheme === 'dark' ? '#aaa' : '#888' },
               ]}
-      >
+            >
               This is how it will appear in the app
             </Text>
           )}
         </View>
-        
+
         <View style={styles.buttonGroup}>
           <TouchableOpacity
             onPress={handleNext}
@@ -164,7 +183,7 @@ const CreateAccount = () => {
               locations={[0, 0.3, 0.7, 1]}
               style={[
                 styles.nextButton,
-                (!name.trim() || !!nameError) && styles.disabledButton
+                (!name.trim() || !!nameError) && styles.disabledButton,
               ]}
             >
               <Text style={styles.nextButtonText}>Next</Text>
@@ -211,26 +230,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
-    paddingRight: 50,
   },
   balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
+    width: width * 0.22, // bigger balloon
+    height: width * 0.22,
+    marginRight: -6, // tighter spacing
   },
   title: {
-    fontSize: 25,
+    fontSize: 32, // bigger text
     fontWeight: 'bold',
     color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
     textShadowRadius: 6,
-    marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
   },
   helperText: {
@@ -273,4 +293,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CreateAccount; 
+export default CreateAccount;

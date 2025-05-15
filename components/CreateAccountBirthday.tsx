@@ -8,16 +8,18 @@ import {
   TextInput,
   Dimensions,
   Platform,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { Image } from 'react-native';
+import MaskedView from '@react-native-masked-view/masked-view';
+
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 type RootStackParamList = {
   'create-account-gender': { userData: string };
@@ -35,6 +37,17 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
+
+  const formatBirthday = (input: string): string => {
+    const digits = input.replace(/\D/g, '');
+    const parts = [
+      digits.slice(0, 2),
+      digits.slice(2, 4),
+      digits.slice(4, 8)
+    ].filter(Boolean);
+    
+    return parts.join('/');
+  };
 
   const validateBirthday = (text: string) => {
     const dateRegex = /^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/;
@@ -69,36 +82,53 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
   const handleNext = () => {
     if (validateBirthday(birthday)) {
       navigation.navigate('create-account-gender', {
-        userData: JSON.stringify({ ...userData, birthday })
+        userData: JSON.stringify({ ...userData, birthday }),
       });
     }
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-        <TouchableOpacity
-            style={{
-            position: 'absolute',
-            top: 50,
-            left: 20,
-            zIndex: 10,
-            backgroundColor: 'rgba(0,0,0,0.1)',
-            borderRadius: 20,
-            padding: 8,
-            }}
-            onPress={() => navigation.goBack()}
-        >
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          zIndex: 10,
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          borderRadius: 20,
+          padding: 8,
+        }}
+        onPress={() => navigation.goBack()}
+      >
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
+
       <View style={styles.centerContent}>
-      <View style={styles.headerContainer}>
-          <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>{`What's Poppin?`}</Text>
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow}>
+            <Image
+              source={BALLOON_IMAGE}
+              style={styles.balloons}
+              resizeMode="contain"
+            />
+            <MaskedView
+              maskElement={
+                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
+              }
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+              >
+                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
+              </LinearGradient>
+            </MaskedView>
+          </View>
         </View>
+
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>My birthday is</Text>
           <TextInput
@@ -111,8 +141,9 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
             ]}
             value={birthday}
             onChangeText={(text) => {
-              setBirthday(text);
-              validateBirthday(text);
+              const formatted = formatBirthday(text);
+              setBirthday(formatted);
+              validateBirthday(formatted);
             }}
             placeholder="MM/DD/YYYY"
             placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
@@ -127,19 +158,20 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
             </Text>
           )}
         </View>
+
         <View style={styles.buttonGroup}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={handleNext}
             disabled={!birthday.trim() || !!birthdayError}
           >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
               style={[
                 styles.socialButton,
-                (!birthday.trim() || !!birthdayError) && styles.disabledButton
+                (!birthday.trim() || !!birthdayError) && styles.disabledButton,
               ]}
             >
               <Text style={styles.socialButtonText}>Next</Text>
@@ -210,26 +242,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
-    paddingRight: 50,
   },
   balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
+    width: width * 0.22,
+    height: width * 0.22,
+    marginRight: -6,
   },
   title: {
-    fontSize: 25,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
     textShadowRadius: 6,
-    marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
   },
   errorText: {
@@ -244,4 +277,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CreateAccountBirthday; 
+export default CreateAccountBirthday;

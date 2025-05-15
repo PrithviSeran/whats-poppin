@@ -5,19 +5,19 @@ import {
   Text,
   StyleSheet,
   SafeAreaView,
-  TextInput,
   Dimensions,
   Platform,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { Image } from 'react-native';
-const { width } = Dimensions.get('window');
+import MaskedView from '@react-native-masked-view/masked-view';
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png'); // Place your balloon image in assets/balloons.png
+const { width } = Dimensions.get('window');
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 type RootStackParamList = {
   'create-account-password': { userData: string };
@@ -38,7 +38,7 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
   const handleNext = () => {
     if (selectedGender) {
       navigation.navigate('create-account-password', {
-        userData: JSON.stringify({ ...userData, gender: selectedGender })
+        userData: JSON.stringify({ ...userData, gender: selectedGender }),
       });
     }
   };
@@ -59,15 +59,32 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
       >
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
+
       <View style={styles.centerContent}>
         <View style={styles.headerContainer}>
+          <View style={styles.headerRow}>
             <Image
               source={BALLOON_IMAGE}
               style={styles.balloons}
               resizeMode="contain"
             />
-            <Text style={styles.title}>{`What's Poppin?`}</Text>
+            <MaskedView
+              maskElement={
+                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
+              }
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+              >
+                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
+              </LinearGradient>
+            </MaskedView>
+          </View>
         </View>
+
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>I am a</Text>
           <View style={styles.genderButtonGroup}>
@@ -75,38 +92,50 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
               style={[
                 styles.genderButton,
                 selectedGender === 'Male' && styles.genderButtonSelected,
-                { borderColor: '#FF8C00', backgroundColor: selectedGender === 'Male' ? '#FF8C00' : Colors[colorScheme ?? 'light'].background }
+                {
+                  borderColor: '#FF8C00',
+                  backgroundColor: selectedGender === 'Male'
+                    ? '#FF8C00'
+                    : Colors[colorScheme ?? 'light'].background,
+                },
               ]}
               onPress={() => setSelectedGender('Male')}
             >
               <Text style={[
                 styles.genderButtonText,
                 selectedGender === 'Male' && styles.genderButtonTextSelected,
-                { color: selectedGender === 'Male' ? 'white' : '#FF8C00' }
+                { color: selectedGender === 'Male' ? 'white' : '#FF8C00' },
               ]}>Male</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={[
                 styles.genderButton,
                 selectedGender === 'Female' && styles.genderButtonSelected,
-                { borderColor: '#FF8C00', backgroundColor: selectedGender === 'Female' ? '#FF8C00' : Colors[colorScheme ?? 'light'].background }
+                {
+                  borderColor: '#FF8C00',
+                  backgroundColor: selectedGender === 'Female'
+                    ? '#FF8C00'
+                    : Colors[colorScheme ?? 'light'].background,
+                },
               ]}
               onPress={() => setSelectedGender('Female')}
             >
               <Text style={[
                 styles.genderButtonText,
                 selectedGender === 'Female' && styles.genderButtonTextSelected,
-                { color: selectedGender === 'Female' ? 'white' : '#FF8C00' }
+                { color: selectedGender === 'Female' ? 'white' : '#FF8C00' },
               ]}>Female</Text>
             </TouchableOpacity>
           </View>
         </View>
+
         <View style={styles.buttonGroup}>
           <TouchableOpacity onPress={handleNext} disabled={!selectedGender}>
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
               style={styles.socialButton}
             >
@@ -139,24 +168,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 30,
     marginTop: 40,
-  },
-  input: {
-    width: '80%',
-    fontSize: 22,
-    borderBottomWidth: 2,
-    borderBottomColor: '#ddd',
-    paddingVertical: 8,
-    textAlign: 'left',
-    marginBottom: 10,
-    color: '#222',
-  },
-  helperText: {
-    fontSize: 13,
-    color: '#888',
-    marginTop: 2,
-    marginBottom: 10,
-    textAlign: 'left',
-    width: '80%',
   },
   buttonGroup: {
     width: '100%',
@@ -213,28 +224,29 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
-    paddingRight: 50,
   },
   balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
+    width: width * 0.22,
+    height: width * 0.22,
+    marginRight: -6,
   },
   title: {
-    fontSize: 25,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#F45B5B',
     textAlign: 'left',
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 4, height: 4 },
     textShadowRadius: 6,
-    marginLeft: -50,
     fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
-  }
+  },
 });
 
-export default CreateAccountGender; 
+export default CreateAccountGender;

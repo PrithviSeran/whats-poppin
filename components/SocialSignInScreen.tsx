@@ -38,7 +38,8 @@ const CATCH_PHRASES = [
   "What's the Motive?",
   "Where We Linking?",
   "Plans or Nah?",
-  "Where's the Spot?"
+  "Where's the Spot?",
+  "Wagwan Cro?"
 ];
 
 const SocialSignInScreen = () => {
