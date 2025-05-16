@@ -116,11 +116,12 @@ export default function SuggestedEvents() {
         .from('event-images')
         .list()
 
+      console.log(files)
+
       if (listError) {
         console.error('Error listing files:', listError)
         return
       }
-
 
       if (files) {
         setFiles(files)
@@ -132,6 +133,8 @@ export default function SuggestedEvents() {
             .getPublicUrl(file.name)
           return publicUrl
         })
+
+        console.log(urls)
         
         setImageUrls(urls)
       }
@@ -615,7 +618,7 @@ export default function SuggestedEvents() {
               cardIndex={cardIndex}
               renderCard={(card: EventCard, index: number) => {
                 const isTopCard = index === cardIndex;
-                const imageUrl = imageUrls[index % imageUrls.length]; // Cycle through available images
+                const imageUrl = imageUrls[0]; // Cycle through available images
                 return (
                   <TouchableOpacity 
                     onPress={() => handleCardPress(card)}
