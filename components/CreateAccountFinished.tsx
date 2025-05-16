@@ -27,7 +27,6 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
   const navigation = useNavigation<NavigationProp>();
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
-  console.log(userData)
 
   async function createUser() {
     try {
@@ -40,6 +39,7 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
             gender: userData.gender || undefined,
             birthday: userData.birthday || undefined,
             preferences: userData.preferences || undefined,
+
           },
         },
       });
@@ -48,19 +48,17 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         console.error('Signup error:', error.message);
         throw error;
       }
-
+      
       // If sign up is successful, insert into all_users
       const user = data.user;
       if (user) {
-        const preferences = Array.isArray(userData.preferences)
-          ? `{${userData.preferences.map(String).join(',')}}`
-          : userData.preferences
-            ? `{${String(userData.preferences)}}`
-            : '{}';
+        console.log(userData.preferences)
 
-        const saved_events = Array.isArray(userData.saved_events)
-          ? `{${userData.saved_events.map(String).join(',')}}`
-          : '{}';
+        const preferencesArr = userData.preferences?.eventTypes || [];
+        const preferences = `{${preferencesArr.map((p: string) => `"${p}"`).join(',')}}`;
+
+        const savedEventsArr = userData.saved_events || [];
+        const saved_events = `{${savedEventsArr.map((e: string) => `"${e}"`).join(',')}}`;
 
         const { error: insertError } = await supabase
           .from('all_users')
@@ -69,8 +67,12 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
             email: userData.email,
             birthday: userData.birthday,
             gender: userData.gender,
-            preferences,
-            saved_events,
+            saved_events: saved_events,
+            preferences: userData.preferences.eventTypes,
+            ['start-time']: userData.preferences.timePreferences.start,
+            ['end-time']: userData.preferences.timePreferences.end,
+            location: userData.preferences.locationPreferences[0],
+            ['travel-distance']: userData.preferences.travelDistance,
           }]);
         if (insertError) {
           console.error('Error inserting into all_users:', insertError.message);

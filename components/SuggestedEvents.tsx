@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Dimensions, Image, SafeAreaView, Animated, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Image, SafeAreaView, Animated, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import Swiper from 'react-native-deck-swiper';
 import MainFooter from './MainFooter';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,93 +30,25 @@ interface EventCard {
   created_at: string;
   name: string;
   organization: string;
-  event_at: string;
   event_type: string;
-  time_pref: string;
-  location_pref: string;
+  start_time: string; // 'HH:MM'
+  end_time: string;   // 'HH:MM'
+  location: string;
   cost: number;
   age_restriction: number;
-  group: string;
+  reservation: string;
   description: string;
   image: any;
-  title?: string; // For backward compatibility
-  date?: string; // For backward compatibility
-  location?: string; // For backward compatibility
-  isLiked?: boolean;
+  start_date: string; // 'YYYY-MM-DD'
+  end_date: string;   // 'YYYY-MM-DD'
+  occurrence: string;
 }
-
-const generateRandomEvents = (count: number) => {
-  const eventTypes = [
-    'Bar Hopping',
-    'Live Music',
-    'Dancing',
-    'Karaoke',
-    'Chill Lounge',
-    'Rooftop',
-    'Comedy Show',
-    'Game Night',
-    'Food Crawl',
-    'Sports Bar',
-    'Trivia Night',
-    'Outdoor Patio',
-    'Late Night Eats',
-    'Themed Party',
-    'Open Mic',
-    'Wine Tasting',
-    'Hookah',
-    'Board Games',
-    'Silent Disco',
-    'Other'
-  ];
-  const organizations = ['LiveNation', 'EventBrite', 'Local Venues', 'Community Center', 'Art Gallery'];
-  const timePrefs = ['Morning', 'Afternoon', 'Evening'];
-  const locationPrefs = ['Uptown', 'Midtown', 'Downtown'];
-  const groups = ['Music', 'Art', 'Technology', 'Sports', 'Food & Drink'];
-  
-  const events = [];
-  
-  for (let i = 0; i < count; i++) {
-    const event = {
-      id: i + 1,
-      created_at: new Date().toISOString(),
-      name: `${eventTypes[Math.floor(Math.random() * eventTypes.length)]} Event ${i + 1}`,
-      organization: organizations[Math.floor(Math.random() * organizations.length)],
-      event_at: new Date(Date.now() + Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(), // Random date within next 30 days
-      event_type: eventTypes[Math.floor(Math.random() * eventTypes.length)],
-      time_pref: timePrefs[Math.floor(Math.random() * timePrefs.length)],
-      location_pref: locationPrefs[Math.floor(Math.random() * locationPrefs.length)],
-      cost: Math.floor(Math.random() * 200), // Random price between 0 and 200
-      age_restriction: Math.floor(Math.random() * 3) * 7 + 18, // 18, 21, or 25
-      group: groups[Math.floor(Math.random() * groups.length)],
-      description: `This is a sample description for event ${i + 1}. Join us for an amazing experience!`,
-      image: require('../assets/images/balloons.png') // You'll need to handle actual image data differently
-    };
-    
-    events.push(event);
-  }
-  
-  return events;
-};
-
-// Generate 10 sample events
-const EVENTS = generateRandomEvents(10);
-
-// Save the generated events to AsyncStorage
-const saveGeneratedEvents = async () => {
-  try {
-    await AsyncStorage.setItem('suggestedEvents', JSON.stringify(EVENTS));
-  } catch (error) {
-    console.error('Error saving suggested events:', error);
-  }
-};
-
-// Call this function when the component is first loaded
-saveGeneratedEvents();
 
 interface FilterState {
   eventTypes: string[];
-  timePreferences: string[];
+  timePreferences: { start: string; end: string };
   locationPreferences: string[];
+  travelDistance: number;
 }
 
 export default function SuggestedEvents() {
@@ -125,8 +57,9 @@ export default function SuggestedEvents() {
   const [isFilterVisible, setIsFilterVisible] = useState(false);
   const [filters, setFilters] = useState<FilterState>({
     eventTypes: [],
-    timePreferences: [],
+    timePreferences: { start: '21:00', end: '3:00' },
     locationPreferences: [],
+    travelDistance: 0,
   });
   const swipeX = useRef(new Animated.Value(0)).current;
   const swiperRef = useRef<Swiper<EventCard>>(null);
@@ -140,12 +73,41 @@ export default function SuggestedEvents() {
   const [error, setError] = useState(null)
   const [files, setFiles] = useState<FileObject[]>([])
   const [imageUrls, setImageUrls] = useState<string[]>([])
-  const [filteredEvents, setFilteredEvents] = useState<EventCard[]>(EVENTS);
+  const [EVENTS, setEVENTS] = useState<EventCard[]>([])
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadImages();
     loadSavedFilters();
+    fetchUserEvents();
   }, []);
+
+  useEffect(() => {
+    if (loading) {
+      Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(pulseAnim, {
+              toValue: 1,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pulseAnim, {
+              toValue: 0,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.timing(rotateAnim, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    }
+  }, [loading]);
 
   const loadImages = async () => {
     try {
@@ -210,6 +172,29 @@ export default function SuggestedEvents() {
         throw error
       }
 
+      // After fetching eventsData from Supabase
+      let filteredEvents = data;
+
+      if (filters.timePreferences && filters.timePreferences.start && filters.timePreferences.end) {
+        const toMinutes = (t: string) => {
+          const [h, m] = t.split(':');
+          return parseInt(h, 10) * 60 + parseInt(m, 10);
+        };
+        const startMins = toMinutes(filters.timePreferences.start);
+        const endMins = toMinutes(filters.timePreferences.end);
+
+        filteredEvents = data.filter((event: any) => {
+          const eventMins = toMinutes(event.start_time);
+          if (endMins < startMins) {
+            // Overnight range
+            return eventMins >= startMins || eventMins <= endMins;
+          } else {
+            return eventMins >= startMins && eventMins <= endMins;
+          }
+        });
+      }
+
+      setEVENTS(filteredEvents || []);
     } catch (error) {
       console.error('Error fetching data:', error)
 
@@ -237,7 +222,7 @@ export default function SuggestedEvents() {
       const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
       if (savedFiltersJson) {
         const savedFilters = JSON.parse(savedFiltersJson);
-        console.log('Loaded saved filters:', savedFilters);
+
         setFilters(savedFilters);
         // Apply filters immediately
         applyFilters(savedFilters);
@@ -251,6 +236,7 @@ export default function SuggestedEvents() {
 
   const applyFilters = (filtersToApply: FilterState) => {
     const filtered = EVENTS.filter(event => {
+      // Filter by event type
       if (filtersToApply.eventTypes.length > 0) {
         const matchesEventType = filtersToApply.eventTypes.some(type => 
           event.event_type.toLowerCase().includes(type.toLowerCase())
@@ -260,18 +246,30 @@ export default function SuggestedEvents() {
         }
       }
 
-      if (filtersToApply.timePreferences.length > 0) {
-        const matchesTimePref = filtersToApply.timePreferences.some(time => 
-          event.time_pref.toLowerCase().includes(time.toLowerCase())
-        );
-        if (!matchesTimePref) {
-          return false;
+      // Filter by time range (parse 'HH:MM' to minutes)
+      if (filtersToApply.timePreferences && filtersToApply.timePreferences.start && filtersToApply.timePreferences.end) {
+        const [startHour, startMin] = filtersToApply.timePreferences.start.split(':').map(Number);
+        const [endHour, endMin] = filtersToApply.timePreferences.end.split(':').map(Number);
+        const startTime = startHour * 60 + startMin;
+        const endTime = endHour * 60 + endMin;
+        const [eventHour, eventMin] = event.start_time.split(':').map(Number);
+        const eventTime = eventHour * 60 + eventMin;
+        // Handle overnight time ranges (e.g., 21:00 to 3:00)
+        if (endTime < startTime) {
+          if (!(eventTime >= startTime || eventTime <= endTime)) {
+            return false;
+          }
+        } else {
+          if (!(eventTime >= startTime && eventTime <= endTime)) {
+            return false;
+          }
         }
       }
 
+      // Filter by location
       if (filtersToApply.locationPreferences.length > 0) {
         const matchesLocationPref = filtersToApply.locationPreferences.some(location => 
-          event.location_pref.toLowerCase().includes(location.toLowerCase())
+          event.location.toLowerCase().includes(location.toLowerCase())
         );
         if (!matchesLocationPref) {
           return false;
@@ -281,14 +279,14 @@ export default function SuggestedEvents() {
       return true;
     });
 
-    setFilteredEvents(filtered);
+    setEVENTS(filtered);
   };
 
   const handleApplyFilters = async (newFilters: FilterState) => {
     try {
       // Save to AsyncStorage first
       await AsyncStorage.setItem('eventFilters', JSON.stringify(newFilters));
-      console.log('Saved new filters:', newFilters);
+
       
       // Then update state and apply filters
       setFilters(newFilters);
@@ -406,49 +404,173 @@ export default function SuggestedEvents() {
     try {
       const savedEventsJson = await AsyncStorage.getItem('likedEvents');
       let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-
-      if (event.isLiked) {
-        // Remove from saved events
+      const isAlreadyLiked = savedEvents.some(e => e.id === event.id);
+      if (isAlreadyLiked) {
         savedEvents = savedEvents.filter(e => e.id !== event.id);
       } else {
-        // Add to saved events
         savedEvents.push(event);
       }
-
       await AsyncStorage.setItem('likedEvents', JSON.stringify(savedEvents));
-      
-      // Update the events state
-      setLikedEvents(prevEvents => 
-        prevEvents.map(e => 
-          e.id === event.id ? { ...e, isLiked: !e.isLiked } : e
-        )
-      );
+      setLikedEvents(savedEvents);
     } catch (error) {
       console.error('Error toggling like:', error);
     }
   };
 
-  useEffect(() => {
-    const loadUserPreferences = async () => {
-      try {
-        const userDataJson = await AsyncStorage.getItem('userData');
-        if (userDataJson) {
-          const userData = JSON.parse(userDataJson);
-          if (userData.preferences) {
-            setFilters({
-              eventTypes: userData.preferences.eventTypes || [],
-              timePreferences: userData.preferences.timePreferences || [],
-              locationPreferences: userData.preferences.locationPreferences || [],
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Error loading user preferences:', error);
+  const fetchUserEvents = async () => {
+    setLoading(true);
+    try {
+      // 1. Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setLoading(false);
+        return;
       }
-    };
 
-    loadUserPreferences();
-  }, []);
+      // 2. Get all relevant columns from all_users
+      const { data: userDataRaw, error: userError } = await supabase
+        .from('all_users')
+        .select('preferences, start-time, end-time, location, travel-distance')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (userError || !userDataRaw) {
+        setLoading(false);
+        return;
+      }
+
+      const userData: any = userDataRaw;
+
+      // Parse preferences (event types)
+      let preferences: string[] = [];
+      if (Array.isArray(userData.preferences)) {
+        preferences = userData.preferences;
+      } else if (typeof userData.preferences === 'string') {
+        // If stored as a Postgres array string, parse it
+        preferences = userData.preferences
+          .replace(/[{}"]/g, '')
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean);
+      }
+
+      // Parse times
+      const startTime = userData['start-time']; // e.g. '18:00:00'
+      const endTime = userData['end-time'];     // e.g. '23:00:00'
+      const location = userData.location;
+      const travelDistance = userData['travel-distance'];
+
+      // 3. Query all_events based on these preferences
+      let query = supabase.from('all_events').select('*');
+
+       if (preferences.length > 0) {
+         query = query.in('event_type', preferences);
+       }
+      // You can add more filters here, e.g. for time, travelDistance, etc.
+
+      const { data: eventsData, error: eventsError } = await query;
+
+
+      if (eventsError) {
+        setLoading(false);
+        return;
+      }
+
+      // After fetching eventsData from Supabase
+      let filteredEvents = eventsData;
+
+      if (startTime && endTime) {
+        const toMinutes = (t: string) => {
+          const [h, m] = t.split(':');
+          return parseInt(h, 10) * 60 + parseInt(m, 10);
+        };
+        const startMins = toMinutes(startTime);
+        const endMins = toMinutes(endTime);
+
+        filteredEvents = eventsData.filter((event: any) => {
+          const eventMins = toMinutes(event.start_time);
+          if (endMins < startMins) {
+            // Overnight range (e.g., 21:00 to 03:00)
+            return eventMins >= startMins || eventMins <= endMins;
+          } else {
+            // Normal range (e.g., 18:00 to 23:00)
+            return eventMins >= startMins && eventMins <= endMins;
+          }
+        });
+      }
+
+      setEVENTS(filteredEvents || []);
+    } catch (err) {
+      // handle error
+      setEVENTS([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    const spin = rotateAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
+    const scale = pulseAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.8, 1.2],
+    });
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}> 
+        {/* Top Buttons (Saved Events and Filters) */}
+        <View style={styles.topButtons}>
+          <TouchableOpacity 
+            style={styles.topButton}
+            onPress={() => navigation.navigate('saved-likes')}
+          >
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.gradientButton}
+            >
+              <Ionicons name="heart" size={24} color="white" />
+            </LinearGradient>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.topButton}
+            onPress={() => setIsFilterVisible(true)}
+          >
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.gradientButton}
+            >
+              <Ionicons name="filter" size={24} color="white" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+        {/* Loading Spinner and Text */}
+        <View style={styles.loadingContainer}>
+          <Animated.View
+            style={[
+              styles.loadingCircle,
+              {
+                transform: [{ scale }, { rotate: spin }],
+                borderColor: '#FF1493',
+              },
+            ]}
+          >
+            <View style={styles.innerCircle} />
+          </Animated.View>
+          <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>Loading events...</Text>
+        </View>
+        <View style={styles.footerContainer}>
+          <MainFooter activeTab="home" />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
@@ -483,13 +605,13 @@ export default function SuggestedEvents() {
         </TouchableOpacity>
       </View>
 
-      {filteredEvents.length > 0 ? (
+      {EVENTS.length > 0 ? (
         <>
           {/* Main Swiper View */}
           <View style={styles.swiperContainer}>
             <Swiper
               ref={swiperRef}
-              cards={filteredEvents}
+              cards={EVENTS}
               cardIndex={cardIndex}
               renderCard={(card: EventCard, index: number) => {
                 const isTopCard = index === cardIndex;
@@ -606,7 +728,10 @@ export default function SuggestedEvents() {
 
       <EventFilterOverlay
         visible={isFilterVisible}
-        onClose={() => setIsFilterVisible(false)}
+        onClose={() => {
+          setIsFilterVisible(false);
+          fetchUserEvents();
+        }}
         onApplyFilters={handleApplyFilters}
         currentFilters={filters}
       />
@@ -634,11 +759,11 @@ export default function SuggestedEvents() {
               <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.name}</Text>
               <View style={styles.infoRow}>
                 <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{new Date(expandedCard.event_at).toLocaleDateString()}</Text>
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{new Date(expandedCard.start_date).toLocaleDateString()}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location_pref}</Text>
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
               </View>
               <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
             </ScrollView>
@@ -860,5 +985,30 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#FF1493',
     marginTop: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  loadingCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 3,
+    borderColor: '#FF1493',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  innerCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 20, 147, 0.1)',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
