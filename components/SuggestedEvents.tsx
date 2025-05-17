@@ -12,6 +12,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { FileObject } from '@supabase/storage-js';
+import * as Location from 'expo-location';
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
@@ -42,6 +43,8 @@ interface EventCard {
   start_date: string; // 'YYYY-MM-DD'
   end_date: string;   // 'YYYY-MM-DD'
   occurrence: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface FilterState {
@@ -50,6 +53,49 @@ interface FilterState {
   locationPreferences: string[];
   travelDistance: number;
 }
+
+// List of Toronto neighborhoods/locations
+const torontoLocations = [
+  "Downtown Yonge",
+  "Entertainment District",
+  "Distillery District",
+  "Kensington Market",
+  "Queen Street West",
+  "Yorkville",
+  "Midtown Yonge",
+  "Liberty Village",
+  " финансовый район ", // Financial District
+  "St. Lawrence Market",
+  "Cabbagetown",
+  "The Annex",
+  "Little Italy",
+  "Chinatown",
+  "Greektown",
+  "Leslieville",
+  "Riverside",
+  "High Park",
+  "Bloor West Village",
+  "Rosedale",
+  "Forest Hill",
+  "North York City Centre",
+  "Scarborough City Centre",
+  "Etobicoke City Centre"
+];
+
+// Function to calculate distance between two coordinates using Haversine formula
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371; // Radius of Earth in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c; // Distance in kilometers
+  return distance;
+};
 
 export default function SuggestedEvents() {
   const [cardIndex, setCardIndex] = useState(0);
@@ -68,19 +114,22 @@ export default function SuggestedEvents() {
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
-  const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [files, setFiles] = useState<FileObject[]>([])
-  const [imageUrls, setImageUrls] = useState<string[]>([])
-  const [EVENTS, setEVENTS] = useState<EventCard[]>([])
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [files, setFiles] = useState<FileObject[]>([]);
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [EVENTS, setEVENTS] = useState<EventCard[]>([]);
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
   useEffect(() => {
+    // Load images and filters on mount
     loadImages();
     loadSavedFilters();
-    fetchUserEvents();
+    fetchUserEvents(); // Consider if this should be here or after filters are loaded
+    requestLocationPermission(); // Request and get user location
   }, []);
 
   useEffect(() => {
@@ -114,34 +163,38 @@ export default function SuggestedEvents() {
       // Get list of files in the bucket
       const { data: files, error: listError } = await supabase.storage
         .from('event-images')
-        .list()
-
-      console.log(files)
+        .list();
 
       if (listError) {
-        console.error('Error listing files:', listError)
-        return
+        console.error('Error listing files:', listError);
+        // Optionally set an error state or show a message to the user
+        return;
       }
 
-      if (files) {
-        setFiles(files)
-        
+      if (files && files.length > 0) {
         // Get public URLs for each file
         const urls = files.map(file => {
           const { data: { publicUrl } } = supabase.storage
             .from('event-images')
-            .getPublicUrl(file.name)
-          return publicUrl
-        })
+            .getPublicUrl(file.name);
+          return publicUrl;
+        }).filter(url => url !== null); // Filter out any null URLs
 
-        console.log(urls)
-        
-        setImageUrls(urls)
+        if (urls.length > 0) {
+           console.log('Successfully loaded image URLs:', urls);
+           setImageUrls(urls);
+        } else {
+           console.warn('No public URLs could be generated for files found in the bucket.');
+        }
+
+      } else {
+        console.log('No files found in the event-images bucket.');
       }
     } catch (error) {
-      console.error('Error loading images:', error)
+      console.error('Error loading images:', error);
+       // Optionally set an error state or show a message to the user
     }
-  }
+  };
 
   // Example of how to use the image URLs in your render
   const renderImage = (imageUrl: string) => {
@@ -162,21 +215,37 @@ export default function SuggestedEvents() {
     try {
       setLoading(true)
       
-      // Replace 'your_table' with your actual table name
-      const { data, error } = await supabase
+      const { data: eventsData, error } = await supabase
         .from('all_events')
-        .select('*')
-        // Add filters if needed
-        // .eq('column_name', 'value')
-        // .order('created_at', { ascending: false })
-        // .limit(10)
-      
+        .select('*, latitude, longitude'); // Select latitude and longitude
+
       if (error) {
         throw error
       }
 
-      // After fetching eventsData from Supabase
-      let filteredEvents = data;
+      let eventsWithCalculatedDistance: EventCard[] = [];
+      if (eventsData) {
+        eventsWithCalculatedDistance = eventsData.map((event: any): EventCard => {
+          let distance = null;
+          if (userLocation && event.latitude != null && event.longitude != null) {
+            distance = calculateDistance(
+              userLocation.latitude,
+              userLocation.longitude,
+              event.latitude,
+              event.longitude
+            );
+          }
+          return {
+            ...event,
+            distance: distance, // Add calculated distance
+          };
+        });
+      }
+
+      // After fetching eventsData from Supabase, update locations (keeping fetched location for distance calc)
+      const eventsWithTorontoLocations = eventsWithCalculatedDistance; // Use events with calculated distance
+
+      let filteredEvents = eventsWithTorontoLocations;
 
       if (filters.timePreferences && filters.timePreferences.start && filters.timePreferences.end) {
         const toMinutes = (t: string) => {
@@ -186,7 +255,7 @@ export default function SuggestedEvents() {
         const startMins = toMinutes(filters.timePreferences.start);
         const endMins = toMinutes(filters.timePreferences.end);
 
-        filteredEvents = data.filter((event: any) => {
+        filteredEvents = filteredEvents.filter((event: any) => {
           const eventMins = toMinutes(event.start_time);
           if (endMins < startMins) {
             // Overnight range
@@ -464,7 +533,7 @@ export default function SuggestedEvents() {
       const travelDistance = userData['travel-distance'];
 
       // 3. Query all_events based on these preferences
-      let query = supabase.from('all_events').select('*');
+      let query = supabase.from('all_events').select('*, latitude, longitude'); // Select latitude and longitude
 
        if (preferences.length > 0) {
          query = query.in('event_type', preferences);
@@ -479,8 +548,30 @@ export default function SuggestedEvents() {
         return;
       }
 
+      let eventsWithCalculatedDistance: EventCard[] = [];
+      if (eventsData) {
+         eventsWithCalculatedDistance = eventsData.map((event: any): EventCard => {
+           let distance = null;
+           if (userLocation && event.latitude != null && event.longitude != null) {
+             distance = calculateDistance(
+               userLocation.latitude,
+               userLocation.longitude,
+               event.latitude,
+               event.longitude
+             );
+           }
+           return {
+             ...event,
+             distance: distance, // Add calculated distance
+           };
+         });
+      }
+
+      // After fetching eventsData from Supabase, update locations (keeping fetched location for distance calc)
+      const eventsWithTorontoLocations = eventsWithCalculatedDistance; // Use events with calculated distance
+
       // After fetching eventsData from Supabase
-      let filteredEvents = eventsData;
+      let filteredEvents = eventsWithTorontoLocations; // Use events with calculated distance
 
       if (startTime && endTime) {
         const toMinutes = (t: string) => {
@@ -490,7 +581,7 @@ export default function SuggestedEvents() {
         const startMins = toMinutes(startTime);
         const endMins = toMinutes(endTime);
 
-        filteredEvents = eventsData.filter((event: any) => {
+        filteredEvents = filteredEvents.filter((event: any) => {
           const eventMins = toMinutes(event.start_time);
           if (endMins < startMins) {
             // Overnight range (e.g., 21:00 to 03:00)
@@ -508,6 +599,30 @@ export default function SuggestedEvents() {
       setEVENTS([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Function to request location permission and get current location using expo-location
+  const requestLocationPermission = async () => {
+    try {
+      // Request foreground location permissions
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.error('Permission to access location was denied');
+        // Optionally show a message to the user explaining why location is needed
+        return;
+      }
+
+      // Get current location
+      let location = await Location.getCurrentPositionAsync({});
+      setUserLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+      console.log('User Location:', location.coords);
+
+    } catch (err) {
+      console.error('Error getting user location:', err);
     }
   };
 
@@ -608,7 +723,7 @@ export default function SuggestedEvents() {
         </TouchableOpacity>
       </View>
 
-      {EVENTS.length > 0 ? (
+      {EVENTS.length > 0 && imageUrls.length > 0 ? ( // Conditionally render Swiper
         <>
           {/* Main Swiper View */}
           <View style={styles.swiperContainer}>
@@ -618,9 +733,11 @@ export default function SuggestedEvents() {
               cardIndex={cardIndex}
               renderCard={(card: EventCard, index: number) => {
                 const isTopCard = index === cardIndex;
-                const imageUrl = imageUrls[0]; // Cycle through available images
+                // Use the first image URL for all cards if available
+                const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
+
                 return (
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => handleCardPress(card)}
                     activeOpacity={1}
                   >
@@ -628,15 +745,32 @@ export default function SuggestedEvents() {
                       styles.card,
                       isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
                     ]}>
-                      {imageUrl ? (
-                        <Image 
-                          source={{ uri: imageUrl }} 
-                          style={styles.image} 
+                      {eventImageUrl ? (
+                        <Image
+                          source={{ uri: eventImageUrl }}
+                          style={styles.image}
+                          onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
                         />
                       ) : (
-                        <Image source={card.image} style={styles.image} />
+                        <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                          <Ionicons name="image-outline" size={40} color="#666" />
+                        </View>
                       )}
                       <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
+                      {/* Distance Display */}
+                      {card.distance !== null ? (
+                        <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                          Distance: {card.distance.toFixed(2)} km
+                        </Text>
+                      ) : userLocation ? (
+                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                           Distance: Calculating...
+                         </Text>
+                      ) : (
+                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                            Distance: N/A (Location required)
+                         </Text>
+                      )}
                     </Animated.View>
                   </TouchableOpacity>
                 );
@@ -768,7 +902,58 @@ export default function SuggestedEvents() {
                 <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
               </View>
+              {/* Distance Display in Expanded View */}
+              {expandedCard.distance !== null ? (
+                <View style={styles.infoRow}>
+                  <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Distance: {expandedCard.distance.toFixed(2)} km
+                  </Text>
+                </View>
+              ) : userLocation ? (
+                 <View style={styles.infoRow}>
+                   <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                   <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                     Distance: Calculating...
+                   </Text>
+                 </View>
+              ) : (
+                 <View style={styles.infoRow}>
+                    <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Distance: N/A (Location required)
+                    </Text>
+                  </View>
+              )}
               <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
+
+              {/* Google Map */}
+              <View style={styles.mapContainer}> {/* Use a dedicated style for the map */}
+                 {userLocation && expandedCard.latitude != null && expandedCard.longitude != null ? (
+                   // Map component will go here
+                    // You will need to install react-native-maps: npx expo install react-native-maps
+                    // Then import MapView from 'react-native-maps' and use it like this:
+                    /*
+                    <MapView
+                      style={styles.map}
+                      initialRegion={{
+                        latitude: (userLocation.latitude + expandedCard.latitude) / 2,
+                        longitude: (userLocation.longitude + expandedCard.longitude) / 2,
+                        latitudeDelta: Math.abs(userLocation.latitude - expandedCard.latitude) * 1.5 + 0.01,
+                        longitudeDelta: Math.abs(userLocation.longitude - expandedCard.longitude) * 1.5 + 0.01,
+                      }}
+                    >
+                      <Marker coordinate={{ latitude: userLocation.latitude, longitude: userLocation.longitude }} title="Your Location" />
+                      <Marker coordinate={{ latitude: expandedCard.latitude, longitude: expandedCard.longitude }} title={expandedCard.name} />
+                    </MapView>
+                    */
+                    <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>Map will load here</Text> // Temporary Placeholder
+
+                 ) : (
+                    <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>Map not available (Location data missing)</Text>
+                 )}
+              </View>
+
             </ScrollView>
             <Animated.View style={[styles.expandedActionButtons, { opacity: fadeAnim }]}>
               <TouchableOpacity 
@@ -1013,5 +1198,11 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     fontWeight: '500',
+  },
+  mapContainer: { // New style for the map container
+    marginTop: 20,
+    height: 300, // Height for the actual map
+    borderRadius: 8,
+    overflow: 'hidden', // Hide overflow for rounded corners
   },
 });
