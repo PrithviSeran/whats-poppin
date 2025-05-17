@@ -1,7 +1,7 @@
-from lightfm import LightFM
-from lightfm.data import Dataset
+
 import numpy as np
 import random
+from beacon_torch import BeaconAI as BeaconAI_torch
 
 class BeaconAI:
     def __init__(self):
@@ -128,7 +128,7 @@ if __name__ == '__main__':
             interactions.append((user, event, 1))
 
     # Train recommender
-    rec = EventRecommender()
+    rec = BeaconAI_torch()
     rec.fit_data(users, events, user_features, event_features, interactions)
     rec.train_model()
 
