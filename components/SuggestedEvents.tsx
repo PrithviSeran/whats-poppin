@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import EventFilterOverlay from './EventFilterOverlay';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
@@ -21,7 +21,7 @@ const ACTION_BUTTONS_HEIGHT = 80; // Space for action buttons
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 
 type RootStackParamList = {
-  'saved-likes': undefined;
+  'saved-likes': { onClose: () => void } | undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -124,12 +124,31 @@ export default function SuggestedEvents() {
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
+
   useEffect(() => {
-    // Load images and filters on mount
+
+    const fetchTokenAndCallBackend = async () => {
+      console.log("fetching token and calling backend")
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+
+      await fetch('http://192.168.68.144:5000/recommend', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ user_id: '1', top_n: 10 }),
+      });
+      // Load images and filters on mount
+    };
+
     loadImages();
     loadSavedFilters();
     fetchUserEvents(); // Consider if this should be here or after filters are loaded
     requestLocationPermission(); // Request and get user location
+    
+    fetchTokenAndCallBackend();
   }, []);
 
   useEffect(() => {
@@ -411,31 +430,50 @@ export default function SuggestedEvents() {
 
   const handleSwipeRight = async (cardIndex: number) => {
     const likedEvent = EVENTS[cardIndex];
-    
     try {
-      // Get current saved events
+      // Get current saved events (local)
       const savedEventsJson = await AsyncStorage.getItem('savedEvents');
       let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      
-      // Check if event is already saved
       const isAlreadySaved = savedEvents.some(event => event.id === likedEvent.id);
-      
       if (!isAlreadySaved) {
-        // Only add if not already saved
         savedEvents.push(likedEvent);
         await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
         console.log('Event saved successfully');
       } else {
         console.log('Event already saved');
       }
-      
       // Update local state
       const newLikedEvents = [...likedEvents, likedEvent];
       setLikedEvents(newLikedEvents);
-      
+      // Update saved_events in Supabase (append event name)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.email) {
+        // Fetch current saved_events from Supabase
+        const { data: userRow, error: userError } = await supabase
+          .from('all_users')
+          .select('saved_events')
+          .eq('email', user.email)
+          .maybeSingle();
+        if (!userError && userRow) {
+          let savedEventsArr: string[] = [];
+          if (Array.isArray(userRow.saved_events)) {
+            savedEventsArr = userRow.saved_events;
+          } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
+            savedEventsArr = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+          }
+          // Only append if not already present
+          if (!savedEventsArr.includes(likedEvent.name)) {
+            savedEventsArr.push(likedEvent.name);
+            // Convert to Postgres array string
+            const pgArray = '{' + savedEventsArr.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
+            await supabase
+              .from('all_users')
+              .update({ saved_events: pgArray })
+              .eq('email', user.email);
+          }
+        }
+      }
       loadImages();
-      
-      // Animate out before closing
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 0,
@@ -641,7 +679,7 @@ export default function SuggestedEvents() {
         <View style={styles.topButtons}>
           <TouchableOpacity 
             style={styles.topButton}
-            onPress={() => navigation.navigate('saved-likes')}
+            onPress={() => navigation.navigate('saved-likes', { onClose: fetchUserEvents })}
           >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -695,7 +733,7 @@ export default function SuggestedEvents() {
       <View style={styles.topButtons}>
         <TouchableOpacity 
           style={styles.topButton}
-          onPress={() => navigation.navigate('saved-likes')}
+          onPress={() => navigation.navigate('saved-likes', { onClose: fetchUserEvents })}
         >
           <LinearGradient
             colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -886,7 +924,10 @@ export default function SuggestedEvents() {
         >
           <TouchableOpacity
             style={styles.backButton}
-            onPress={handleBackPress}
+            onPress={() => {
+              navigation.goBack();
+              onClose();
+            }}
           >
             <Text style={styles.backButtonText}>{'←'}</Text>
           </TouchableOpacity>

@@ -1,4 +1,3 @@
-
 import numpy as np
 import random
 from beacon_torch import BeaconAI as BeaconAI_torch
@@ -104,19 +103,31 @@ if __name__ == '__main__':
     events = [f'event{i+1}' for i in range(num_events)]
 
     # Define feature pools
+    # user features
     age_groups = ['18-24', '25-34', '35-49', '50-99']
     pref_times = ['weekends', 'weeknights', 'weekdays']
-    event_types = ['concerts', 'clubs', 'school events', 'restaurants']
+    gender = ['male', 'female', 'other']
+
+
+    event_types = [
+        'Live Concert', 'Rooftop Party', 'Comedy Night', 'Bar Hopping', 'Live Music', 'Dancing', 'Karaoke',
+        'Chill Lounge', 'Comedy Show', 'Game Night', 'Food Crawl', 'Sports Bar', 'Trivia Night',
+        'Outdoor Patio', 'Late Night Eats', 'Themed Party', 'Open Mic', 'Wine Tasting', 'Hookah',
+        'Board Games', 'Silent Disco'
+    ]
     time_tags = ['morning', 'evening', 'night', 'weekend']
-    locations = ['downtown', 'uptown', 'midtown']
+    age_restrictions = ['18+', '21+', '16+', '13+']
+    cost_ranges = ['$', '$$', '$$$', '$$$$']
+    reservation_required = ['yes', 'no']
+
 
     # Assign random features to users and events
     user_features = [
-        (user, [random.choice(event_types), random.choice(age_groups), random.choice(pref_times)])
+        (user, [random.choice(event_types), random.choice(age_groups), random.choice(pref_times), random.choice(gender)])
         for user in users
     ]
     event_features = [
-        (event, [random.choice(event_types), random.choice(time_tags), random.choice(locations)])
+        (event, [random.choice(event_types), random.choice(time_tags), random.choice(age_restrictions), random.choice(cost_ranges), random.choice(reservation_required)])
         for event in events
     ]
 
@@ -126,6 +137,8 @@ if __name__ == '__main__':
         liked_events = random.sample(events, random.randint(3, 6))
         for event in liked_events:
             interactions.append((user, event, 1))
+
+    print(interactions)
 
     # Train recommender
     rec = BeaconAI_torch()
