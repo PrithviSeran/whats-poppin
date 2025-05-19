@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { FileObject } from '@supabase/storage-js';
 import * as Location from 'expo-location';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
@@ -45,13 +46,14 @@ interface EventCard {
   occurrence: string;
   latitude?: number;
   longitude?: number;
+  distance?: number | null; // Add distance property
 }
 
 interface FilterState {
   eventTypes: string[];
   timePreferences: { start: string; end: string };
   locationPreferences: string[];
-  travelDistance: number;
+  travelDistance: number; // Maximum distance in kilometers
 }
 
 // List of Toronto neighborhoods/locations
@@ -97,6 +99,11 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return distance;
 };
 
+interface RouteCoordinates {
+  latitude: number;
+  longitude: number;
+}
+
 export default function SuggestedEvents() {
   const [cardIndex, setCardIndex] = useState(0);
   const [expandedCard, setExpandedCard] = useState<EventCard | null>(null);
@@ -123,6 +130,36 @@ export default function SuggestedEvents() {
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<RouteCoordinates[]>([]);
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+
+  // Add recalculateDistances function inside component
+  const recalculateDistances = (events: EventCard[]): EventCard[] => {
+    console.log('Recalculating distances with userLocation:', userLocation);
+    return events.map(event => {
+      let distance = null;
+      if (userLocation && event.latitude != null && event.longitude != null) {
+        console.log('Calculating distance for event:', event.name);
+        console.log('User location:', userLocation);
+        console.log('Event location:', { latitude: event.latitude, longitude: event.longitude });
+        distance = calculateDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          event.latitude,
+          event.longitude
+        );
+        console.log('Calculated distance:', distance, 'km');
+      } else {
+        console.log('Missing location data for event:', event.name);
+        console.log('userLocation:', userLocation);
+        console.log('event coords:', { latitude: event.latitude, longitude: event.longitude });
+      }
+      return {
+        ...event,
+        distance: distance,
+      };
+    });
+  };
 
   useEffect(() => {
     // Load images and filters on mount
@@ -157,6 +194,15 @@ export default function SuggestedEvents() {
       ).start();
     }
   }, [loading]);
+
+  useEffect(() => {
+    console.log('userLocation changed:', userLocation);
+    if (userLocation && EVENTS.length > 0) {
+      console.log('Recalculating distances for', EVENTS.length, 'events');
+      const eventsWithDistances = recalculateDistances(EVENTS);
+      setEVENTS(eventsWithDistances);
+    }
+  }, [userLocation]);
 
   const loadImages = async () => {
     try {
@@ -217,33 +263,21 @@ export default function SuggestedEvents() {
       
       const { data: eventsData, error } = await supabase
         .from('all_events')
-        .select('*, latitude, longitude'); // Select latitude and longitude
+        .select('*, latitude, longitude');
 
       if (error) {
         throw error
       }
 
+      console.log('Fetched events data:', eventsData);
+
       let eventsWithCalculatedDistance: EventCard[] = [];
       if (eventsData) {
-        eventsWithCalculatedDistance = eventsData.map((event: any): EventCard => {
-          let distance = null;
-          if (userLocation && event.latitude != null && event.longitude != null) {
-            distance = calculateDistance(
-              userLocation.latitude,
-              userLocation.longitude,
-              event.latitude,
-              event.longitude
-            );
-          }
-          return {
-            ...event,
-            distance: distance, // Add calculated distance
-          };
-        });
+        eventsWithCalculatedDistance = recalculateDistances(eventsData);
       }
 
       // After fetching eventsData from Supabase, update locations (keeping fetched location for distance calc)
-      const eventsWithTorontoLocations = eventsWithCalculatedDistance; // Use events with calculated distance
+      const eventsWithTorontoLocations = eventsWithCalculatedDistance;
 
       let filteredEvents = eventsWithTorontoLocations;
 
@@ -269,7 +303,6 @@ export default function SuggestedEvents() {
       setEVENTS(filteredEvents || []);
     } catch (error) {
       console.error('Error fetching data:', error)
-
     } finally {
       setLoading(false)
     }
@@ -285,7 +318,12 @@ export default function SuggestedEvents() {
   // Add focus effect to reload filters when returning to this screen
   useFocusEffect(
     React.useCallback(() => {
-      loadSavedFilters();
+      // Only load filters on initial mount
+      if (filters.eventTypes.length === 0 && 
+          filters.locationPreferences.length === 0 && 
+          filters.travelDistance === 0) {
+        loadSavedFilters();
+      }
     }, [])
   );
 
@@ -294,7 +332,6 @@ export default function SuggestedEvents() {
       const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
       if (savedFiltersJson) {
         const savedFilters = JSON.parse(savedFiltersJson);
-
         setFilters(savedFilters);
         // Apply filters immediately
         applyFilters(savedFilters);
@@ -318,7 +355,14 @@ export default function SuggestedEvents() {
         }
       }
 
-      // Filter by time range (parse 'HH:MM' to minutes)
+      // Filter by distance
+      if (filtersToApply.travelDistance > 0 && event.distance !== null && event.distance !== undefined) {
+        if (event.distance > filtersToApply.travelDistance) {
+          return false;
+        }
+      }
+
+      // Filter by time range
       if (filtersToApply.timePreferences && filtersToApply.timePreferences.start && filtersToApply.timePreferences.end) {
         const [startHour, startMin] = filtersToApply.timePreferences.start.split(':').map(Number);
         const [endHour, endMin] = filtersToApply.timePreferences.end.split(':').map(Number);
@@ -326,7 +370,7 @@ export default function SuggestedEvents() {
         const endTime = endHour * 60 + endMin;
         const [eventHour, eventMin] = event.start_time.split(':').map(Number);
         const eventTime = eventHour * 60 + eventMin;
-        // Handle overnight time ranges (e.g., 21:00 to 3:00)
+        
         if (endTime < startTime) {
           if (!(eventTime >= startTime || eventTime <= endTime)) {
             return false;
@@ -358,7 +402,6 @@ export default function SuggestedEvents() {
     try {
       // Save to AsyncStorage first
       await AsyncStorage.setItem('eventFilters', JSON.stringify(newFilters));
-
       
       // Then update state and apply filters
       setFilters(newFilters);
@@ -424,16 +467,14 @@ export default function SuggestedEvents() {
         // Only add if not already saved
         savedEvents.push(likedEvent);
         await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
-        console.log('Event saved successfully');
+        console.log('Event saved successfully:', likedEvent.name);
       } else {
-        console.log('Event already saved');
+        console.log('Event already saved:', likedEvent.name);
       }
       
       // Update local state
       const newLikedEvents = [...likedEvents, likedEvent];
       setLikedEvents(newLikedEvents);
-      
-      loadImages();
       
       // Animate out before closing
       Animated.parallel([
@@ -492,14 +533,12 @@ export default function SuggestedEvents() {
   const fetchUserEvents = async () => {
     setLoading(true);
     try {
-      // 1. Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setLoading(false);
         return;
       }
 
-      // 2. Get all relevant columns from all_users
       const { data: userDataRaw, error: userError } = await supabase
         .from('all_users')
         .select('preferences, start-time, end-time, location, travel-distance')
@@ -512,36 +551,22 @@ export default function SuggestedEvents() {
       }
 
       const userData: any = userDataRaw;
+      const travelDistance = userData['travel-distance'] || 0; // Get user's preferred travel distance
 
-      // Parse preferences (event types)
-      let preferences: string[] = [];
-      if (Array.isArray(userData.preferences)) {
-        preferences = userData.preferences;
-      } else if (typeof userData.preferences === 'string') {
-        // If stored as a Postgres array string, parse it
-        preferences = userData.preferences
-          .replace(/[{}"]/g, '')
-          .split(',')
-          .map((s: string) => s.trim())
-          .filter(Boolean);
+      // Update filters with the user's travel distance preference
+      setFilters(prev => ({
+        ...prev,
+        travelDistance: travelDistance
+      }));
+
+      // Query all_events based on these preferences
+      let query = supabase.from('all_events').select('*, latitude, longitude');
+
+      if (userData.preferences && userData.preferences.length > 0) {
+        query = query.in('event_type', userData.preferences);
       }
 
-      // Parse times
-      const startTime = userData['start-time']; // e.g. '18:00:00'
-      const endTime = userData['end-time'];     // e.g. '23:00:00'
-      const location = userData.location;
-      const travelDistance = userData['travel-distance'];
-
-      // 3. Query all_events based on these preferences
-      let query = supabase.from('all_events').select('*, latitude, longitude'); // Select latitude and longitude
-
-       if (preferences.length > 0) {
-         query = query.in('event_type', preferences);
-       }
-      // You can add more filters here, e.g. for time, travelDistance, etc.
-
       const { data: eventsData, error: eventsError } = await query;
-
 
       if (eventsError) {
         setLoading(false);
@@ -550,52 +575,20 @@ export default function SuggestedEvents() {
 
       let eventsWithCalculatedDistance: EventCard[] = [];
       if (eventsData) {
-         eventsWithCalculatedDistance = eventsData.map((event: any): EventCard => {
-           let distance = null;
-           if (userLocation && event.latitude != null && event.longitude != null) {
-             distance = calculateDistance(
-               userLocation.latitude,
-               userLocation.longitude,
-               event.latitude,
-               event.longitude
-             );
-           }
-           return {
-             ...event,
-             distance: distance, // Add calculated distance
-           };
-         });
+        eventsWithCalculatedDistance = recalculateDistances(eventsData);
       }
 
-      // After fetching eventsData from Supabase, update locations (keeping fetched location for distance calc)
-      const eventsWithTorontoLocations = eventsWithCalculatedDistance; // Use events with calculated distance
-
-      // After fetching eventsData from Supabase
-      let filteredEvents = eventsWithTorontoLocations; // Use events with calculated distance
-
-      if (startTime && endTime) {
-        const toMinutes = (t: string) => {
-          const [h, m] = t.split(':');
-          return parseInt(h, 10) * 60 + parseInt(m, 10);
-        };
-        const startMins = toMinutes(startTime);
-        const endMins = toMinutes(endTime);
-
-        filteredEvents = filteredEvents.filter((event: any) => {
-          const eventMins = toMinutes(event.start_time);
-          if (endMins < startMins) {
-            // Overnight range (e.g., 21:00 to 03:00)
-            return eventMins >= startMins || eventMins <= endMins;
-          } else {
-            // Normal range (e.g., 18:00 to 23:00)
-            return eventMins >= startMins && eventMins <= endMins;
-          }
-        });
-      }
+      // Apply filters including distance
+      const filteredEvents = eventsWithCalculatedDistance.filter(event => {
+        if (travelDistance > 0 && event.distance !== null && event.distance !== undefined) {
+          return event.distance <= travelDistance;
+        }
+        return true;
+      });
 
       setEVENTS(filteredEvents || []);
     } catch (err) {
-      // handle error
+      console.error('Error fetching events:', err);
       setEVENTS([]);
     } finally {
       setLoading(false);
@@ -605,26 +598,129 @@ export default function SuggestedEvents() {
   // Function to request location permission and get current location using expo-location
   const requestLocationPermission = async () => {
     try {
-      // Request foreground location permissions
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        console.error('Permission to access location was denied');
-        // Optionally show a message to the user explaining why location is needed
+        console.error('Location permission denied');
         return;
       }
 
-      // Get current location
-      let location = await Location.getCurrentPositionAsync({});
-      setUserLocation({
+      let location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High
+      });
+      
+      console.log('Got user location:', location.coords);
+      
+      const newUserLocation = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-      });
-      console.log('User Location:', location.coords);
+      };
+      
+      setUserLocation(newUserLocation);
 
+      // Recalculate distances for all events with the new location
+      if (EVENTS.length > 0) {
+        const eventsWithDistances = recalculateDistances(EVENTS);
+        setEVENTS(eventsWithDistances);
+      }
     } catch (err) {
       console.error('Error getting user location:', err);
     }
   };
+
+  // Function to fetch route from Google Directions API
+  const fetchRoute = async (origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) => {
+    try {
+      setIsLoadingRoute(true);
+      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+      
+      if (!apiKey) {
+        console.error('Google Maps API key is missing');
+        return;
+      }
+
+      console.log('Origin:', origin);
+      console.log('Destination:', destination);
+      
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=${apiKey}&mode=driving`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.routes && data.routes.length > 0) {
+        const points = data.routes[0].overview_polyline.points;
+        const coords = decodePolyline(points);
+        setRouteCoordinates(coords);
+      } else {
+        console.error('Directions API error:', data.status, data.error_message);
+        // Fallback to straight line
+        setRouteCoordinates([
+          { latitude: origin.latitude, longitude: origin.longitude },
+          { latitude: destination.latitude, longitude: destination.longitude }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      // Fallback to straight line
+      setRouteCoordinates([
+        { latitude: origin.latitude, longitude: origin.longitude },
+        { latitude: destination.latitude, longitude: destination.longitude }
+      ]);
+    } finally {
+      setIsLoadingRoute(false);
+    }
+  };
+
+  // Function to decode Google's polyline format
+  const decodePolyline = (encoded: string): RouteCoordinates[] => {
+    const poly: RouteCoordinates[] = [];
+    let index = 0;
+    let len = encoded.length;
+    let lat = 0;
+    let lng = 0;
+
+    while (index < len) {
+      let shift = 0;
+      let result = 0;
+
+      do {
+        let b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (result >= 0x20);
+
+      let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+
+      do {
+        let b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (result >= 0x20);
+
+      let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      poly.push({
+        latitude: lat / 1E5,
+        longitude: lng / 1E5
+      });
+    }
+
+    return poly;
+  };
+
+  // Update route when expanded card changes
+  useEffect(() => {
+    if (expandedCard && userLocation && expandedCard.latitude && expandedCard.longitude) {
+      fetchRoute(
+        { latitude: userLocation.latitude, longitude: userLocation.longitude },
+        { latitude: expandedCard.latitude, longitude: expandedCard.longitude }
+      );
+    }
+  }, [expandedCard, userLocation]);
 
   if (loading) {
     const spin = rotateAnim.interpolate({
@@ -758,7 +854,7 @@ export default function SuggestedEvents() {
                       )}
                       <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
                       {/* Distance Display */}
-                      {card.distance !== null ? (
+                      {card.distance !== undefined && card.distance !== null ? (
                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
                           Distance: {card.distance.toFixed(2)} km
                         </Text>
@@ -902,58 +998,78 @@ export default function SuggestedEvents() {
                 <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
               </View>
-              {/* Distance Display in Expanded View */}
-              {expandedCard.distance !== null ? (
+              {expandedCard.distance !== null && expandedCard.distance !== undefined ? (
                 <View style={styles.infoRow}>
                   <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                   <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
                     Distance: {expandedCard.distance.toFixed(2)} km
                   </Text>
                 </View>
-              ) : userLocation ? (
-                 <View style={styles.infoRow}>
-                   <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                   <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                     Distance: Calculating...
-                   </Text>
-                 </View>
               ) : (
-                 <View style={styles.infoRow}>
-                    <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      Distance: N/A (Location required)
-                    </Text>
-                  </View>
+                <View style={styles.infoRow}>
+                  <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Distance: Calculating...
+                  </Text>
+                </View>
               )}
               <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
 
               {/* Google Map */}
-              <View style={styles.mapContainer}> {/* Use a dedicated style for the map */}
-                 {userLocation && expandedCard.latitude != null && expandedCard.longitude != null ? (
-                   // Map component will go here
-                    // You will need to install react-native-maps: npx expo install react-native-maps
-                    // Then import MapView from 'react-native-maps' and use it like this:
-                    /*
-                    <MapView
-                      style={styles.map}
-                      initialRegion={{
-                        latitude: (userLocation.latitude + expandedCard.latitude) / 2,
-                        longitude: (userLocation.longitude + expandedCard.longitude) / 2,
-                        latitudeDelta: Math.abs(userLocation.latitude - expandedCard.latitude) * 1.5 + 0.01,
-                        longitudeDelta: Math.abs(userLocation.longitude - expandedCard.longitude) * 1.5 + 0.01,
-                      }}
+              <View style={styles.mapContainer}>
+                {userLocation && expandedCard.latitude && expandedCard.longitude ? (
+                  <MapView
+                    provider={PROVIDER_GOOGLE}
+                    style={styles.map}
+                    initialRegion={{
+                      latitude: (userLocation.latitude + expandedCard.latitude) / 2,
+                      longitude: (userLocation.longitude + expandedCard.longitude) / 2,
+                      latitudeDelta: Math.abs(userLocation.latitude - expandedCard.latitude) * 1.5 + 0.01,
+                      longitudeDelta: Math.abs(userLocation.longitude - expandedCard.longitude) * 1.5 + 0.01,
+                    }}
+                  >
+                    <Marker 
+                      coordinate={userLocation}
+                      title="Your Location"
                     >
-                      <Marker coordinate={{ latitude: userLocation.latitude, longitude: userLocation.longitude }} title="Your Location" />
-                      <Marker coordinate={{ latitude: expandedCard.latitude, longitude: expandedCard.longitude }} title={expandedCard.name} />
-                    </MapView>
-                    */
-                    <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>Map will load here</Text> // Temporary Placeholder
+                      <View style={styles.userMarkerContainer}>
+                        <View style={styles.userMarker}>
+                          <Ionicons name="person" size={16} color="white" />
+                        </View>
+                      </View>
+                    </Marker>
 
-                 ) : (
-                    <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>Map not available (Location data missing)</Text>
-                 )}
+                    <Marker 
+                      coordinate={{
+                        latitude: expandedCard.latitude,
+                        longitude: expandedCard.longitude
+                      }}
+                      title={expandedCard.name}
+                    >
+                      <View style={styles.eventMarkerContainer}>
+                        <View style={styles.eventMarker}>
+                          <Ionicons name="location" size={16} color="white" />
+                        </View>
+                      </View>
+                    </Marker>
+
+                    {routeCoordinates.length > 0 && (
+                      <Polyline
+                        coordinates={routeCoordinates}
+                        strokeColor="#2196F3"
+                        strokeWidth={4}
+                        lineDashPattern={[1]}
+                      />
+                    )}
+                  </MapView>
+                ) : (
+                  <View style={[styles.map, styles.mapPlaceholder]}>
+                    <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>
+                      {!userLocation ? 'Enable location services to view map' : 'Location data missing for this event'}
+                    </Text>
+                  </View>
+                )}
               </View>
-
             </ScrollView>
             <Animated.View style={[styles.expandedActionButtons, { opacity: fadeAnim }]}>
               <TouchableOpacity 
@@ -1103,12 +1219,12 @@ const styles = StyleSheet.create({
   expandedContent: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 100, // Add padding to account for the action buttons
+    paddingBottom: 100,
   },
   expandedTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   infoRow: {
     flexDirection: 'row',
@@ -1199,10 +1315,64 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  mapContainer: { // New style for the map container
+  mapContainer: {
     marginTop: 20,
-    height: 300, // Height for the actual map
+    height: 300,
     borderRadius: 8,
-    overflow: 'hidden', // Hide overflow for rounded corners
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    position: 'relative',
+  },
+  map: {
+    width: '100%',
+    height: '100%',
+  },
+  mapPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  userMarkerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userMarker: {
+    backgroundColor: '#FF1493',
+    padding: 8,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  eventMarkerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventMarker: {
+    backgroundColor: '#4CAF50',
+    padding: 8,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
