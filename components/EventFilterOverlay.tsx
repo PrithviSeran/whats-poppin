@@ -21,6 +21,7 @@ import * as Location from 'expo-location';
 import Slider from '@react-native-community/slider';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { supabase } from '@/lib/supabase';
 
 
 const { width, height } = Dimensions.get('window');
@@ -30,13 +31,13 @@ interface EventFilterOverlayProps {
   onClose: () => void;
   onApplyFilters: (filters: {
     eventTypes: string[];
-    timePreferences: number[];
+    timePreferences: { start: string; end: string };
     locationPreferences: string[];
     travelDistance: number;
   }) => void;
   currentFilters: {
     eventTypes: string[];
-    timePreferences: number[];
+    timePreferences: { start: string; end: string };
     locationPreferences: string[];
     travelDistance: number;
   };
@@ -66,8 +67,8 @@ const EVENT_TYPES = [
   'Silent Disco',
 ];
 
-const TIME_PREFERENCES = ['Morning', 'Afternoon', 'Evening'];
-const LOCATION_PREFERENCES = ['Uptown', 'Midtown', 'Downtown'];
+const defaultStart = '21:00';
+const defaultEnd = '3:00';
 
 export default function EventFilterOverlay({
   visible,
@@ -76,16 +77,24 @@ export default function EventFilterOverlay({
   currentFilters,
 }: EventFilterOverlayProps) {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>(currentFilters.eventTypes);
-  const [selectedTimePreferences, setSelectedTimePreferences] = useState<string[]>(currentFilters.timePreferences.map(String));
+  const [selectedTimePreferences, setSelectedTimePreferences] = useState<{ start: string; end: string }>(currentFilters.timePreferences);
   const [selectedLocationPreferences, setSelectedLocationPreferences] = useState<string[]>(currentFilters.locationPreferences);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [manualLocation, setManualLocation] = useState('');
-  const [travelDistance, setTravelDistance] = useState(8); // Default 8 km
-  const colorScheme = useColorScheme();
-  const [startTime, setStartTime] = useState(21 * 60); // 9:00 PM
-  const [endTime, setEndTime] = useState(3 * 60); // 3:00 AM
+  const [travelDistance, setTravelDistance] = useState(currentFilters.travelDistance);
+  const [startTime, setStartTime] = useState(
+    currentFilters.timePreferences?.start
+      ? parseInt(currentFilters.timePreferences.start.split(':')[0], 10) * 60 + parseInt(currentFilters.timePreferences.start.split(':')[1], 10)
+      : 21 * 60
+  );
+  const [endTime, setEndTime] = useState(
+    currentFilters.timePreferences?.end
+      ? parseInt(currentFilters.timePreferences.end.split(':')[0], 10) * 60 + parseInt(currentFilters.timePreferences.end.split(':')[1], 10)
+      : 3 * 60
+  );
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
     if (visible) {
@@ -109,7 +118,7 @@ export default function EventFilterOverlay({
       const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
       if (savedFiltersJson) {
         const savedFilters = JSON.parse(savedFiltersJson);
-        console.log('Loading saved filters in overlay:', savedFilters);
+
         setSelectedEventTypes(savedFilters.eventTypes);
         setManualLocation('');
         setTravelDistance(savedFilters.travelDistance);
@@ -121,13 +130,13 @@ export default function EventFilterOverlay({
 
   const saveFiltersToStorage = async (filters: {
     eventTypes: string[];
-    timePreferences: number[];
+    timePreferences: { start: string; end: string };
     locationPreferences: string[];
     travelDistance: number;
   }) => {
     try {
       await AsyncStorage.setItem('eventFilters', JSON.stringify(filters));
-      console.log('Saving filters to storage:', filters); // Debug log
+
     } catch (error) {
       console.error('Error saving filters:', error);
     }
@@ -141,16 +150,52 @@ export default function EventFilterOverlay({
     );
   };
 
+  const formatTimeString = (minutes: number) => {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${h}:${m.toString().padStart(2, '0')}`;
+  };
+
   const handleApply = async () => {
+    const start = formatTimeString(startTime);
+    const end = formatTimeString(endTime);
+
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      Alert.alert('Error', 'User not logged in');
+      return;
+    }
+
+    // Update user preferences in Supabase
+    const { error } = await supabase
+      .from('all_users')
+      .update({
+        preferences: selectedEventTypes,
+        ['start-time']: start,
+        ['end-time']: end,
+        location: locationPermission ? null : manualLocation,
+        ['travel-distance']: travelDistance,
+      })
+      .eq('email', user.email);
+
+    if (error) {
+      Alert.alert('Error', 'Failed to update preferences: ' + error.message);
+      return;
+    }
+
     const newFilters = {
       eventTypes: selectedEventTypes,
-      timePreferences: [startTime, endTime], // Store as [start, end] in minutes
+      timePreferences: { start, end },
       locationPreferences: locationPermission ? [] : [manualLocation],
       travelDistance: travelDistance,
     };
 
-    // Save to AsyncStorage
-    await saveFiltersToStorage(newFilters);
+    // Save to AsyncStorage (optional: you may want to store minutes for persistence)
+    await saveFiltersToStorage({
+      ...newFilters,
+      timePreferences: { start, end },
+    });
     
     // Apply filters
     onApplyFilters(newFilters);
@@ -160,7 +205,7 @@ export default function EventFilterOverlay({
    const handleReset = async () => {
     const emptyFilters = {
       eventTypes: [],
-      timePreferences: [],
+      timePreferences: { start: defaultStart, end: defaultEnd },
       locationPreferences: [],
       travelDistance: 8,
     };
@@ -170,7 +215,7 @@ export default function EventFilterOverlay({
     
     // Reset local state
     setSelectedEventTypes([]);
-    setSelectedTimePreferences([]);
+    setSelectedTimePreferences({ start: defaultStart, end: defaultEnd });
     setSelectedLocationPreferences([]);
     setStartTime(21 * 60);
     setEndTime(3 * 60);
@@ -286,7 +331,7 @@ export default function EventFilterOverlay({
                       </Text>
                       <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>
                         {formatTime(endTime)}
-                      </Text>
+                  </Text>
                     </TouchableOpacity>
                   </View>
                 </View>

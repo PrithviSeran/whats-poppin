@@ -57,6 +57,7 @@ export default function Profile() {
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
   const fetchUserProfile = async () => {
+
     // Get the current user
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;

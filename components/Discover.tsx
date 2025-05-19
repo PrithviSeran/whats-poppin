@@ -6,32 +6,20 @@ import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '@/lib/supabase';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 
 interface Event {
   id: number;
-  title: string;
-  image: any;
-  date: string;
+  name: string;
+  image: string | null;
+  start_date: string;
   location: string;
   description: string;
   isLiked?: boolean;
 }
-
-// Sample events data
-const EVENTS: Event[] = [
-  { id: 1, title: 'Summer Festival', image: require('../assets/images/balloons.png'), date: 'June 15, 2024', location: 'Central Park', description: 'Join us for an summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages! Join us for an unforgettable summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages! Join us for an unforgettable summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages! Join us for an unforgettable summer festival in the heart of Central Park. Enjoy live music, food trucks, and fun activities for all ages!' },
-  { id: 2, title: 'Music Concert', image: require('../assets/images/balloons.png'), date: 'July 20, 2024', location: 'Madison Square Garden', description: 'Experience an amazing night of live music at Madison Square Garden. Featuring top artists and special guests!' },
-  { id: 3, title: 'Food Market', image: require('../assets/images/balloons.png'), date: 'August 5, 2024', location: 'Union Square', description: 'Discover delicious food from around the world at the Union Square Food Market. Local vendors and international cuisine!' },
-  { id: 4, title: 'Art Exhibition', image: require('../assets/images/balloons.png'), date: 'June 25, 2024', location: 'Metropolitan Museum', description: 'Explore contemporary art at the Metropolitan Museum. Special exhibition featuring modern artists!' },
-  { id: 5, title: 'Comedy Show', image: require('../assets/images/balloons.png'), date: 'July 10, 2024', location: 'Carnegie Hall', description: 'Laugh the night away at Carnegie Hall with top comedians from around the world!' },
-  { id: 6, title: 'Dance Party', image: require('../assets/images/balloons.png'), date: 'August 15, 2024', location: 'Brooklyn Bridge Park', description: 'Dance under the stars at Brooklyn Bridge Park. Live DJs and amazing views!' },
-  { id: 7, title: 'Tech Conference', image: require('../assets/images/balloons.png'), date: 'September 1, 2024', location: 'Javits Center', description: 'Join tech leaders and innovators at the annual tech conference. Workshops and networking!' },
-  { id: 8, title: 'Fashion Show', image: require('../assets/images/balloons.png'), date: 'July 30, 2024', location: 'Times Square', description: 'Experience the latest fashion trends at the Times Square Fashion Show!' },
-  { id: 9, title: 'Film Festival', image: require('../assets/images/balloons.png'), date: 'August 20, 2024', location: 'Lincoln Center', description: 'Watch premieres of new films at the Lincoln Center Film Festival!' },
-];
 
 export default function Discover() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,9 +27,11 @@ export default function Discover() {
   const [modalVisible, setModalVisible] = useState(false);
   const [cardLayout, setCardLayout] = useState<LayoutRectangle | null>(null);
   const [hiddenCardId, setHiddenCardId] = useState<number | null>(null);
-  const [events, setEvents] = useState<Event[]>(EVENTS);
+  const [events, setEvents] = useState<Event[]>([]);
   const [suggestedEvents, setSuggestedEvents] = useState<Event[]>([]);
   const [allEvents, setAllEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const scaleAnim = React.useRef(new Animated.Value(0)).current;
   const translateXAnim = React.useRef(new Animated.Value(0)).current;
   const translateYAnim = React.useRef(new Animated.Value(0)).current;
@@ -57,6 +47,21 @@ export default function Discover() {
   useEffect(() => {
     setAllEvents([...events, ...suggestedEvents]);
   }, [events, suggestedEvents]);
+
+  useEffect(() => {
+    const syncLikedStatus = async () => {
+      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+      let savedEvents: Event[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+      const savedEventNames = new Set(savedEvents.map((event: Event) => event.name));
+      setEvents(prevEvents =>
+        prevEvents.map(event => ({
+          ...event,
+          isLiked: savedEventNames.has(event.name)
+        }))
+      );
+    };
+    syncLikedStatus();
+  }, [allEvents]);
 
   const loadLikedEvents = async () => {
     try {
@@ -88,42 +93,43 @@ export default function Discover() {
     }
   };
 
-  const searchEvents = (query: string) => {
+  const fetchEvents = async () => {
+    setLoading(true);
+    setError(null);
     try {
-    const lowerQuery = query.toLowerCase();
-    
-      const filteredEvents = allEvents.filter(event => {
-        // Add null checks for all properties
-        const title = event?.title?.toLowerCase() || '';
-        const location = event?.location?.toLowerCase() || '';
-        const description = event?.description?.toLowerCase() || '';
-        const date = event?.date?.toLowerCase() || '';
-        
-        return title.includes(lowerQuery) ||
-               location.includes(lowerQuery) ||
-               description.includes(lowerQuery) ||
-               date.includes(lowerQuery);
-      });
-
-    setEvents(filteredEvents);
-    } catch (error) {
-      console.error('Error in searchEvents:', error);
-      // Fallback to showing all events if there's an error
-      setEvents(EVENTS);
+      const { data, error } = await supabase.from('all_events').select('*');
+      if (error) throw error;
+      const mapped = (data || []).map((event: any) => ({
+        id: event.id,
+        name: event.name,
+        image: event.image,
+        start_date: event.start_date,
+        location: event.location,
+        description: event.description,
+        isLiked: false,
+      }));
+      setAllEvents(mapped);
+      setEvents(mapped);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load events');
+    } finally {
+      setLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
   const handleSearch = (text: string) => {
-    try {
     setSearchQuery(text);
     if (text.trim() === '') {
-      setEvents(EVENTS);
+      setEvents(allEvents);
     } else {
-      searchEvents(text);
-      }
-    } catch (error) {
-      console.error('Error in handleSearch:', error);
-      setEvents(EVENTS);
+      const filtered = allEvents.filter(event =>
+        event.name.toLowerCase().includes(text.toLowerCase())
+      );
+      setEvents(filtered);
     }
   };
 
@@ -138,6 +144,34 @@ export default function Discover() {
       } else {
         // Add to saved events
         savedEvents.push(event);
+        // Update saved_events in Supabase (append event name)
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.email) {
+          // Fetch current saved_events from Supabase
+          const { data: userRow, error: userError } = await supabase
+            .from('all_users')
+            .select('saved_events')
+            .eq('email', user.email)
+            .maybeSingle();
+          if (!userError && userRow) {
+            let savedEventsArr: string[] = [];
+            if (Array.isArray(userRow.saved_events)) {
+              savedEventsArr = userRow.saved_events;
+            } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
+              savedEventsArr = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+            // Only append if not already present
+            if (!savedEventsArr.includes(event.name)) {
+              savedEventsArr.push(event.name);
+              // Convert to Postgres array string
+              const pgArray = '{' + savedEventsArr.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
+              await supabase
+                .from('all_users')
+                .update({ saved_events: pgArray })
+                .eq('email', user.email);
+            }
+          }
+        }
       }
 
       await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
@@ -275,7 +309,7 @@ export default function Discover() {
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => {
                 setSearchQuery('');
-                setEvents(EVENTS);
+                fetchEvents();
               }}>
                 <Ionicons name="close-circle" size={20} color="#000" />
               </TouchableOpacity>
@@ -305,7 +339,7 @@ export default function Discover() {
                 }}
               >
                 <Image 
-                  source={event.image} 
+                  source={event.image ? { uri: event.image } : require('../assets/images/balloons.png')}
                   style={styles.cardImage}
                 />
                 <TouchableOpacity 
@@ -319,10 +353,10 @@ export default function Discover() {
                   />
                 </TouchableOpacity>
                 <View style={styles.cardContent}>
-                  <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{event.title}</Text>
+                  <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{event.name}</Text>
                   <View style={styles.infoRow}>
                     <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.date}</Text>
+                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.start_date}</Text>
                   </View>
                   <View style={styles.infoRow}>
                     <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
@@ -361,11 +395,14 @@ export default function Discover() {
               </TouchableOpacity>
           <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
             <ScrollView style={styles.expandedContent}>
-              <Image source={selectedEvent.image} style={styles.imageExpanded} />
-              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.title}</Text>
+              <Image
+                source={selectedEvent.image ? { uri: selectedEvent.image } : require('../assets/images/balloons.png')}
+                style={styles.imageExpanded}
+              />
+              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.name}</Text>
               <View style={styles.infoRow}>
                       <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.date}</Text>
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.start_date}</Text>
                     </View>
               <View style={styles.infoRow}>
                       <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
