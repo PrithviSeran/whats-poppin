@@ -123,11 +123,11 @@ if __name__ == '__main__':
 
     # Assign random features to users and events
     user_features = [
-        (user, [random.choice(event_types), random.choice(age_groups), random.choice(pref_times), random.choice(gender)])
+        (user, [(random.choice(event_types), random.choice(event_types)), random.choice(age_groups), random.choice(pref_times), random.choice(gender)])
         for user in users
     ]
     event_features = [
-        (event, [random.choice(event_types), random.choice(time_tags), random.choice(age_restrictions), random.choice(cost_ranges), random.choice(reservation_required)])
+        (event, [(random.choice(event_types), random.choice(event_types)), random.choice(time_tags), random.choice(age_restrictions), random.choice(cost_ranges), random.choice(reservation_required)])
         for event in events
     ]
 
@@ -138,7 +138,7 @@ if __name__ == '__main__':
         for event in liked_events:
             interactions.append((user, event, 1))
 
-    print(interactions)
+    print(user_features)
 
     # Train recommender
     rec = BeaconAI_torch()
