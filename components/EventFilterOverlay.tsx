@@ -196,7 +196,7 @@ export default function EventFilterOverlay({
       ...newFilters,
       timePreferences: { start, end },
     });
-
+    
     // Apply filters
     onApplyFilters(newFilters);
     onClose();
@@ -331,7 +331,7 @@ export default function EventFilterOverlay({
                       </Text>
                       <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>
                         {formatTime(endTime)}
-                      </Text>
+                  </Text>
                     </TouchableOpacity>
                   </View>
                 </View>

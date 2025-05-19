@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import EventFilterOverlay from './EventFilterOverlay';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
@@ -22,7 +22,7 @@ const ACTION_BUTTONS_HEIGHT = 80; // Space for action buttons
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 
 type RootStackParamList = {
-  'saved-likes': undefined;
+  'saved-likes': { onClose: () => void } | undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -46,6 +46,7 @@ interface EventCard {
   occurrence: string;
   latitude?: number;
   longitude?: number;
+
   distance?: number | null; // Add distance property
 }
 
@@ -123,6 +124,7 @@ export default function SuggestedEvents() {
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isFetchingActivities, setIsFetchingActivities] = useState(false);
   const [error, setError] = useState(null);
   const [files, setFiles] = useState<FileObject[]>([]);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
@@ -161,12 +163,77 @@ export default function SuggestedEvents() {
     });
   };
 
+  const recommendedEvents: string[] = []
+
+  
+
   useEffect(() => {
-    // Load images and filters on mount
+    const fetchTokenAndCallBackend = async (recommendedEvents: string[]) => {
+      try {
+        const response = await fetch('http://192.168.68.144:5000/recommend', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email: 'jdh@shdid.com', top_n: 10, recommended_events: recommendedEvents }),
+        });
+
+        const data = await response.json();
+        console.log('Recommended events:', data);
+
+        // Fetch the full event details for each recommended event
+        const { data: eventsData, error } = await supabase
+          .from('all_events')
+          .select('*, latitude, longitude')
+          .in('name', data.recommended_events);
+
+        if (error) {
+          console.error('Error fetching event details:', error);
+          return;
+        }
+
+        // Create a map of event names to their index in the recommended list
+        const recommendedOrder = data.recommended_events.reduce((acc: { [key: string]: number }, name: string, index: number) => {
+          acc[name] = index;
+          return acc;
+        }, {});
+
+        // Add distance calculation and sort by recommended order
+        const eventsWithDistance = eventsData
+          .map((event: any) => {
+            let distance = null;
+            if (userLocation && event.latitude != null && event.longitude != null) {
+              distance = calculateDistance(
+                userLocation.latitude,
+                userLocation.longitude,
+                event.latitude,
+                event.longitude
+              );
+            }
+            return {
+              ...event,
+              distance: distance,
+            };
+          })
+          .sort((a: any, b: any) => {
+            // Sort based on the order in recommended_events
+            return (recommendedOrder[a.name] ?? Infinity) - (recommendedOrder[b.name] ?? Infinity);
+          });
+
+        setEVENTS(eventsWithDistance);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching recommendations:', error);
+        setLoading(false);
+      }
+    };
+
     loadImages();
     loadSavedFilters();
     fetchUserEvents(); // Consider if this should be here or after filters are loaded
     requestLocationPermission(); // Request and get user location
+    
+    fetchTokenAndCallBackend(recommendedEvents);
   }, []);
 
   useEffect(() => {
@@ -454,29 +521,52 @@ export default function SuggestedEvents() {
 
   const handleSwipeRight = async (cardIndex: number) => {
     const likedEvent = EVENTS[cardIndex];
-    
     try {
-      // Get current saved events
+      // Get current saved events (local)
       const savedEventsJson = await AsyncStorage.getItem('savedEvents');
       let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      
-      // Check if event is already saved
       const isAlreadySaved = savedEvents.some(event => event.id === likedEvent.id);
-      
       if (!isAlreadySaved) {
-        // Only add if not already saved
         savedEvents.push(likedEvent);
         await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
         console.log('Event saved successfully:', likedEvent.name);
       } else {
         console.log('Event already saved:', likedEvent.name);
       }
-      
       // Update local state
       const newLikedEvents = [...likedEvents, likedEvent];
       setLikedEvents(newLikedEvents);
-      
-      // Animate out before closing
+
+      // Update saved_events in Supabase (append event name)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.email) {
+        // Fetch current saved_events from Supabase
+        const { data: userRow, error: userError } = await supabase
+          .from('all_users')
+          .select('saved_events')
+          .eq('email', user.email)
+          .maybeSingle();
+        if (!userError && userRow) {
+          let savedEventsArr: string[] = [];
+          if (Array.isArray(userRow.saved_events)) {
+            savedEventsArr = userRow.saved_events;
+          } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
+            savedEventsArr = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+          }
+          // Only append if not already present
+          if (!savedEventsArr.includes(likedEvent.name)) {
+            savedEventsArr.push(likedEvent.name);
+            // Convert to Postgres array string
+            const pgArray = '{' + savedEventsArr.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
+            await supabase
+              .from('all_users')
+              .update({ saved_events: pgArray })
+              .eq('email', user.email);
+          }
+        }
+      }
+      loadImages();
+
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 0,
@@ -627,6 +717,7 @@ export default function SuggestedEvents() {
     }
   };
 
+
   // Function to fetch route from Google Directions API
   const fetchRoute = async (origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) => {
     try {
@@ -722,7 +813,90 @@ export default function SuggestedEvents() {
     }
   }, [expandedCard, userLocation]);
 
-  if (loading) {
+
+
+  const handleSwipedAll = async () => {
+    // This function will be called when all cards have been swiped
+    console.log('All cards have been swiped');
+    setLoading(true);
+    setIsFetchingActivities(true); // Set fetching activities state
+    
+    for (let i = 0; i < EVENTS.length; i++) {
+      recommendedEvents.push(EVENTS[i].name)
+    }
+
+    const fetchTokenAndCallBackend = async (recommendedEvents: string[]) => {
+      try {
+        const response = await fetch('http://192.168.68.144:5000/recommend', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email: 'jdh@shdid.com', top_n: 10, recommended_events: recommendedEvents }),
+        });
+
+        const data = await response.json();
+        console.log('Recommended events:', data);
+
+        // Fetch the full event details for each recommended event
+        const { data: eventsData, error } = await supabase
+          .from('all_events')
+          .select('*, latitude, longitude')
+          .in('name', data.recommended_events);
+
+        if (error) {
+          console.error('Error fetching event details:', error);
+          return;
+        }
+
+        // Create a map of event names to their index in the recommended list
+        const recommendedOrder = data.recommended_events.reduce((acc: { [key: string]: number }, name: string, index: number) => {
+          acc[name] = index;
+          return acc;
+        }, {});
+
+        // Add distance calculation and sort by recommended order
+        const eventsWithDistance = eventsData
+          .map((event: any) => {
+            let distance = null;
+            if (userLocation && event.latitude != null && event.longitude != null) {
+              distance = calculateDistance(
+                userLocation.latitude,
+                userLocation.longitude,
+                event.latitude,
+                event.longitude
+              );
+            }
+            return {
+              ...event,
+              distance: distance,
+            };
+          })
+          .sort((a: any, b: any) => {
+            // Sort based on the order in recommended_events
+            return (recommendedOrder[a.name] ?? Infinity) - (recommendedOrder[b.name] ?? Infinity);
+          });
+
+        // Reset the Swiper state
+        setCardIndex(0);
+        setEVENTS([]); // Clear current events
+        setTimeout(() => {
+          setEVENTS(eventsWithDistance); // Set new events after a brief delay
+          setLoading(false);
+          setIsFetchingActivities(false); // Reset fetching activities state
+        }, 100);
+      } catch (error) {
+        console.error('Error fetching recommendations:', error);
+        setLoading(false);
+        setIsFetchingActivities(false); // Reset fetching activities state
+      }
+    };
+
+    await fetchTokenAndCallBackend(recommendedEvents);
+  };
+
+  if (loading && !isFetchingActivities) {
+
     const spin = rotateAnim.interpolate({
       inputRange: [0, 1],
       outputRange: ['0deg', '360deg'],
@@ -737,7 +911,7 @@ export default function SuggestedEvents() {
         <View style={styles.topButtons}>
           <TouchableOpacity 
             style={styles.topButton}
-            onPress={() => navigation.navigate('saved-likes')}
+            onPress={() => navigation.navigate('saved-likes', { onClose: fetchUserEvents })}
           >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -791,7 +965,7 @@ export default function SuggestedEvents() {
       <View style={styles.topButtons}>
         <TouchableOpacity 
           style={styles.topButton}
-          onPress={() => navigation.navigate('saved-likes')}
+          onPress={() => navigation.navigate('saved-likes', { onClose: fetchUserEvents })}
         >
           <LinearGradient
             colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -819,10 +993,10 @@ export default function SuggestedEvents() {
         </TouchableOpacity>
       </View>
 
-      {EVENTS.length > 0 && imageUrls.length > 0 ? ( // Conditionally render Swiper
+      {EVENTS.length > 0 && imageUrls.length > 0 ? (
         <>
-          {/* Main Swiper View */}
           <View style={styles.swiperContainer}>
+
             <Swiper
               ref={swiperRef}
               cards={EVENTS}
@@ -917,14 +1091,134 @@ export default function SuggestedEvents() {
                       marginTop: 30, 
                       marginLeft: 30 
                     } 
+
+            {loading && isFetchingActivities ? (
+              <View style={styles.loadingContainer}>
+                <Animated.View
+                  style={[
+                    styles.loadingCircle,
+                    {
+                      transform: [{ scale: pulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1.2],
+                      })}, { rotate: rotateAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0deg', '360deg'],
+                      })}],
+                      borderColor: '#FF1493',
+                    },
+                  ]}
+                >
+                  <View style={styles.innerCircle} />
+                </Animated.View>
+                <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>Fetching activities...</Text>
+              </View>
+            ) : (
+              <Swiper
+                ref={swiperRef}
+                cards={EVENTS}
+                cardIndex={cardIndex}
+                renderCard={(card: EventCard, index: number) => {
+                  const isTopCard = index === cardIndex;
+                  // Use the first image URL for all cards if available
+                  const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
+
+                  return (
+                    <TouchableOpacity
+                      onPress={() => handleCardPress(card)}
+                      activeOpacity={1}
+                    >
+                      <Animated.View style={[
+                        styles.card,
+                        isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                      ]}>
+                        {eventImageUrl ? (
+                          <Image
+                            source={{ uri: eventImageUrl }}
+                            style={styles.image}
+                            onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
+                          />
+                        ) : (
+                          <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                            <Ionicons name="image-outline" size={40} color="#666" />
+                          </View>
+                        )}
+                        <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
+                        {/* Distance Display */}
+                        {card.distance != null ? (
+                          <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                            Distance: {card.distance.toFixed(2)} km
+                          </Text>
+                        ) : userLocation ? (
+                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                             Distance: Calculating...
+                           </Text>
+                        ) : (
+                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                              Distance: N/A (Location required)
+                           </Text>
+                        )}
+                      </Animated.View>
+                    </TouchableOpacity>
+                  );
+                }}
+                onSwipedLeft={() => {
+                  setCardIndex((i) => i + 1);
+                  Animated.parallel([
+                    Animated.timing(fadeAnim, {
+                      toValue: 0,
+                      duration: 200,
+                      useNativeDriver: true,
+                    }),
+                    Animated.spring(scaleAnim, {
+                      toValue: 0.8,
+                      friction: 5,
+                      tension: 50,
+                      useNativeDriver: true,
+                    })
+                  ]).start(() => {
+                    setExpandedCard(null);
+                  });
+                }}
+                onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
+                onSwipedAll={handleSwipedAll}
+                onSwiping={(x) => swipeX.setValue(x)}
+                backgroundColor="transparent"
+                stackSize={3}
+                stackSeparation={15}
+                overlayLabels={{
+                  left: {
+                    style: { 
+                      label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
+                      wrapper: { 
+                        flexDirection: 'column', 
+                        alignItems: 'flex-end', 
+                        justifyContent: 'flex-start', 
+                        marginTop: 30, 
+                        marginLeft: -30 
+                      } 
+                    }
+                  },
+                  right: {
+                    style: { 
+                      label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
+                      wrapper: { 
+                        flexDirection: 'column', 
+                        alignItems: 'flex-start', 
+                        justifyContent: 'flex-start', 
+                        marginTop: 30, 
+                        marginLeft: 30 
+                      } 
+                    }
+
                   }
-                }
-              }}
-              disableTopSwipe
-              disableBottomSwipe
-              pointerEvents="box-none"
-              useViewOverflow={false}
-            />
+                }}
+                disableTopSwipe
+                disableBottomSwipe
+                pointerEvents="box-none"
+                useViewOverflow={false}
+              />
+            )}
           </View>
 
           <Animated.View style={[styles.actionButtons]}>
@@ -982,7 +1276,10 @@ export default function SuggestedEvents() {
         >
           <TouchableOpacity
             style={styles.backButton}
-            onPress={handleBackPress}
+            onPress={() => {
+              navigation.goBack();
+              handleBackPress();
+            }}
           >
             <Text style={styles.backButtonText}>{'←'}</Text>
           </TouchableOpacity>
@@ -998,6 +1295,7 @@ export default function SuggestedEvents() {
                 <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
               </View>
+
               {expandedCard.distance !== null && expandedCard.distance !== undefined ? (
                 <View style={styles.infoRow}>
                   <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />

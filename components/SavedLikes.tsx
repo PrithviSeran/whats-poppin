@@ -6,10 +6,14 @@ import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
 import * as Location from 'expo-location';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+
+import { supabase } from '@/lib/supabase';
+
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
@@ -59,6 +63,10 @@ const formatDate = (dateString: string) => {
   }
 };
 
+type SavedLikesParams = {
+  onClose?: () => void;
+};
+
 export default function SavedLikes() {
   const [savedEvents, setSavedEvents] = useState<EventCard[]>([]);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -81,6 +89,12 @@ export default function SavedLikes() {
   const cardOpacity = React.useRef(new Animated.Value(1)).current;
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const route = useRoute<RouteProp<{ params: SavedLikesParams }, 'params'>>();
+  const onClose = route.params?.onClose || (() => {});
+  useEffect(() => {
+    loadSavedEvents();
+  }, []);
+
 
   // Calculate distance between two coordinates
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -145,22 +159,49 @@ export default function SavedLikes() {
     }
   };
 
-  // Load saved events
   const loadSavedEvents = async () => {
     try {
-      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-      console.log('Loading saved events from storage:', savedEventsJson);
-      if (savedEventsJson) {
-        const events = JSON.parse(savedEventsJson);
-        console.log('Parsed saved events:', events);
-        setSavedEvents(events);
-      } else {
-        console.log('No saved events found in storage');
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !user.email) {
         setSavedEvents([]);
+        return;
       }
+      // Fetch saved_events array from Supabase
+      const { data: userRow, error: userError } = await supabase
+        .from('all_users')
+        .select('saved_events')
+        .eq('email', user.email)
+        .maybeSingle();
+      if (userError || !userRow || !userRow.saved_events) {
+        setSavedEvents([]);
+        return;
+      }
+      let savedEventNames: string[] = [];
+      if (Array.isArray(userRow.saved_events)) {
+        savedEventNames = userRow.saved_events;
+      } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
+        savedEventNames = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+
+      }
+      if (savedEventNames.length === 0) {
+        setSavedEvents([]);
+        return;
+      }
+      // Fetch event details for each saved event name
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('all_events')
+        .select('*')
+        .in('name', savedEventNames);
+      if (eventsError || !eventsData) {
+        setSavedEvents([]);
+        return;
+      }
+      setSavedEvents(eventsData);
     } catch (error) {
       console.error('Error loading saved events:', error);
       setSavedEvents([]);
+
     } finally {
       setLoading(false);
     }
@@ -232,6 +273,7 @@ export default function SavedLikes() {
         latitude: lat / 1E5,
         longitude: lng / 1E5
       });
+
     }
 
     return poly;
@@ -447,7 +489,10 @@ export default function SavedLikes() {
           borderRadius: 20,
           padding: 8,
         }}
-        onPress={() => navigation.goBack()}
+        onPress={() => {
+          navigation.goBack();
+          onClose();
+        }}
       >
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
@@ -476,7 +521,10 @@ export default function SavedLikes() {
           borderRadius: 20,
           padding: 8,
         }}
-        onPress={() => navigation.goBack()}
+        onPress={() => {
+          navigation.goBack();
+          onClose();
+        }}
       >
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>

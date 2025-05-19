@@ -48,6 +48,21 @@ export default function Discover() {
     setAllEvents([...events, ...suggestedEvents]);
   }, [events, suggestedEvents]);
 
+  useEffect(() => {
+    const syncLikedStatus = async () => {
+      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+      let savedEvents: Event[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+      const savedEventNames = new Set(savedEvents.map((event: Event) => event.name));
+      setEvents(prevEvents =>
+        prevEvents.map(event => ({
+          ...event,
+          isLiked: savedEventNames.has(event.name)
+        }))
+      );
+    };
+    syncLikedStatus();
+  }, [allEvents]);
+
   const loadLikedEvents = async () => {
     try {
       const savedEventsJson = await AsyncStorage.getItem('savedEvents');
@@ -129,6 +144,34 @@ export default function Discover() {
       } else {
         // Add to saved events
         savedEvents.push(event);
+        // Update saved_events in Supabase (append event name)
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.email) {
+          // Fetch current saved_events from Supabase
+          const { data: userRow, error: userError } = await supabase
+            .from('all_users')
+            .select('saved_events')
+            .eq('email', user.email)
+            .maybeSingle();
+          if (!userError && userRow) {
+            let savedEventsArr: string[] = [];
+            if (Array.isArray(userRow.saved_events)) {
+              savedEventsArr = userRow.saved_events;
+            } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
+              savedEventsArr = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+            // Only append if not already present
+            if (!savedEventsArr.includes(event.name)) {
+              savedEventsArr.push(event.name);
+              // Convert to Postgres array string
+              const pgArray = '{' + savedEventsArr.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
+              await supabase
+                .from('all_users')
+                .update({ saved_events: pgArray })
+                .eq('email', user.email);
+            }
+          }
+        }
       }
 
       await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));

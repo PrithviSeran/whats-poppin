@@ -76,7 +76,7 @@ export default function EditProfileScreen() {
         return false;
       }
 
-      navigation.goBack();
+    navigation.goBack();
     } catch (error) {
       Alert.alert('Error', 'An unexpected error occurred');
     } finally {
@@ -109,8 +109,8 @@ export default function EditProfileScreen() {
               <ActivityIndicator color="#fff" size="small" />
             ) : (
               <>
-                <Ionicons name="checkmark" size={24} color="#fff" style={styles.buttonIcon} />
-                <Text style={styles.saveButtonText}>Save</Text>
+            <Ionicons name="checkmark" size={24} color="#fff" style={styles.buttonIcon} />
+            <Text style={styles.saveButtonText}>Save</Text>
               </>
             )}
           </LinearGradient>
