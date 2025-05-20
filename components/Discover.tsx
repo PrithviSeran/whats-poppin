@@ -7,6 +7,7 @@ import MainFooter from './MainFooter';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
@@ -32,6 +33,7 @@ export default function Discover() {
   const [allEvents, setAllEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const scaleAnim = React.useRef(new Animated.Value(0)).current;
   const translateXAnim = React.useRef(new Animated.Value(0)).current;
   const translateYAnim = React.useRef(new Animated.Value(0)).current;
@@ -39,29 +41,42 @@ export default function Discover() {
   const cardOpacity = React.useRef(new Animated.Value(1)).current;
   const colorScheme = useColorScheme();
 
+  // Initial data load
   useEffect(() => {
-    loadLikedEvents();
-    loadSuggestedEvents();
+    const initializeData = async () => {
+      if (!hasInitialLoad) {
+        setLoading(true);
+        await Promise.all([
+          loadLikedEvents(),
+          loadSuggestedEvents(),
+          fetchEvents()
+        ]);
+        setHasInitialLoad(true);
+        setLoading(false);
+      }
+    };
+
+    initializeData();
   }, []);
 
-  useEffect(() => {
-    setAllEvents([...events, ...suggestedEvents]);
-  }, [events, suggestedEvents]);
-
-  useEffect(() => {
-    const syncLikedStatus = async () => {
-      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-      let savedEvents: Event[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      const savedEventNames = new Set(savedEvents.map((event: Event) => event.name));
-      setEvents(prevEvents =>
-        prevEvents.map(event => ({
-          ...event,
-          isLiked: savedEventNames.has(event.name)
-        }))
-      );
-    };
-    syncLikedStatus();
-  }, [allEvents]);
+  // Use useFocusEffect to handle tab switching
+  useFocusEffect(
+    React.useCallback(() => {
+      // Only sync liked status when returning to the tab
+      const syncLikedStatus = async () => {
+        const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+        let savedEvents: Event[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+        const savedEventNames = new Set(savedEvents.map((event: Event) => event.name));
+        setEvents(prevEvents =>
+          prevEvents.map(event => ({
+            ...event,
+            isLiked: savedEventNames.has(event.name)
+          }))
+        );
+      };
+      syncLikedStatus();
+    }, [])
+  );
 
   const loadLikedEvents = async () => {
     try {
@@ -94,10 +109,15 @@ export default function Discover() {
   };
 
   const fetchEvents = async () => {
+    if (allEvents.length > 0) return; // Don't fetch if we already have events
+    
     setLoading(true);
     setError(null);
     try {
-      const { data, error } = await supabase.from('all_events').select('*');
+      const { data, error } = await supabase
+        .from('all_events')
+        .select('*')
+        .limit(10);
       if (error) throw error;
       const mapped = (data || []).map((event: any) => ({
         id: event.id,
@@ -116,10 +136,6 @@ export default function Discover() {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchEvents();
-  }, []);
 
   const handleSearch = (text: string) => {
     setSearchQuery(text);

@@ -134,6 +134,7 @@ export default function SuggestedEvents() {
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<RouteCoordinates[]>([]);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+  const [hasInitialLoad, setHasInitialLoad] = useState(false);
 
   // Add recalculateDistances function inside component
   const recalculateDistances = (events: EventCard[]): EventCard[] => {
@@ -228,12 +229,20 @@ export default function SuggestedEvents() {
       }
     };
 
-    loadImages();
-    loadSavedFilters();
-    fetchUserEvents(); // Consider if this should be here or after filters are loaded
-    requestLocationPermission(); // Request and get user location
-    
-    fetchTokenAndCallBackend(recommendedEvents);
+    const initializeData = async () => {
+      if (!hasInitialLoad) {
+        setLoading(true);
+        await loadImages();
+        await loadSavedFilters();
+        await fetchUserEvents();
+        await requestLocationPermission();
+        await fetchTokenAndCallBackend(recommendedEvents);
+        setHasInitialLoad(true);
+        setLoading(false);
+      }
+    };
+
+    initializeData();
   }, []);
 
   useEffect(() => {
@@ -263,13 +272,32 @@ export default function SuggestedEvents() {
   }, [loading]);
 
   useEffect(() => {
-    console.log('userLocation changed:', userLocation);
-    if (userLocation && EVENTS.length > 0) {
-      console.log('Recalculating distances for', EVENTS.length, 'events');
-      const eventsWithDistances = recalculateDistances(EVENTS);
-      setEVENTS(eventsWithDistances);
-    }
-  }, [userLocation]);
+    const initializeData = async () => {
+      if (!hasInitialLoad) {
+        setLoading(true);
+        await loadImages();
+        await loadSavedFilters();
+        await fetchUserEvents();
+        await requestLocationPermission();
+        await fetchTokenAndCallBackend(recommendedEvents);
+        setHasInitialLoad(true);
+        setLoading(false);
+      }
+    };
+
+    initializeData();
+  }, []);
+
+  // Add useFocusEffect to handle tab switching
+  useFocusEffect(
+    React.useCallback(() => {
+      // Only recalculate distances when location changes
+      if (userLocation && EVENTS.length > 0) {
+        const eventsWithDistances = recalculateDistances(EVENTS);
+        setEVENTS(eventsWithDistances);
+      }
+    }, [userLocation])
+  );
 
   const loadImages = async () => {
     try {
@@ -335,8 +363,6 @@ export default function SuggestedEvents() {
       if (error) {
         throw error
       }
-
-      console.log('Fetched events data:', eventsData);
 
       let eventsWithCalculatedDistance: EventCard[] = [];
       if (eventsData) {
@@ -698,8 +724,6 @@ export default function SuggestedEvents() {
         accuracy: Location.Accuracy.High
       });
       
-      console.log('Got user location:', location.coords);
-      
       const newUserLocation = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
@@ -729,8 +753,6 @@ export default function SuggestedEvents() {
         return;
       }
 
-      console.log('Origin:', origin);
-      console.log('Destination:', destination);
       
       const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=${apiKey}&mode=driving`;
       
@@ -804,14 +826,16 @@ export default function SuggestedEvents() {
   };
 
   // Update route when expanded card changes
+  /*
   useEffect(() => {
+
     if (expandedCard && userLocation && expandedCard.latitude && expandedCard.longitude) {
       fetchRoute(
         { latitude: userLocation.latitude, longitude: userLocation.longitude },
         { latitude: expandedCard.latitude, longitude: expandedCard.longitude }
       );
     }
-  }, [expandedCard, userLocation]);
+  }, [expandedCard, userLocation]);*/
 
 
 
@@ -836,7 +860,6 @@ export default function SuggestedEvents() {
         });
 
         const data = await response.json();
-        console.log('Recommended events:', data);
 
         // Fetch the full event details for each recommended event
         const { data: eventsData, error } = await supabase
@@ -911,7 +934,7 @@ export default function SuggestedEvents() {
         <View style={styles.topButtons}>
           <TouchableOpacity 
             style={styles.topButton}
-            onPress={() => navigation.navigate('saved-likes', { onClose: fetchUserEvents })}
+            onPress={() => navigation.navigate('saved-likes', { onClose: () => {} })}
           >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -965,7 +988,7 @@ export default function SuggestedEvents() {
       <View style={styles.topButtons}>
         <TouchableOpacity 
           style={styles.topButton}
-          onPress={() => navigation.navigate('saved-likes', { onClose: fetchUserEvents })}
+          onPress={() => navigation.navigate('saved-likes', { onClose: () => {} })}
         >
           <LinearGradient
             colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -996,101 +1019,6 @@ export default function SuggestedEvents() {
       {EVENTS.length > 0 && imageUrls.length > 0 ? (
         <>
           <View style={styles.swiperContainer}>
-
-            <Swiper
-              ref={swiperRef}
-              cards={EVENTS}
-              cardIndex={cardIndex}
-              renderCard={(card: EventCard, index: number) => {
-                const isTopCard = index === cardIndex;
-                // Use the first image URL for all cards if available
-                const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
-
-                return (
-                  <TouchableOpacity
-                    onPress={() => handleCardPress(card)}
-                    activeOpacity={1}
-                  >
-                    <Animated.View style={[
-                      styles.card,
-                      isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                    ]}>
-                      {eventImageUrl ? (
-                        <Image
-                          source={{ uri: eventImageUrl }}
-                          style={styles.image}
-                          onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
-                        />
-                      ) : (
-                        <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                          <Ionicons name="image-outline" size={40} color="#666" />
-                        </View>
-                      )}
-                      <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
-                      {/* Distance Display */}
-                      {card.distance !== undefined && card.distance !== null ? (
-                        <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                          Distance: {card.distance.toFixed(2)} km
-                        </Text>
-                      ) : userLocation ? (
-                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                           Distance: Calculating...
-                         </Text>
-                      ) : (
-                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                            Distance: N/A (Location required)
-                         </Text>
-                      )}
-                    </Animated.View>
-                  </TouchableOpacity>
-                );
-              }}
-              onSwipedLeft={() => {
-                setCardIndex((i) => i + 1);
-                Animated.parallel([
-                  Animated.timing(fadeAnim, {
-                    toValue: 0,
-                    duration: 200,
-                    useNativeDriver: true,
-                  }),
-                  Animated.spring(scaleAnim, {
-                    toValue: 0.8,
-                    friction: 5,
-                    tension: 50,
-                    useNativeDriver: true,
-                  })
-                ]).start(() => {
-                  setExpandedCard(null);
-                });
-              }}
-              onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-              onSwiping={(x) => swipeX.setValue(x)}
-              backgroundColor="transparent"
-              stackSize={3}
-              stackSeparation={15}
-              overlayLabels={{
-                left: {
-                  style: { 
-                    label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
-                    wrapper: { 
-                      flexDirection: 'column', 
-                      alignItems: 'flex-end', 
-                      justifyContent: 'flex-start', 
-                      marginTop: 30, 
-                      marginLeft: -30 
-                    } 
-                  }
-                },
-                right: {
-                  style: { 
-                    label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
-                    wrapper: { 
-                      flexDirection: 'column', 
-                      alignItems: 'flex-start', 
-                      justifyContent: 'flex-start', 
-                      marginTop: 30, 
-                      marginLeft: 30 
-                    } 
 
             {loading && isFetchingActivities ? (
               <View style={styles.loadingContainer}>
@@ -1257,7 +1185,6 @@ export default function SuggestedEvents() {
         visible={isFilterVisible}
         onClose={() => {
           setIsFilterVisible(false);
-          fetchUserEvents();
         }}
         onApplyFilters={handleApplyFilters}
         currentFilters={filters}
@@ -1277,7 +1204,7 @@ export default function SuggestedEvents() {
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => {
-              navigation.goBack();
+
               handleBackPress();
             }}
           >
@@ -1285,7 +1212,16 @@ export default function SuggestedEvents() {
           </TouchableOpacity>
           <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
             <ScrollView style={styles.expandedContent}>
-              <Image source={expandedCard.image} style={styles.imageExpanded} />
+              {imageUrls.length > 0 ? (
+                <Image 
+                  source={{ uri: imageUrls[0] }} 
+                  style={[styles.imageExpanded, { resizeMode: 'cover' }]}
+                />
+              ) : (
+                <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                  <Ionicons name="image-outline" size={40} color="#666" />
+                </View>
+              )}
               <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.name}</Text>
               <View style={styles.infoRow}>
                 <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
