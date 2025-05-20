@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { FileObject } from '@supabase/storage-js';
 import * as Location from 'expo-location';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
@@ -29,25 +30,19 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 interface EventCard {
   id: number;
-  created_at: string;
   name: string;
+  image: string | null;
+  start_date: string;
+  location: string;
+  description: string;
+  isLiked?: boolean;
+  created_at: string;
   organization: string;
   event_type: string;
-  start_time: string; // 'HH:MM'
-  end_time: string;   // 'HH:MM'
-  location: string;
-  cost: number;
-  age_restriction: number;
-  reservation: string;
-  description: string;
-  image: any;
-  start_date: string; // 'YYYY-MM-DD'
-  end_date: string;   // 'YYYY-MM-DD'
-  occurrence: string;
+  start_time: string;
   latitude?: number;
   longitude?: number;
-
-  distance?: number | null; // Add distance property
+  distance?: number | null;
 }
 
 interface FilterState {
@@ -135,6 +130,9 @@ export default function SuggestedEvents() {
   const [routeCoordinates, setRouteCoordinates] = useState<RouteCoordinates[]>([]);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
+  const fadeInAnim = useRef(new Animated.Value(0)).current;
+  const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
+  const cardOpacityAnim = useRef(new Animated.Value(0)).current;
 
   // Add recalculateDistances function inside component
   const recalculateDistances = (events: EventCard[]): EventCard[] => {
@@ -164,85 +162,168 @@ export default function SuggestedEvents() {
     });
   };
 
-  const recommendedEvents: string[] = []
+  const initializeData = async () => {
+    setLoading(true);
+    try {
+      const dataManager = GlobalDataManager.getInstance();
+      if (!dataManager.isDataInitialized()) {
+        await dataManager.initialize();
+      }
 
-  
+      const [events, savedEvents, images] = await Promise.all([
+        dataManager.getEvents(),
+        dataManager.getSavedEvents(),
+        loadImages()
+      ]);
+
+      const eventsWithLikes = events.map(event => ({
+        ...event,
+        isLiked: savedEvents.includes(event.name)
+      })) as EventCard[];
+
+      const eventsWithDistances = recalculateDistances(eventsWithLikes);
+
+      if (images.length > 0) {
+        setEVENTS(eventsWithDistances);
+        setImageUrls(images);
+      }
+
+      await loadSavedFilters();
+      await requestLocationPermission();
+      setHasInitialLoad(true);
+    } catch (error) {
+      console.error('Error initializing data:', error);
+    } finally {
+      if (EVENTS.length > 0 && imageUrls.length > 0) {
+        setLoading(false);
+        // Start fade-in animation after loading is complete
+        Animated.timing(fadeInAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }).start();
+      }
+    }
+  };
+
+  // Update useFocusEffect to properly handle data reloading
+  useFocusEffect(
+    React.useCallback(() => {
+      let isMounted = true;
+      const dataManager = GlobalDataManager.getInstance();
+
+      const reloadData = async () => {
+        if (!isMounted) return;
+        
+        // Reset states
+        setLoading(true);
+        setEVENTS([]);
+        setImageUrls([]);
+        setHasInitialLoad(false);
+        
+        // Reset animation values
+        fadeInAnim.setValue(0);
+        pulseAnim.setValue(0);
+        rotateAnim.setValue(0);
+
+        // Restart loading animations
+        Animated.loop(
+          Animated.parallel([
+            Animated.sequence([
+              Animated.timing(pulseAnim, {
+                toValue: 1,
+                duration: 1000,
+                useNativeDriver: true,
+              }),
+              Animated.timing(pulseAnim, {
+                toValue: 0,
+                duration: 1000,
+                useNativeDriver: true,
+              }),
+            ]),
+            Animated.timing(rotateAnim, {
+              toValue: 1,
+              duration: 2000,
+              useNativeDriver: true,
+            }),
+          ])
+        ).start();
+
+        try {
+          // Initialize global data if not already initialized
+          if (!dataManager.isDataInitialized()) {
+            await dataManager.initialize();
+          }
+
+          // Load all data in parallel
+          const [events, savedEvents, images] = await Promise.all([
+            dataManager.getEvents(),
+            dataManager.getSavedEvents(),
+            loadImages()
+          ]);
+
+          if (!isMounted) return;
+
+          // Mark events as liked if they're in savedEvents
+          const eventsWithLikes = events.map(event => ({
+            ...event,
+            isLiked: savedEvents.includes(event.name)
+          })) as EventCard[];
+
+          // Calculate distances for events
+          const eventsWithDistances = recalculateDistances(eventsWithLikes);
+
+          // Update states
+          setEVENTS(eventsWithDistances);
+          setImageUrls(images);
+          setHasInitialLoad(true);
+          setLoading(false);
+
+          // Start fade-in animation
+          Animated.timing(fadeInAnim, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }).start();
+        } catch (error) {
+          console.error('Error reloading data:', error);
+          if (isMounted) {
+            setLoading(false);
+          }
+        }
+      };
+
+      reloadData();
+
+      return () => {
+        isMounted = false;
+        // Cleanup animations
+        pulseAnim.stopAnimation();
+        rotateAnim.stopAnimation();
+        fadeInAnim.stopAnimation();
+      };
+    }, [])
+  );
 
   useEffect(() => {
-    const fetchTokenAndCallBackend = async (recommendedEvents: string[]) => {
-      try {
-        const response = await fetch('http://192.168.68.144:5000/recommend', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ email: 'jdh@shdid.com', top_n: 10, recommended_events: recommendedEvents }),
-        });
+    let isMounted = true;
+    const dataManager = GlobalDataManager.getInstance();
 
-        const data = await response.json();
-        console.log('Recommended events:', data);
-
-        // Fetch the full event details for each recommended event
-        const { data: eventsData, error } = await supabase
-          .from('all_events')
-          .select('*, latitude, longitude')
-          .in('name', data.recommended_events);
-
-        if (error) {
-          console.error('Error fetching event details:', error);
-          return;
-        }
-
-        // Create a map of event names to their index in the recommended list
-        const recommendedOrder = data.recommended_events.reduce((acc: { [key: string]: number }, name: string, index: number) => {
-          acc[name] = index;
-          return acc;
-        }, {});
-
-        // Add distance calculation and sort by recommended order
-        const eventsWithDistance = eventsData
-          .map((event: any) => {
-            let distance = null;
-            if (userLocation && event.latitude != null && event.longitude != null) {
-              distance = calculateDistance(
-                userLocation.latitude,
-                userLocation.longitude,
-                event.latitude,
-                event.longitude
-              );
-            }
-            return {
-              ...event,
-              distance: distance,
-            };
-          })
-          .sort((a: any, b: any) => {
-            // Sort based on the order in recommended_events
-            return (recommendedOrder[a.name] ?? Infinity) - (recommendedOrder[b.name] ?? Infinity);
-          });
-
-        setEVENTS(eventsWithDistance);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
-        setLoading(false);
+    // Listen for data updates
+    const handleDataUpdate = () => {
+      if (isMounted) {
+        setHasInitialLoad(false);
+        initializeData();
       }
     };
 
-    const initializeData = async () => {
-      if (!hasInitialLoad) {
-        setLoading(true);
-        await loadImages();
-        await loadSavedFilters();
-        await fetchUserEvents();
-        await requestLocationPermission();
-        await fetchTokenAndCallBackend(recommendedEvents);
-        setHasInitialLoad(true);
-        setLoading(false);
-      }
-    };
-
+    dataManager.on('dataInitialized', handleDataUpdate);
     initializeData();
+
+    return () => {
+      isMounted = false;
+      dataManager.removeListener('dataInitialized', handleDataUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -279,7 +360,6 @@ export default function SuggestedEvents() {
         await loadSavedFilters();
         await fetchUserEvents();
         await requestLocationPermission();
-        await fetchTokenAndCallBackend(recommendedEvents);
         setHasInitialLoad(true);
         setLoading(false);
       }
@@ -309,7 +389,7 @@ export default function SuggestedEvents() {
       if (listError) {
         console.error('Error listing files:', listError);
         // Optionally set an error state or show a message to the user
-        return;
+        return [];
       }
 
       if (files && files.length > 0) {
@@ -323,17 +403,20 @@ export default function SuggestedEvents() {
 
         if (urls.length > 0) {
            console.log('Successfully loaded image URLs:', urls);
-           setImageUrls(urls);
+           return urls;
         } else {
            console.warn('No public URLs could be generated for files found in the bucket.');
+           return [];
         }
 
       } else {
         console.log('No files found in the event-images bucket.');
+        return [];
       }
     } catch (error) {
       console.error('Error loading images:', error);
        // Optionally set an error state or show a message to the user
+       return [];
     }
   };
 
@@ -507,40 +590,40 @@ export default function SuggestedEvents() {
 
   const handleCardPress = (card: EventCard) => {
     setExpandedCard(card);
-    // Reset the scale value
-    fadeAnim.setValue(0);
-    // Start the animation
+    // Reset animation values
+    cardScaleAnim.setValue(0.95);
+    cardOpacityAnim.setValue(0);
+    
+    // Start animations
     Animated.parallel([
-      Animated.timing(fadeAnim, {
+      Animated.spring(cardScaleAnim, {
         toValue: 1,
-        duration: 400,
+        friction: 8,
+        tension: 40,
         useNativeDriver: true,
       }),
-      Animated.spring(scaleAnim, {
+      Animated.timing(cardOpacityAnim, {
         toValue: 1,
-        friction: 5,
-        tension: 50,
+        duration: 300,
         useNativeDriver: true,
-      })
+      }),
     ]).start();
   };
 
   const handleBackPress = () => {
-    // Animate out
     Animated.parallel([
-      Animated.timing(fadeAnim, {
+      Animated.spring(cardScaleAnim, {
+        toValue: 0.95,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.timing(cardOpacityAnim, {
         toValue: 0,
         duration: 200,
         useNativeDriver: true,
       }),
-      Animated.spring(scaleAnim, {
-        toValue: 0.8,
-        friction: 5,
-        tension: 50,
-        useNativeDriver: true,
-      })
     ]).start(() => {
-      // Only update state after animation completes
       setExpandedCard(null);
     });
   };
@@ -548,68 +631,62 @@ export default function SuggestedEvents() {
   const handleSwipeRight = async (cardIndex: number) => {
     const likedEvent = EVENTS[cardIndex];
     try {
-      // Get current saved events (local)
-      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-      let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      const isAlreadySaved = savedEvents.some(event => event.id === likedEvent.id);
-      if (!isAlreadySaved) {
-        savedEvents.push(likedEvent);
-        await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
-        console.log('Event saved successfully:', likedEvent.name);
-      } else {
-        console.log('Event already saved:', likedEvent.name);
-      }
-      // Update local state
-      const newLikedEvents = [...likedEvents, likedEvent];
-      setLikedEvents(newLikedEvents);
-
-      // Update saved_events in Supabase (append event name)
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user && user.email) {
-        // Fetch current saved_events from Supabase
-        const { data: userRow, error: userError } = await supabase
-          .from('all_users')
-          .select('saved_events')
-          .eq('email', user.email)
-          .maybeSingle();
-        if (!userError && userRow) {
-          let savedEventsArr: string[] = [];
-          if (Array.isArray(userRow.saved_events)) {
-            savedEventsArr = userRow.saved_events;
-          } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
-            savedEventsArr = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
-          }
-          // Only append if not already present
-          if (!savedEventsArr.includes(likedEvent.name)) {
-            savedEventsArr.push(likedEvent.name);
-            // Convert to Postgres array string
-            const pgArray = '{' + savedEventsArr.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
-            await supabase
-              .from('all_users')
-              .update({ saved_events: pgArray })
-              .eq('email', user.email);
-          }
+      // Get current saved events from AsyncStorage
+      const savedEvents = await GlobalDataManager.getInstance().getSavedEvents();
+      
+      // Add the new event if not already saved
+      if (!savedEvents.includes(likedEvent.name)) {
+        const newSavedEvents = [...savedEvents, likedEvent.name];
+        
+        // Update AsyncStorage
+        await AsyncStorage.setItem('savedEvents', JSON.stringify(newSavedEvents));
+        
+        // Update Supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.email) {
+          const pgArray = '{' + newSavedEvents.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
+          await supabase
+            .from('all_users')
+            .update({ saved_events: pgArray })
+            .eq('email', user.email);
         }
-      }
-      loadImages();
 
+        // Refresh global data
+        await GlobalDataManager.getInstance().refreshAllData();
+      }
+
+      // Animate the like action
       Animated.parallel([
         Animated.timing(fadeAnim, {
-          toValue: 0,
+          toValue: 1,
           duration: 200,
           useNativeDriver: true,
         }),
         Animated.spring(scaleAnim, {
-          toValue: 0.8,
-          friction: 5,
-          tension: 50,
+          toValue: 1,
+          friction: 8,
+          tension: 40,
           useNativeDriver: true,
-        })
+        }),
       ]).start(() => {
-        setExpandedCard(null);
+        setTimeout(() => {
+          Animated.parallel([
+            Animated.timing(fadeAnim, {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+            Animated.spring(scaleAnim, {
+              toValue: 0.8,
+              friction: 5,
+              tension: 50,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }, 500);
       });
     } catch (error) {
-      console.error('Error saving liked event:', error);
+      console.error('Error handling swipe right:', error);
     }
   };
 
@@ -840,83 +917,29 @@ export default function SuggestedEvents() {
 
 
   const handleSwipedAll = async () => {
-    // This function will be called when all cards have been swiped
-    console.log('All cards have been swiped');
-    setLoading(true);
-    setIsFetchingActivities(true); // Set fetching activities state
-    
-    for (let i = 0; i < EVENTS.length; i++) {
-      recommendedEvents.push(EVENTS[i].name)
+    try {
+      // Reset the card index but keep the events
+      setCardIndex(0);
+      // Reinitialize data without clearing events
+      await initializeData();
+    } catch (error) {
+      console.error('Error handling swiped all:', error);
     }
-
-    const fetchTokenAndCallBackend = async (recommendedEvents: string[]) => {
-      try {
-        const response = await fetch('http://192.168.68.144:5000/recommend', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ email: 'jdh@shdid.com', top_n: 10, recommended_events: recommendedEvents }),
-        });
-
-        const data = await response.json();
-
-        // Fetch the full event details for each recommended event
-        const { data: eventsData, error } = await supabase
-          .from('all_events')
-          .select('*, latitude, longitude')
-          .in('name', data.recommended_events);
-
-        if (error) {
-          console.error('Error fetching event details:', error);
-          return;
-        }
-
-        // Create a map of event names to their index in the recommended list
-        const recommendedOrder = data.recommended_events.reduce((acc: { [key: string]: number }, name: string, index: number) => {
-          acc[name] = index;
-          return acc;
-        }, {});
-
-        // Add distance calculation and sort by recommended order
-        const eventsWithDistance = eventsData
-          .map((event: any) => {
-            let distance = null;
-            if (userLocation && event.latitude != null && event.longitude != null) {
-              distance = calculateDistance(
-                userLocation.latitude,
-                userLocation.longitude,
-                event.latitude,
-                event.longitude
-              );
-            }
-            return {
-              ...event,
-              distance: distance,
-            };
-          })
-          .sort((a: any, b: any) => {
-            // Sort based on the order in recommended_events
-            return (recommendedOrder[a.name] ?? Infinity) - (recommendedOrder[b.name] ?? Infinity);
-          });
-
-        // Reset the Swiper state
-        setCardIndex(0);
-        setEVENTS([]); // Clear current events
-        setTimeout(() => {
-          setEVENTS(eventsWithDistance); // Set new events after a brief delay
-          setLoading(false);
-          setIsFetchingActivities(false); // Reset fetching activities state
-        }, 100);
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
-        setLoading(false);
-        setIsFetchingActivities(false); // Reset fetching activities state
-      }
-    };
-
-    await fetchTokenAndCallBackend(recommendedEvents);
   };
+
+  // Add this new useEffect for the fade-in animation
+  useEffect(() => {
+    if (EVENTS.length > 0 && imageUrls.length > 0 && !loading) {
+      // Reset the animation value
+      fadeInAnim.setValue(0);
+      // Start the fade-in animation
+      Animated.timing(fadeInAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [EVENTS.length, imageUrls.length, loading]);
 
   if (loading && !isFetchingActivities) {
 
@@ -1016,137 +1039,149 @@ export default function SuggestedEvents() {
         </TouchableOpacity>
       </View>
 
-      {EVENTS.length > 0 && imageUrls.length > 0 ? (
-        <>
+      {loading || EVENTS.length === 0 || imageUrls.length === 0 ? (
+        <View style={styles.loadingContainer}>
+          <Animated.View
+            style={[
+              styles.loadingCircle,
+              {
+                transform: [{ scale: pulseAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.8, 1.2],
+                })}, { rotate: rotateAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0deg', '360deg'],
+                })}],
+                borderColor: '#FF1493',
+              },
+            ]}
+          >
+            <View style={styles.innerCircle} />
+          </Animated.View>
+          <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>
+            Loading events...
+          </Text>
+        </View>
+      ) : (
+        <Animated.View 
+          style={[
+            styles.contentContainer,
+            {
+              opacity: fadeInAnim,
+              transform: [{
+                translateY: fadeInAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [20, 0],
+                })
+              }]
+            }
+          ]}
+        >
           <View style={styles.swiperContainer}>
+            <Swiper
+              ref={swiperRef}
+              cards={EVENTS}
+              cardIndex={cardIndex}
+              renderCard={(card: EventCard, index: number) => {
+                const isTopCard = index === cardIndex;
+                // Use the first image URL for all cards if available
+                const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
 
-            {loading && isFetchingActivities ? (
-              <View style={styles.loadingContainer}>
-                <Animated.View
-                  style={[
-                    styles.loadingCircle,
-                    {
-                      transform: [{ scale: pulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.8, 1.2],
-                      })}, { rotate: rotateAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ['0deg', '360deg'],
-                      })}],
-                      borderColor: '#FF1493',
-                    },
-                  ]}
-                >
-                  <View style={styles.innerCircle} />
-                </Animated.View>
-                <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>Fetching activities...</Text>
-              </View>
-            ) : (
-              <Swiper
-                ref={swiperRef}
-                cards={EVENTS}
-                cardIndex={cardIndex}
-                renderCard={(card: EventCard, index: number) => {
-                  const isTopCard = index === cardIndex;
-                  // Use the first image URL for all cards if available
-                  const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
-
-                  return (
-                    <TouchableOpacity
-                      onPress={() => handleCardPress(card)}
-                      activeOpacity={1}
-                    >
-                      <Animated.View style={[
-                        styles.card,
-                        isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                      ]}>
-                        {eventImageUrl ? (
-                          <Image
-                            source={{ uri: eventImageUrl }}
-                            style={styles.image}
-                            onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
-                          />
-                        ) : (
-                          <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                            <Ionicons name="image-outline" size={40} color="#666" />
-                          </View>
-                        )}
-                        <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
-                        {/* Distance Display */}
-                        {card.distance != null ? (
-                          <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                            Distance: {card.distance.toFixed(2)} km
-                          </Text>
-                        ) : userLocation ? (
-                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                             Distance: Calculating...
-                           </Text>
-                        ) : (
-                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                              Distance: N/A (Location required)
-                           </Text>
-                        )}
-                      </Animated.View>
-                    </TouchableOpacity>
-                  );
-                }}
-                onSwipedLeft={() => {
-                  setCardIndex((i) => i + 1);
-                  Animated.parallel([
-                    Animated.timing(fadeAnim, {
-                      toValue: 0,
-                      duration: 200,
-                      useNativeDriver: true,
-                    }),
-                    Animated.spring(scaleAnim, {
-                      toValue: 0.8,
-                      friction: 5,
-                      tension: 50,
-                      useNativeDriver: true,
-                    })
-                  ]).start(() => {
-                    setExpandedCard(null);
-                  });
-                }}
-                onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-                onSwipedAll={handleSwipedAll}
-                onSwiping={(x) => swipeX.setValue(x)}
-                backgroundColor="transparent"
-                stackSize={3}
-                stackSeparation={15}
-                overlayLabels={{
-                  left: {
-                    style: { 
-                      label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
-                      wrapper: { 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-end', 
-                        justifyContent: 'flex-start', 
-                        marginTop: 30, 
-                        marginLeft: -30 
-                      } 
-                    }
-                  },
-                  right: {
-                    style: { 
-                      label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
-                      wrapper: { 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-start', 
-                        justifyContent: 'flex-start', 
-                        marginTop: 30, 
-                        marginLeft: 30 
-                      } 
-                    }
-
+                return (
+                  <TouchableOpacity
+                    onPress={() => handleCardPress(card)}
+                    activeOpacity={1}
+                  >
+                    <Animated.View style={[
+                      styles.card,
+                      isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                    ]}>
+                      {eventImageUrl ? (
+                        <Image
+                          source={{ uri: eventImageUrl }}
+                          style={styles.image}
+                          onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
+                        />
+                      ) : (
+                        <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                          <Ionicons name="image-outline" size={40} color="#666" />
+                        </View>
+                      )}
+                      <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
+                      {/* Distance Display */}
+                      {card.distance != null ? (
+                        <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                          Distance: {card.distance.toFixed(2)} km
+                        </Text>
+                      ) : userLocation ? (
+                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                           Distance: Calculating...
+                         </Text>
+                      ) : (
+                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                            Distance: N/A (Location required)
+                         </Text>
+                      )}
+                    </Animated.View>
+                  </TouchableOpacity>
+                );
+              }}
+              onSwipedLeft={() => {
+                setCardIndex((i) => i + 1);
+                Animated.parallel([
+                  Animated.timing(fadeAnim, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                  }),
+                  Animated.spring(scaleAnim, {
+                    toValue: 0.8,
+                    friction: 5,
+                    tension: 50,
+                    useNativeDriver: true,
+                  })
+                ]).start(() => {
+                  setExpandedCard(null);
+                });
+              }}
+              onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
+              onSwipedAll={handleSwipedAll}
+              onSwiping={(x) => swipeX.setValue(x)}
+              backgroundColor="transparent"
+              stackSize={3}
+              stackSeparation={15}
+              overlayLabels={{
+                left: {
+                  style: { 
+                    label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
+                    wrapper: { 
+                      flexDirection: 'column', 
+                      alignItems: 'flex-end', 
+                      justifyContent: 'flex-start', 
+                      marginTop: 30, 
+                      marginLeft: -30 
+                    } 
                   }
-                }}
-                disableTopSwipe
-                disableBottomSwipe
-                pointerEvents="box-none"
-                useViewOverflow={false}
-              />
-            )}
+                },
+                right: {
+                  style: { 
+                    label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
+                    wrapper: { 
+                      flexDirection: 'column', 
+                      alignItems: 'flex-start', 
+                      justifyContent: 'flex-start', 
+                      marginTop: 30, 
+                      marginLeft: 30 
+                    } 
+                  }
+
+                }
+              }}
+              disableTopSwipe
+              disableBottomSwipe
+              pointerEvents="box-none"
+              useViewOverflow={false}
+            />
           </View>
 
           <Animated.View style={[styles.actionButtons]}>
@@ -1163,18 +1198,7 @@ export default function SuggestedEvents() {
               <Ionicons name="checkmark" size={32} color="green" />
             </TouchableOpacity>
           </Animated.View>
-        </>
-      ) : (
-        <View style={styles.noEventsContainer}>
-          <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-            No Events Found
-          </Text>
-          <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
-            <Text style={styles.adjustFiltersText}>
-              Try adjusting your filters
-            </Text>
-          </TouchableOpacity>
-        </View>
+        </Animated.View>
       )}
 
       <View style={styles.footerContainer}>
@@ -1196,58 +1220,124 @@ export default function SuggestedEvents() {
           style={[
             styles.expandedOverlay,
             { 
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
+              opacity: cardOpacityAnim,
             }
           ]}
         >
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => {
-
-              handleBackPress();
-            }}
+            onPress={handleBackPress}
           >
-            <Text style={styles.backButtonText}>{'←'}</Text>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.backButtonGradient}
+            >
+              <Ionicons name="arrow-back" size={24} color="white" />
+            </LinearGradient>
           </TouchableOpacity>
-          <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-            <ScrollView style={styles.expandedContent}>
+
+          <Animated.View 
+            style={[
+              styles.expandedCard,
+              { 
+                backgroundColor: Colors[colorScheme ?? 'light'].background,
+                transform: [{ scale: cardScaleAnim }],
+              }
+            ]}
+          >
+            <ScrollView 
+              style={styles.expandedContent}
+              showsVerticalScrollIndicator={false}
+            >
               {imageUrls.length > 0 ? (
                 <Image 
                   source={{ uri: imageUrls[0] }} 
-                  style={[styles.imageExpanded, { resizeMode: 'cover' }]}
+                  style={styles.imageExpanded}
                 />
               ) : (
                 <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
                   <Ionicons name="image-outline" size={40} color="#666" />
                 </View>
               )}
-              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.name}</Text>
-              <View style={styles.infoRow}>
-                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{new Date(expandedCard.start_date).toLocaleDateString()}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
+
+              <View style={styles.expandedHeader}>
+                <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {expandedCard.name}
+                </Text>
+                <Text style={[styles.organizationText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {expandedCard.organization}
+                </Text>
               </View>
 
-              {expandedCard.distance !== null && expandedCard.distance !== undefined ? (
+              <View style={styles.infoSection}>
                 <View style={styles.infoRow}>
-                  <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Distance: {expandedCard.distance.toFixed(2)} km
-                  </Text>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="calendar-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date & Time</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {new Date(expandedCard.start_date).toLocaleDateString()} at {expandedCard.start_time}
+                    </Text>
+                  </View>
                 </View>
-              ) : (
+
                 <View style={styles.infoRow}>
-                  <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Distance: Calculating...
-                  </Text>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="location-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {expandedCard.location}
+                    </Text>
+                  </View>
                 </View>
-              )}
-              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
+
+                {expandedCard.distance !== null && expandedCard.distance !== undefined ? (
+                  <View style={styles.infoRow}>
+                    <LinearGradient
+                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.3, 0.7, 1]}
+                      style={styles.infoIconContainer}
+                    >
+                      <Ionicons name="walk-outline" size={20} color="white" />
+                    </LinearGradient>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Distance</Text>
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {expandedCard.distance.toFixed(2)} km away
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.descriptionSection}>
+                <Text style={[styles.descriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  About this event
+                </Text>
+                <Text style={[styles.descriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {expandedCard.description}
+                </Text>
+              </View>
 
               {/* Google Map */}
               <View style={styles.mapContainer}>
@@ -1290,7 +1380,7 @@ export default function SuggestedEvents() {
                     {routeCoordinates.length > 0 && (
                       <Polyline
                         coordinates={routeCoordinates}
-                        strokeColor="#2196F3"
+                        strokeColor="#FF1493"
                         strokeWidth={4}
                         lineDashPattern={[1]}
                       />
@@ -1305,21 +1395,7 @@ export default function SuggestedEvents() {
                 )}
               </View>
             </ScrollView>
-            <Animated.View style={[styles.expandedActionButtons, { opacity: fadeAnim }]}>
-              <TouchableOpacity 
-                style={[styles.actionButton, styles.nopeButton]}
-                onPress={() => swiperRef.current?.swipeLeft()}
-              >
-                <Ionicons name="close" size={32} color="red" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.actionButton, styles.likeButton]}
-                onPress={() => swiperRef.current?.swipeRight()}
-              >
-                <Ionicons name="checkmark" size={32} color="green" />
-              </TouchableOpacity>
-            </Animated.View>
-          </View>
+          </Animated.View>
         </Animated.View>
       )}
     </SafeAreaView>
@@ -1480,7 +1556,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
@@ -1490,73 +1566,57 @@ const styles = StyleSheet.create({
     top: 50,
     left: 20,
     zIndex: 101,
-    backgroundColor: 'rgba(0,0,0,0.1)',
     borderRadius: 20,
-    padding: 8,
+    overflow: 'hidden',
   },
-  backButtonText: {
-    fontSize: 28,
-    color: '#FF1493',
+  backButtonGradient: {
+    padding: 12,
+    borderRadius: 20,
   },
-  expandedActionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    paddingHorizontal: 40,
-    paddingVertical: 20,
-    position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
-  },
-  noEventsContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  noEventsText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-  },
-  adjustFiltersText: {
-    fontSize: 18,
-    color: '#FF1493',
+  expandedHeader: {
     marginTop: 20,
+    marginBottom: 30,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'transparent',
+  infoSection: {
+    marginBottom: 30,
   },
-  loadingCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 3,
-    borderColor: '#FF1493',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  innerCircle: {
+  infoIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 20, 147, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
   },
-  loadingText: {
+  infoTextContainer: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 14,
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  infoValue: {
     fontSize: 16,
     fontWeight: '500',
   },
+  descriptionSection: {
+    marginBottom: 30,
+  },
+  descriptionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  descriptionText: {
+    fontSize: 16,
+    lineHeight: 24,
+  },
   mapContainer: {
-    marginTop: 20,
     height: 300,
-    borderRadius: 8,
+    borderRadius: 20,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    position: 'relative',
+    marginBottom: 20,
   },
   map: {
     width: '100%',
@@ -1608,5 +1668,38 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  contentContainer: {
+    flex: 1,
+    width: '95%',
+  },
+  organizationText: {
+    fontSize: 18,
+    opacity: 0.7,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  loadingCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 3,
+    borderColor: '#FF1493',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  innerCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 20, 147, 0.1)',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
 });

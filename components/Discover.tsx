@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
@@ -41,22 +42,69 @@ export default function Discover() {
   const cardOpacity = React.useRef(new Animated.Value(1)).current;
   const colorScheme = useColorScheme();
 
-  // Initial data load
   useEffect(() => {
+    let isMounted = true;
+    const dataManager = GlobalDataManager.getInstance();
+
     const initializeData = async () => {
-      if (!hasInitialLoad) {
+      if (!hasInitialLoad && isMounted) {
         setLoading(true);
-        await Promise.all([
-          loadLikedEvents(),
-          loadSuggestedEvents(),
-          fetchEvents()
-        ]);
-        setHasInitialLoad(true);
-        setLoading(false);
+        try {
+          // Initialize global data if not already initialized
+          if (!dataManager.isDataInitialized()) {
+            await dataManager.initialize();
+          }
+
+          const events = await dataManager.getEvents();
+          const savedEvents = await dataManager.getSavedEvents();
+          
+          if (!isMounted) return;
+
+          const eventsWithLikes = events.map(event => ({
+            ...event,
+            isLiked: savedEvents.includes(event.name)
+          }));
+
+          setAllEvents(eventsWithLikes);
+          setEvents(eventsWithLikes);
+          setHasInitialLoad(true);
+        } catch (error) {
+          console.error('Error initializing data:', error);
+          setError('Failed to load events');
+        } finally {
+          if (isMounted) {
+            setLoading(false);
+          }
+        }
       }
     };
 
+    // Listen for data updates
+    const handleDataUpdate = () => {
+      if (isMounted) {
+        setHasInitialLoad(false);
+        initializeData();
+      }
+    };
+
+    dataManager.on('dataInitialized', handleDataUpdate);
     initializeData();
+
+    return () => {
+      isMounted = false;
+      dataManager.removeListener('dataInitialized', handleDataUpdate);
+    };
+  }, []);
+
+  // Clean up animations when component unmounts
+  useEffect(() => {
+    return () => {
+      scaleAnim.stopAnimation();
+      translateXAnim.stopAnimation();
+      translateYAnim.stopAnimation();
+      fadeAnim.stopAnimation();
+      cardOpacity.stopAnimation();
+    };
   }, []);
 
   // Use useFocusEffect to handle tab switching

@@ -9,6 +9,7 @@ import MainFooter from './MainFooter';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 interface UserProfile {
   id: number;
@@ -56,44 +57,48 @@ export default function Profile() {
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
-  const fetchUserProfile = async () => {
-
-    // Get the current user
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // Query the all_users table for this user's profile
-    const { data, error } = await supabase
-      .from('all_users')
-      .select('*')
-      .eq('email', user.email)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error fetching user profile:', error);
-      return;
-    }
-
-    if (!data) {
-      console.log('No user profile found for email:', user.email);
-      return;
-    }
-
-    setProfile(data);
-    setEditedProfile(data);
-  };
-
-  // Initial fetch
   useEffect(() => {
+    let isMounted = true;
+    const dataManager = GlobalDataManager.getInstance();
+
+    const fetchUserProfile = async () => {
+      try {
+        // Initialize global data if not already initialized
+        await dataManager.initialize();
+        
+        const profile = await dataManager.getUserProfile();
+        if (isMounted && profile) {
+          setProfile(profile);
+          setEditedProfile(profile);
+        }
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
+      }
+    };
+
+    // Listen for data updates
+    const handleDataUpdate = () => {
+      if (isMounted) {
+        fetchUserProfile();
+      }
+    };
+
+    dataManager.on('dataInitialized', handleDataUpdate);
     fetchUserProfile();
+
+    return () => {
+      isMounted = false;
+      dataManager.removeListener('dataInitialized', handleDataUpdate);
+    };
   }, []);
 
-  // Refresh data when screen comes into focus
-  useFocusEffect(
-    React.useCallback(() => {
-      fetchUserProfile();
-    }, [])
-  );
+  // Clean up animations when component unmounts
+  useEffect(() => {
+    return () => {
+      pulseAnim.stopAnimation();
+      rotateAnim.stopAnimation();
+    };
+  }, []);
 
   // Start the animations when component mounts
   useEffect(() => {
