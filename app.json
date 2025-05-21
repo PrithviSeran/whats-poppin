@@ -21,6 +21,11 @@
       "bundleIdentifier": "com.iamtheprince.whats-poppin",
       "config": {
         "googleMapsApiKey": "YOUR_IOS_API_KEY_HERE"
+      },
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
       }
     },
     "android": {
@@ -33,7 +38,11 @@
         "googleMaps": {
           "apiKey": "YOUR_ANDROID_API_KEY_HERE"
         }
-      }
+      },
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
     },
     "web": {
       "bundler": "metro",

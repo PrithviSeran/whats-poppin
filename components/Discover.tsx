@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle } from 'react-native';
+import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -35,6 +35,10 @@ export default function Discover() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const ITEMS_PER_PAGE = 10;
   const scaleAnim = React.useRef(new Animated.Value(0)).current;
   const translateXAnim = React.useRef(new Animated.Value(0)).current;
   const translateYAnim = React.useRef(new Animated.Value(0)).current;
@@ -156,17 +160,23 @@ export default function Discover() {
     }
   };
 
-  const fetchEvents = async () => {
-    if (allEvents.length > 0) return; // Don't fetch if we already have events
+  const fetchEvents = async (pageNum: number = 1) => {
+    if (pageNum === 1) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     
-    setLoading(true);
     setError(null);
     try {
       const { data, error } = await supabase
         .from('all_events')
         .select('*')
-        .limit(10);
+        .range((pageNum - 1) * ITEMS_PER_PAGE, pageNum * ITEMS_PER_PAGE - 1)
+        .order('created_at', { ascending: false });
+
       if (error) throw error;
+
       const mapped = (data || []).map((event: any) => ({
         id: event.id,
         name: event.name,
@@ -176,12 +186,48 @@ export default function Discover() {
         description: event.description,
         isLiked: false,
       }));
-      setAllEvents(mapped);
-      setEvents(mapped);
+
+      if (pageNum === 1) {
+        setAllEvents(mapped);
+        setEvents(mapped);
+      } else {
+        // When loading more, append new events
+        setAllEvents(prev => [...prev, ...mapped]);
+        setEvents(prev => [...prev, ...mapped]);
+      }
+
+      setHasMore(mapped.length === ITEMS_PER_PAGE);
+      setPage(pageNum);
     } catch (err: any) {
       setError(err.message || 'Failed to load events');
     } finally {
       setLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleScroll = ({ nativeEvent }: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+    const paddingToBottom = 20;
+    
+    // Check if we need to load more
+    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom) {
+      handleLoadMore();
+    }
+
+    // If we've scrolled all the way up, reset to initial state but keep the ability to load more
+    if (contentOffset.y <= 0) {
+      setEvents(allEvents.slice(0, ITEMS_PER_PAGE));
+      setPage(1);
+      // Reset hasMore to true to ensure we can load more events
+      setHasMore(true);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMore) {
+      // Always fetch the next page, regardless of current state
+      fetchEvents(page + 1);
     }
   };
 
@@ -382,7 +428,11 @@ export default function Discover() {
         </LinearGradient>
       </View>
 
-      <ScrollView style={styles.eventsGrid}>
+      <ScrollView 
+        style={styles.eventsGrid}
+        onScroll={handleScroll}
+        scrollEventThrottle={16} // More frequent updates for smoother scrolling
+      >
         <View style={styles.gridContainer}>
           {events.map((event, index) => (
             <Animated.View
@@ -431,6 +481,14 @@ export default function Discover() {
             </Animated.View>
           ))}
         </View>
+        {isLoadingMore && (
+          <View style={styles.loadingMoreContainer}>
+            <ActivityIndicator size="small" color="#FF1493" />
+            <Text style={[styles.loadingMoreText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              Loading more events...
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {modalVisible && selectedEvent && (
@@ -601,5 +659,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     marginTop: 20,
+  },
+  loadingMoreContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  loadingMoreText: {
+    marginLeft: 10,
+    fontSize: 14,
   },
 }); 
