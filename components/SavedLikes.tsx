@@ -442,10 +442,10 @@ export default function SavedLikes() {
 
     animationRef.current.start(() => {
       if (isMounted.current) {
-        setModalVisible(false);
-        setSelectedEvent(null);
-        setCardLayout(null);
-        setHiddenCardId(null);
+      setModalVisible(false);
+      setSelectedEvent(null);
+      setCardLayout(null);
+      setHiddenCardId(null);
       }
     });
   };
@@ -489,10 +489,10 @@ export default function SavedLikes() {
                 if (error) throw error;
 
                 // Update local state
-                setSavedEvents([]);
+      setSavedEvents([]);
                 
                 // Clear AsyncStorage
-                await AsyncStorage.removeItem('savedEvents');
+      await AsyncStorage.removeItem('savedEvents');
 
                 // Refresh global data
                 await GlobalDataManager.getInstance().refreshAllData();
@@ -704,11 +704,11 @@ export default function SavedLikes() {
           </TouchableOpacity>
           
           <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-            <ScrollView style={styles.expandedContent}>
-              <Image source={selectedEvent.image} style={styles.imageExpanded} />
+          <ScrollView style={styles.expandedContent}>
+            <Image source={selectedEvent.image} style={styles.imageExpanded} />
               
               <View style={styles.expandedHeader}>
-                <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+            <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
                   {selectedEvent.name}
                 </Text>
               </View>
@@ -728,11 +728,11 @@ export default function SavedLikes() {
                     <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date & Time</Text>
                     <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
                       {formatDate(selectedEvent.start_date || '')} at {selectedEvent.start_time}
-                    </Text>
+            </Text>
                   </View>
                 </View>
 
-                <View style={styles.infoRow}>
+            <View style={styles.infoRow}>
                   <LinearGradient
                     colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
                     start={{ x: 0, y: 0 }}
@@ -746,12 +746,12 @@ export default function SavedLikes() {
                     <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
                     <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
                       {selectedEvent.location}
-                    </Text>
-                  </View>
+              </Text>
+            </View>
                 </View>
 
                 {selectedEvent.distance !== null && selectedEvent.distance !== undefined ? (
-                  <View style={styles.infoRow}>
+            <View style={styles.infoRow}>
                     <LinearGradient
                       colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
                       start={{ x: 0, y: 0 }}
@@ -765,8 +765,8 @@ export default function SavedLikes() {
                       <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Distance</Text>
                       <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
                         {selectedEvent.distance.toFixed(2)} km away
-                      </Text>
-                    </View>
+              </Text>
+            </View>
                   </View>
                 ) : null}
               </View>
@@ -776,8 +776,8 @@ export default function SavedLikes() {
                   About this event
                 </Text>
                 <Text style={[styles.descriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {selectedEvent.description}
-                </Text>
+              {selectedEvent.description}
+            </Text>
               </View>
 
               {/* Google Map */}
@@ -835,7 +835,7 @@ export default function SavedLikes() {
                   </View>
                 )}
               </View>
-            </ScrollView>
+          </ScrollView>
           </View>
         </Animated.View>
       )}

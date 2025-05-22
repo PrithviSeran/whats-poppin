@@ -4,13 +4,13 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Modal,
   ScrollView,
   Dimensions,
   TextInput,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,7 +22,6 @@ import Slider from '@react-native-community/slider';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '@/lib/supabase';
-
 
 const { width, height } = Dimensions.get('window');
 
@@ -96,6 +95,44 @@ export default function EventFilterOverlay({
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
   const colorScheme = useColorScheme();
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const slideAnim = React.useRef(new Animated.Value(0)).current;
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setIsAnimating(true);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 1,
+          friction: 8,
+          tension: 40,
+          useNativeDriver: true,
+        })
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          friction: 8,
+          tension: 40,
+          useNativeDriver: true,
+        })
+      ]).start(() => {
+        setIsAnimating(false);
+      });
+    }
+  }, [visible]);
 
   useEffect(() => {
     if (visible) {
@@ -254,313 +291,360 @@ export default function EventFilterOverlay({
     return date;
   };
 
+  if (!visible && !isAnimating) return null;
+
+  const translateY = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [height, 0]
+  });
+
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={onClose}
+    <Animated.View 
+      style={[
+        styles.overlay,
+        { opacity: fadeAnim }
+      ]}
     >
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        <View style={[styles.modalContainer, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-          <View style={[styles.modalContent, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-            <View style={styles.header}>
-              <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>Filter Events</Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView 
-              style={styles.scrollView}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-            >
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Event Types</Text>
-                <View style={styles.pillContainer}>
-                  {EVENT_TYPES.map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.pill,
-                        selectedEventTypes.includes(type) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
-                        {
-                          backgroundColor: selectedEventTypes.includes(type)
-                            ? (isDark ? '#F45B5B' : '#F45B5B')
-                            : (isDark ? '#222' : '#f5f5f5'),
-                          borderColor: selectedEventTypes.includes(type)
-                            ? (isDark ? '#FF3366' : '#FF3366')
-                            : (isDark ? '#333' : '#eee'),
-                        }
-                      ]}
-                      onPress={() => toggleEventType(type)}
-                    >
-                      <Text
-                        style={[
-                          styles.pillText,
-                          selectedEventTypes.includes(type) && styles.pillTextSelected,
-                          { 
-                            color: selectedEventTypes.includes(type) 
-                              ? '#fff' 
-                              : (isDark ? '#fff' : '#000')
-                          }
-                        ]}
-                      >
-                        {type}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Time Preference</Text>
-                <View style={{ alignItems: 'center', marginVertical: 20 }}>
-                  
-                  <View style={styles.timeButtonContainer}>
-                    <TouchableOpacity
-                      style={[styles.timeButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
-                      onPress={() => setShowStartTimePicker(true)}
-                    >
-                      <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Start Range
-                      </Text>
-                      <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>
-                        {formatTime(startTime)}
-                      </Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[styles.timeButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
-                      onPress={() => setShowEndTimePicker(true)}
-                    >
-                      <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        End Range
-                      </Text>
-                      <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>
-                        {formatTime(endTime)}
-                  </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                
-                {showStartTimePicker && (
-                  <Modal
-                    transparent={true}
-                    animationType="slide"
-                    visible={showStartTimePicker}
-                  >
-                    <View style={styles.timePickerModalContainer}>
-                      <View style={[
-                        styles.timePickerModalContent,
-                        { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                      ]}>
-                        <View style={styles.timePickerHeader}>
-                          <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            Select Start Time
-                          </Text>
-                          <TouchableOpacity onPress={() => setShowStartTimePicker(false)}>
-                            <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-                          </TouchableOpacity>
-                        </View>
-                        <DateTimePicker
-                          value={getDateFromMinutes(startTime)}
-                          mode="time"
-                          is24Hour={false}
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedTime) => {
-                            if (selectedTime) {
-                              const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
-                              setStartTime(minutes);
-                            }
-                          }}
-                          style={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
-                        />
-                        <TouchableOpacity
-                          style={styles.timePickerConfirmButton}
-                          onPress={() => setShowStartTimePicker(false)}
-                        >
-                          <LinearGradient
-                            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            locations={[0, 0.3, 0.7, 1]}
-                            style={styles.timePickerGradientButton}
-                          >
-                            <Text style={styles.timePickerConfirmText}>Done</Text>
-                          </LinearGradient>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </Modal>
-                )}
-                
-                {showEndTimePicker && (
-                  <Modal
-                    transparent={true}
-                    animationType="slide"
-                    visible={showEndTimePicker}
-                  >
-                    <View style={styles.timePickerModalContainer}>
-                      <View style={[
-                        styles.timePickerModalContent,
-                        { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                      ]}>
-                        <View style={styles.timePickerHeader}>
-                          <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            Select End Time
-                          </Text>
-                          <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
-                            <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-                          </TouchableOpacity>
-                        </View>
-                        <DateTimePicker
-                          value={getDateFromMinutes(endTime)}
-                          mode="time"
-                          is24Hour={false}
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedTime) => {
-                            if (selectedTime) {
-                              const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
-                              setEndTime(minutes);
-                            }
-                          }}
-                          style={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
-                        />
-                        <TouchableOpacity
-                          style={styles.timePickerConfirmButton}
-                          onPress={() => setShowEndTimePicker(false)}
-                        >
-                          <LinearGradient
-                            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            locations={[0, 0.3, 0.7, 1]}
-                            style={styles.timePickerGradientButton}
-                          >
-                            <Text style={styles.timePickerConfirmText}>Done</Text>
-                          </LinearGradient>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </Modal>
-                )}
-              </View>
-
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  Location
-                </Text>
-                {locationPermission === false ? (
-                  <View style={styles.locationInputContainer}>
-                    <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      Enter your location
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.locationInput,
-                        { 
-                          backgroundColor: Colors[colorScheme ?? 'light'].card,
-                          color: Colors[colorScheme ?? 'light'].text,
-                          borderColor: Colors[colorScheme ?? 'light'].card
-                        }
-                      ]}
-                      placeholder="e.g., New York, NY"
-                      placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
-                      value={manualLocation}
-                      onChangeText={setManualLocation}
-                      returnKeyType="done"
-                    />
-                  </View>
-                ) : (
-                  <View style={styles.locationContainer}>
-                    <LinearGradient
-                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      locations={[0, 0.3, 0.7, 1]}
-                      style={styles.locationGradient}
-                    >
-                      <View style={styles.locationContent}>
-                        <Ionicons name="location" size={24} color="white" />
-                        <View style={styles.locationTextContainer}>
-                          <Text style={styles.locationTitle}>Using your current location</Text>
-                        </View>
-                      </View>
-                    </LinearGradient>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Travel Distance</Text>
-                <View style={styles.distanceContainer}>
-                  <Text style={[styles.distanceLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Travel Distance: {travelDistance} km
-                  </Text>
-                  <Slider
-                    style={styles.slider}
-                    minimumValue={1}
-                    maximumValue={40}
-                    step={1}
-                    value={travelDistance}
-                    onValueChange={setTravelDistance}
-                    minimumTrackTintColor="#FF1493"
-                    maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
-                    thumbTintColor="#FF1493"
-                  />
-                  <View style={styles.distanceMarkers}>
-                    <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
-                    <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>20 km</Text>
-                    <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>40 km</Text>
-                  </View>
-                </View>
-              </View>
-            </ScrollView>
-
-            <View style={styles.footer}>
-              <TouchableOpacity
-                style={styles.resetButton}
-                onPress={handleReset}
-              >
-                <Text style={[styles.resetButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>Reset</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.applyButton}
-                onPress={handleApply}
-              >
-                <LinearGradient
-                  colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  locations={[0, 0.3, 0.7, 1]}
-                  style={styles.gradientButton}
-                >
-                  <Text style={styles.applyButtonText}>Apply Filters</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
+        <Animated.View 
+          style={[
+            styles.content,
+            { 
+              backgroundColor: Colors[colorScheme ?? 'light'].background,
+              transform: [{ translateY }]
+            }
+          ]}
+        >
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>Filter Events</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+            </TouchableOpacity>
           </View>
-        </View>
+
+          <ScrollView 
+            style={styles.scrollView}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Event Types</Text>
+              <View style={styles.pillContainer}>
+                {EVENT_TYPES.map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.pill,
+                      selectedEventTypes.includes(type) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
+                      {
+                        backgroundColor: selectedEventTypes.includes(type)
+                          ? (isDark ? '#F45B5B' : '#F45B5B')
+                          : (isDark ? '#222' : '#f5f5f5'),
+                        borderColor: selectedEventTypes.includes(type)
+                          ? (isDark ? '#FF3366' : '#FF3366')
+                          : (isDark ? '#333' : '#eee'),
+                      }
+                    ]}
+                    onPress={() => toggleEventType(type)}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        selectedEventTypes.includes(type) && styles.pillTextSelected,
+                        { 
+                          color: selectedEventTypes.includes(type) 
+                            ? '#fff' 
+                            : (isDark ? '#fff' : '#000')
+                        }
+                      ]}
+                    >
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Time Preference</Text>
+              <View style={{ alignItems: 'center', marginVertical: 20 }}>
+                
+                <View style={styles.timeButtonContainer}>
+                  <TouchableOpacity
+                    style={[styles.timeButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
+                    onPress={() => setShowStartTimePicker(true)}
+                  >
+                    <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Start Range
+                    </Text>
+                    <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>
+                      {formatTime(startTime)}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.timeButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
+                    onPress={() => setShowEndTimePicker(true)}
+                  >
+                    <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      End Range
+                    </Text>
+                    <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>
+                      {formatTime(endTime)}
+                  </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              {showStartTimePicker && (
+                <Animated.View 
+                  style={[
+                    styles.timePickerOverlay,
+                    { opacity: fadeAnim }
+                  ]}
+                >
+                  <Animated.View 
+                    style={[
+                      styles.timePickerContent,
+                      { 
+                        backgroundColor: Colors[colorScheme ?? 'light'].background,
+                        transform: [{ 
+                          translateY: slideAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [height, 0]
+                          })
+                        }]
+                      }
+                    ]}
+                  >
+                    <View style={styles.timePickerHeader}>
+                      <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Select Start Time
+                      </Text>
+                      <TouchableOpacity onPress={() => setShowStartTimePicker(false)}>
+                        <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+                      </TouchableOpacity>
+                    </View>
+                    <DateTimePicker
+                      value={getDateFromMinutes(startTime)}
+                      mode="time"
+                      is24Hour={false}
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      onChange={(event, selectedTime) => {
+                        if (selectedTime) {
+                          const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
+                          setStartTime(minutes);
+                        }
+                      }}
+                      style={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
+                    />
+                    <TouchableOpacity
+                      style={styles.timePickerConfirmButton}
+                      onPress={() => setShowStartTimePicker(false)}
+                    >
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.timePickerGradientButton}
+                      >
+                        <Text style={styles.timePickerConfirmText}>Done</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </Animated.View>
+                </Animated.View>
+              )}
+              
+              {showEndTimePicker && (
+                <Animated.View 
+                  style={[
+                    styles.timePickerOverlay,
+                    { opacity: fadeAnim }
+                  ]}
+                >
+                  <Animated.View 
+                    style={[
+                      styles.timePickerContent,
+                      { 
+                        backgroundColor: Colors[colorScheme ?? 'light'].background,
+                        transform: [{ 
+                          translateY: slideAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [height, 0]
+                          })
+                        }]
+                      }
+                    ]}
+                  >
+                    <View style={styles.timePickerHeader}>
+                      <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Select End Time
+                      </Text>
+                      <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
+                        <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+                      </TouchableOpacity>
+                    </View>
+                    <DateTimePicker
+                      value={getDateFromMinutes(endTime)}
+                      mode="time"
+                      is24Hour={false}
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      onChange={(event, selectedTime) => {
+                        if (selectedTime) {
+                          const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
+                          setEndTime(minutes);
+                        }
+                      }}
+                      style={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
+                    />
+                    <TouchableOpacity
+                      style={styles.timePickerConfirmButton}
+                      onPress={() => setShowEndTimePicker(false)}
+                    >
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.timePickerGradientButton}
+                      >
+                        <Text style={styles.timePickerConfirmText}>Done</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </Animated.View>
+                </Animated.View>
+              )}
+            </View>
+
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Location
+              </Text>
+              {locationPermission === false ? (
+                <View style={styles.locationInputContainer}>
+                  <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Enter your location
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.locationInput,
+                      { 
+                        backgroundColor: Colors[colorScheme ?? 'light'].card,
+                        color: Colors[colorScheme ?? 'light'].text,
+                        borderColor: Colors[colorScheme ?? 'light'].card
+                      }
+                    ]}
+                    placeholder="e.g., New York, NY"
+                    placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                    value={manualLocation}
+                    onChangeText={setManualLocation}
+                    returnKeyType="done"
+                  />
+                </View>
+              ) : (
+                <View style={styles.locationContainer}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.locationGradient}
+                  >
+                    <View style={styles.locationContent}>
+                      <Ionicons name="location" size={24} color="white" />
+                      <View style={styles.locationTextContainer}>
+                        <Text style={styles.locationTitle}>Using your current location</Text>
+                      </View>
+                    </View>
+                  </LinearGradient>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Travel Distance</Text>
+              <View style={styles.distanceContainer}>
+                <Text style={[styles.distanceLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Travel Distance: {travelDistance} km
+                </Text>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={1}
+                  maximumValue={40}
+                  step={1}
+                  value={travelDistance}
+                  onValueChange={setTravelDistance}
+                  minimumTrackTintColor="#FF1493"
+                  maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
+                  thumbTintColor="#FF1493"
+                />
+                <View style={styles.distanceMarkers}>
+                  <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
+                  <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>20 km</Text>
+                  <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>40 km</Text>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+
+          <View style={styles.footer}>
+            <TouchableOpacity
+              style={styles.resetButton}
+              onPress={handleReset}
+            >
+              <Text style={[styles.resetButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>Reset</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.applyButton}
+              onPress={handleApply}
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+                style={styles.gradientButton}
+              >
+                <Text style={styles.applyButtonText}>Apply Filters</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
       </KeyboardAvoidingView>
-    </Modal>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  modalContainer: {
-    flex: 1,
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 200,
     justifyContent: 'flex-end',
   },
-  modalContent: {
+  content: {
+    width: '100%',
     height: height * 0.8,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   header: {
     flexDirection: 'row',
@@ -748,16 +832,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  timePickerModalContainer: {
-    flex: 1,
+  timePickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 300,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
-  timePickerModalContent: {
+  timePickerContent: {
+    width: width * 0.9,
     borderRadius: 20,
     padding: 20,
-    margin: 20,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
@@ -767,7 +856,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
-    width: width * 0.9,
+    position: 'absolute',
+    bottom: height * 0.3,
+    left: width * 0.05,
   },
   timePickerHeader: {
     flexDirection: 'row',
