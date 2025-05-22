@@ -14,6 +14,8 @@ import { supabase } from '@/lib/supabase';
 import { FileObject } from '@supabase/storage-js';
 import * as Location from 'expo-location';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import GlobalDataManager from '@/lib/GlobalDataManager';
+import MaskedView from '@react-native-masked-view/masked-view';
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
@@ -86,6 +88,7 @@ export default function SuggestedEvents() {
     locationPreferences: [],
     travelDistance: 0,
   });
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const swipeX = useRef(new Animated.Value(0)).current;
   const swiperRef = useRef<Swiper<EventCard>>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -103,6 +106,15 @@ export default function SuggestedEvents() {
   const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
   const cardOpacityAnim = useRef(new Animated.Value(0)).current;
   const [recommendedEvents, setRecommendedEvents] = useState<string[]>([]);
+  const [isSavedLikesVisible, setIsSavedLikesVisible] = useState(false);
+  const [savedActivitiesEvents, setSavedActivitiesEvents] = useState<EventCard[]>([]);
+  const [savedActivitiesLoading, setSavedActivitiesLoading] = useState(false);
+  const savedActivitiesFadeAnim = useRef(new Animated.Value(0)).current;
+  const [pressedCardIdx, setPressedCardIdx] = useState<number | null>(null);
+  const [expandedSavedActivity, setExpandedSavedActivity] = useState<EventCard | null>(null);
+  const savedActivityFadeAnim = useRef(new Animated.Value(0)).current;
+  const savedActivityScaleAnim = useRef(new Animated.Value(0.8)).current;
+  const savedActivityOpacityAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const fetchTokenAndCallBackend = async (recommendedEvents: string[]) => {
@@ -113,7 +125,7 @@ export default function SuggestedEvents() {
           recommended_events: recommendedEvents
         });
 
-        const response = await fetch('http://192.168.86.27:5000/recommend', {
+        const response = await fetch('http://192.168.68.139:5000/recommend', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -501,6 +513,7 @@ export default function SuggestedEvents() {
     try {
       // Get current saved events (local)
       const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+
       let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
       const isAlreadySaved = savedEvents.some(event => event.id === likedEvent.id);
       if (!isAlreadySaved) {
@@ -514,13 +527,12 @@ export default function SuggestedEvents() {
       const newLikedEvents = [...likedEvents, likedEvent];
       setLikedEvents(newLikedEvents);
       // Update saved_events in Supabase (append event name)
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user && user.email) {
+      if (userEmail) {
         // Fetch current saved_events from Supabase
         const { data: userRow, error: userError } = await supabase
           .from('all_users')
           .select('saved_events')
-          .eq('email', user.email)
+          .eq('email', userEmail)
           .maybeSingle();
         if (!userError && userRow) {
           let savedEventsArr: string[] = [];
@@ -537,10 +549,12 @@ export default function SuggestedEvents() {
             await supabase
               .from('all_users')
               .update({ saved_events: pgArray })
-              .eq('email', user.email);
+              .eq('email', userEmail);
           }
         }
       }
+      // Refresh global data so SavedLikes and others update
+      await GlobalDataManager.getInstance().refreshAllData();
       loadImages();
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -557,6 +571,10 @@ export default function SuggestedEvents() {
       ]).start(() => {
         setExpandedCard(null);
       });
+
+      console.log('EVENTS', EVENTS[0].name);
+
+      // Update recommendedEvents with the liked event
     } catch (error) {
       console.error('Error saving liked event:', error);
     }
@@ -750,24 +768,44 @@ export default function SuggestedEvents() {
     setRecommendedEvents(newRecommendedEvents);
   };
 
+  // Add effect to get user email when component mounts
+  useEffect(() => {
+    const getUserEmail = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.email) {
+          setUserEmail(user.email);
+        }
+      } catch (error) {
+        console.error('Error getting user email:', error);
+      }
+    };
+    getUserEmail();
+  }, []);
+
   // Effect to handle API call when recommendedEvents changes
   useEffect(() => {
     const fetchTokenAndCallBackend = async (eventsToRecommend: string[]) => {
+      if (!userEmail) {
+        console.error('No user email available');
+        return;
+      }
+
       try {
         console.log('Making request to backend with data:', {
-          email: 'jdh@shdid.com',
+          email: userEmail,
           top_n: 10,
           recommended_events: eventsToRecommend
         });
 
-        const response = await fetch('http://192.168.86.27:5000/recommend', {
+        const response = await fetch('http://192.168.68.139:5000/recommend', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
           body: JSON.stringify({ 
-            email: 'jdh@shdid.com', 
+            email: userEmail, 
             top_n: 10, 
             recommended_events: eventsToRecommend 
           }),
@@ -839,12 +877,81 @@ export default function SuggestedEvents() {
       }
     };
 
-    // Only run the API call if recommendedEvents is not empty
-    if (recommendedEvents.length > 0) {
+    // Only run the API call if recommendedEvents is not empty and we have a user email
+    if (recommendedEvents.length > 0 && userEmail) {
       console.log('recommendedEvents updated, making API call with:', recommendedEvents);
       fetchTokenAndCallBackend(recommendedEvents);
     }
-  }, [recommendedEvents]); // This effect runs whenever recommendedEvents changes
+  }, [recommendedEvents, userEmail]); // Add userEmail to dependencies
+
+  const fetchSavedActivities = async () => {
+    setSavedActivitiesLoading(true);
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !user.email) {
+        setSavedActivitiesEvents([]);
+        setSavedActivitiesLoading(false);
+        return;
+      }
+      // Get saved event names from all_users
+      const { data: userRow, error: userError } = await supabase
+        .from('all_users')
+        .select('saved_events')
+        .eq('email', user.email)
+        .maybeSingle();
+      if (userError || !userRow || !userRow.saved_events) {
+        setSavedActivitiesEvents([]);
+        setSavedActivitiesLoading(false);
+        return;
+      }
+      let savedEventNames: string[] = [];
+      if (Array.isArray(userRow.saved_events)) {
+        savedEventNames = userRow.saved_events;
+      } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
+        savedEventNames = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+      }
+      if (savedEventNames.length === 0) {
+        setSavedActivitiesEvents([]);
+        setSavedActivitiesLoading(false);
+        return;
+      }
+      // Fetch full event details for these names
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('all_events')
+        .select('*')
+        .in('name', savedEventNames);
+      if (eventsError || !eventsData) {
+        setSavedActivitiesEvents([]);
+        setSavedActivitiesLoading(false);
+        return;
+      }
+      setSavedActivitiesEvents(eventsData);
+    } catch (err) {
+      setSavedActivitiesEvents([]);
+    } finally {
+      setSavedActivitiesLoading(false);
+    }
+  };
+
+  // Open overlay and fetch saved activities
+  const openSavedActivities = () => {
+    setIsSavedLikesVisible(true);
+    fetchSavedActivities();
+  };
+
+  // Animate overlay fade-in when opened
+  useEffect(() => {
+    if (isSavedLikesVisible) {
+      Animated.timing(savedActivitiesFadeAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      savedActivitiesFadeAnim.setValue(0);
+    }
+  }, [isSavedLikesVisible]);
 
   if (loading && !isFetchingActivities) {
     const spin = rotateAnim.interpolate({
@@ -861,7 +968,7 @@ export default function SuggestedEvents() {
         <View style={styles.topButtons}>
           <TouchableOpacity 
             style={styles.topButton}
-            onPress={() => navigation.navigate('saved-likes', { onClose: fetchUserEvents })}
+            onPress={openSavedActivities}
           >
             <LinearGradient
               colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -915,7 +1022,7 @@ export default function SuggestedEvents() {
       <View style={styles.topButtons}>
         <TouchableOpacity 
           style={styles.topButton}
-          onPress={() => navigation.navigate('saved-likes', { onClose: fetchUserEvents })}
+          onPress={openSavedActivities}
         >
           <LinearGradient
             colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -1295,6 +1402,281 @@ export default function SuggestedEvents() {
         </Animated.View>
       )}
 
+      {isSavedLikesVisible && (
+        <Animated.View style={[
+          styles.savedLikesOverlay,
+          { backgroundColor: Colors[colorScheme ?? 'light'].background, opacity: savedActivitiesFadeAnim, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 8 }
+        ]}>
+          <TouchableOpacity
+            style={styles.savedLikesCloseButton}
+            onPress={() => setIsSavedLikesVisible(false)}
+            accessibilityLabel="Close Saved Activities"
+            accessibilityRole="button"
+          >
+            <MaskedView
+              style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+              maskElement={
+                <Ionicons name="arrow-back" size={32} color="#fff" style={{ backgroundColor: 'transparent' }} />
+              }
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+                style={{ flex: 1, width: 40, height: 40 }}
+              />
+            </MaskedView>
+          </TouchableOpacity>
+          <Text style={[styles.savedLikesTitle, { color: Colors[colorScheme ?? 'light'].tint, marginTop: 32, marginBottom: 24 }]}>Saved Activities</Text>
+          {savedActivitiesLoading ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 60 }}>
+              <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
+            </View>
+          ) : savedActivitiesEvents.length === 0 ? (
+            <View style={styles.savedLikesEmptyContainer}>
+              <Ionicons name="heart" size={60} color={colorScheme === 'dark' ? '#666' : '#ccc'} />
+              <Text style={[styles.savedLikesEmptyText, { color: Colors[colorScheme ?? 'light'].text }]}>No saved events yet</Text>
+              <Text style={[styles.savedLikesEmptySubtext, { color: Colors[colorScheme ?? 'light'].text, opacity: 0.7 }]}>Like events to save them here</Text>
+            </View>
+          ) : (
+            <ScrollView style={styles.savedLikesScroll} contentContainerStyle={{ paddingBottom: 40 }}>
+              {savedActivitiesEvents.map((event, idx) => (
+                <LinearGradient
+                  key={event.id ? `event-${event.id}` : `event-${event.name}-${idx}`}
+                  colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  locations={[0, 0.3, 0.7, 1]}
+                  style={styles.savedLikesCardGradientBorder}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.savedLikesCard,
+                      { backgroundColor: Colors[colorScheme ?? 'light'].card, opacity: pressedCardIdx === idx ? 0.92 : 1 },
+                    ]}
+                    activeOpacity={0.85}
+                    accessibilityLabel={`View details for ${event.name}`}
+                    accessibilityRole="button"
+                    onPressIn={() => setPressedCardIdx(idx)}
+                    onPressOut={() => setPressedCardIdx(null)}
+                    onPress={() => {
+                      setExpandedSavedActivity(event);
+                      savedActivityFadeAnim.setValue(0);
+                      savedActivityScaleAnim.setValue(0.8);
+                      savedActivityOpacityAnim.setValue(0);
+                      Animated.parallel([
+                        Animated.timing(savedActivityFadeAnim, {
+                          toValue: 1,
+                          duration: 300,
+                          useNativeDriver: true,
+                        }),
+                        Animated.spring(savedActivityScaleAnim, {
+                          toValue: 1,
+                          friction: 8,
+                          tension: 40,
+                          useNativeDriver: true,
+                        }),
+                        Animated.timing(savedActivityOpacityAnim, {
+                          toValue: 1,
+                          duration: 300,
+                          useNativeDriver: true,
+                        })
+                      ]).start();
+                    }}
+                  >
+                    <Image
+                      source={event.image ? { uri: event.image } : require('../assets/images/balloons.png')}
+                      style={styles.savedLikesCardImage}
+                      resizeMode="cover"
+                      accessibilityLabel={event.name || 'Event image'}
+                    />
+                    <View style={styles.savedLikesCardTextColumn}>
+                      <Text style={[
+                        styles.savedLikesCardTitle,
+                        { color: Colors[colorScheme ?? 'light'].tint }
+                      ]} numberOfLines={1}>
+                        {event.name || 'Untitled Event'}
+                      </Text>
+                      <View style={styles.savedLikesCardInfoContainer}>
+                        <View style={styles.savedLikesCardInfoRow}>
+                          <Ionicons name="calendar-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
+                          <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                            {event.start_date}
+                          </Text>
+                        </View>
+                        <View style={styles.savedLikesCardInfoRow}>
+                          <Ionicons name="location-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
+                          <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text }]} numberOfLines={1}>
+                            {event.location}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                </LinearGradient>
+              ))}
+            </ScrollView>
+          )}
+          {/* Expanded overlay for saved activity, rendered as a child so it appears above the Saved Activities overlay only */}
+          {expandedSavedActivity && (
+            <Animated.View 
+              style={[
+                styles.expandedOverlay,
+                { 
+                  opacity: savedActivityFadeAnim,
+                  transform: [{ scale: savedActivityScaleAnim }],
+                  zIndex: 9999, // ensure on top of overlay
+                }
+              ]}
+            >
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => {
+                  Animated.parallel([
+                    Animated.timing(savedActivityFadeAnim, {
+                      toValue: 0,
+                      duration: 200,
+                      useNativeDriver: true,
+                    }),
+                    Animated.spring(savedActivityScaleAnim, {
+                      toValue: 0.8,
+                      friction: 5,
+                      tension: 50,
+                      useNativeDriver: true,
+                    }),
+                    Animated.timing(savedActivityOpacityAnim, {
+                      toValue: 0,
+                      duration: 200,
+                      useNativeDriver: true,
+                    })
+                  ]).start(() => setExpandedSavedActivity(null));
+                }}
+              >
+                <LinearGradient
+                  colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  locations={[0, 0.3, 0.7, 1]}
+                  style={styles.backButtonGradient}
+                >
+                  <Ionicons name="arrow-back" size={24} color="white" />
+                </LinearGradient>
+              </TouchableOpacity>
+              <Animated.View 
+                style={[
+                  styles.expandedCard,
+                  { 
+                    backgroundColor: Colors[colorScheme ?? 'light'].background,
+                    opacity: savedActivityOpacityAnim,
+                    transform: [{ scale: savedActivityScaleAnim }],
+                  }
+                ]}
+              >
+                <ScrollView 
+                  style={styles.expandedContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {expandedSavedActivity.image ? (
+                    <Image 
+                      source={typeof expandedSavedActivity.image === 'string' ? { uri: expandedSavedActivity.image } : expandedSavedActivity.image} 
+                      style={styles.imageExpanded}
+                    />
+                  ) : (
+                    <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}> 
+                      <Ionicons name="image-outline" size={40} color="#666" />
+                    </View>
+                  )}
+                  <View style={styles.expandedHeader}>
+                    <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}> {expandedSavedActivity.name} </Text>
+                  </View>
+                  <View style={styles.infoSection}>
+                    <View style={styles.infoRow}>
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.infoIconContainer}
+                      >
+                        <Ionicons name="calendar-outline" size={20} color="white" />
+                      </LinearGradient>
+                      <View style={styles.infoTextContainer}>
+                        <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date & Time</Text>
+                        <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}> {expandedSavedActivity.start_date} at {expandedSavedActivity.start_time} </Text>
+                      </View>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.infoIconContainer}
+                      >
+                        <Ionicons name="location-outline" size={20} color="white" />
+                      </LinearGradient>
+                      <View style={styles.infoTextContainer}>
+                        <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
+                        <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}> {expandedSavedActivity.location} </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View style={styles.descriptionSection}>
+                    <Text style={[styles.descriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}> About this event </Text>
+                    <Text style={[styles.descriptionText, { color: Colors[colorScheme ?? 'light'].text }]}> {expandedSavedActivity.description} </Text>
+                  </View>
+                  {/* Google Map */}
+                  <View style={styles.mapContainer}>
+                    {userLocation && expandedSavedActivity.latitude && expandedSavedActivity.longitude ? (
+                      <MapView
+                        provider={PROVIDER_GOOGLE}
+                        style={styles.map}
+                        initialRegion={{
+                          latitude: (userLocation.latitude + expandedSavedActivity.latitude) / 2,
+                          longitude: (userLocation.longitude + expandedSavedActivity.longitude) / 2,
+                          latitudeDelta: Math.abs(userLocation.latitude - expandedSavedActivity.latitude) * 1.5 + 0.01,
+                          longitudeDelta: Math.abs(userLocation.longitude - expandedSavedActivity.longitude) * 1.5 + 0.01,
+                        }}
+                      >
+                        <Marker 
+                          coordinate={userLocation}
+                          title="Your Location"
+                        >
+                          <View style={styles.userMarkerContainer}>
+                            <View style={styles.userMarker}>
+                              <Ionicons name="person" size={16} color="white" />
+                            </View>
+                          </View>
+                        </Marker>
+                        <Marker 
+                          coordinate={{
+                            latitude: expandedSavedActivity.latitude,
+                            longitude: expandedSavedActivity.longitude
+                          }}
+                          title={expandedSavedActivity.name}
+                        >
+                          <View style={styles.eventMarkerContainer}>
+                            <View style={styles.eventMarker}>
+                              <Ionicons name="location" size={16} color="white" />
+                            </View>
+                          </View>
+                        </Marker>
+                      </MapView>
+                    ) : (
+                      <View style={[styles.map, styles.mapPlaceholder]}>
+                        <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>
+                          {!userLocation ? 'Enable location services to view map' : 'Location data missing for this event'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </ScrollView>
+              </Animated.View>
+            </Animated.View>
+          )}
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1629,5 +2011,98 @@ const styles = StyleSheet.create({
   organizationText: {
     fontSize: 18,
     opacity: 0.7,
-  }
+  },
+  savedLikesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    zIndex: 200,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingTop: 60,
+  },
+  savedLikesCloseButton: {
+    position: 'absolute',
+    top: 70,
+    left: 20,
+    zIndex: 201,
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  savedLikesTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    color: '#FF1493',
+    letterSpacing: 0.5,
+  },
+  savedLikesEmptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 100,
+  },
+  savedLikesEmptyText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginTop: 20,
+    color: '#888',
+  },
+  savedLikesEmptySubtext: {
+    fontSize: 16,
+    marginTop: 10,
+    opacity: 0.7,
+    color: '#888',
+  },
+  savedLikesScroll: {
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  savedLikesCardGradientBorder: {
+    borderRadius: 22,
+    padding: 2.5,
+    marginBottom: 18,
+  },
+  savedLikesCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    height: 120,
+    overflow: 'hidden',
+    padding: 8,
+  },
+  savedLikesCardImage: {
+    width: 110,
+    height: 110,
+    borderRadius: 16,
+    resizeMode: 'cover',
+  },
+  savedLikesCardTextColumn: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    justifyContent: 'center',
+  },
+  savedLikesCardTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  savedLikesCardInfoContainer: {
+    gap: 4,
+  },
+  savedLikesCardInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
+  savedLikesCardInfoText: {
+    fontSize: 16,
+    opacity: 0.8,
+  },
 });

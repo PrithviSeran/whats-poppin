@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator, ImageSourcePropType } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator, ImageSourcePropType, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -462,10 +462,56 @@ export default function SavedLikes() {
 
   const clearAllEvents = async () => {
     try {
-      setSavedEvents([]);
-      await AsyncStorage.removeItem('savedEvents');
+      // Show confirmation dialog
+      Alert.alert(
+        "Clear All Events",
+        "Are you sure you want to remove all saved events? This action cannot be undone.",
+        [
+          {
+            text: "Cancel",
+            style: "cancel"
+          },
+          {
+            text: "Clear All",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                // Get current user
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user || !user.email) return;
+
+                // Update Supabase - set saved_events to empty array
+                const { error } = await supabase
+                  .from('all_users')
+                  .update({ saved_events: '{}' }) // Empty Postgres array
+                  .eq('email', user.email);
+
+                if (error) throw error;
+
+                // Update local state
+                setSavedEvents([]);
+                
+                // Clear AsyncStorage
+                await AsyncStorage.removeItem('savedEvents');
+
+                // Refresh global data
+                await GlobalDataManager.getInstance().refreshAllData();
+
+                // Call onClose to refresh the parent component
+                onClose();
+              } catch (error) {
+                console.error('Error clearing events:', error);
+                Alert.alert(
+                  "Error",
+                  "Failed to clear events. Please try again."
+                );
+              }
+            }
+          }
+        ]
+      );
     } catch (error) {
-      console.error('Error clearing events:', error);
+      console.error('Error in clearAllEvents:', error);
     }
   };
 
