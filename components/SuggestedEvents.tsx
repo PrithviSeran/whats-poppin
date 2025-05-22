@@ -116,93 +116,128 @@ export default function SuggestedEvents() {
   const savedActivityScaleAnim = useRef(new Animated.Value(0.8)).current;
   const savedActivityOpacityAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    const fetchTokenAndCallBackend = async (recommendedEvents: string[]) => {
-      try {
-        console.log('Making request to backend with data:', {
-          email: 'jdh@shdid.com',
+
+  const fetchTokenAndCallBackend = async (eventsToRecommend: string[]) => {
+
+    const userResponse = await supabase.auth.getUser();
+    const currentUserEmail = userResponse.data.user?.email ?? null;
+
+    const userLocation = await Location.getCurrentPositionAsync();
+
+    const userLatitude = userLocation.coords.latitude;
+    const userLongitude = userLocation.coords.longitude;
+
+    console.log('userLatitude', userLatitude);
+    console.log('userLongitude', userLongitude);
+
+    if (!currentUserEmail) {
+      console.error('No user email available');
+      return;
+    }
+
+
+
+    try {
+      console.log('Making request to backend with data:', {
+        email: currentUserEmail,
+        top_n: 10,
+        recommended_events: eventsToRecommend,
+        user_latitude: userLatitude,
+        user_longitude: userLongitude,
+      });
+
+      const response = await fetch('http://192.168.68.139:5000/recommend', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          email: currentUserEmail,
           top_n: 10,
-          recommended_events: recommendedEvents
+          recommended_events: eventsToRecommend,
+          user_latitude: userLatitude,
+          user_longitude: userLongitude,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server responded with error:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText
         });
-
-        const response = await fetch('http://192.168.68.139:5000/recommend', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: JSON.stringify({ 
-            email: 'jdh@shdid.com', 
-            top_n: 10, 
-            recommended_events: recommendedEvents 
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Server responded with error:', {
-            status: response.status,
-            statusText: response.statusText,
-            errorText
-          });
-          throw new Error(`Server responded with ${response.status}: ${errorText}`);
-        }
-
-        const data = await response.json();
-
-        // Fetch the full event details for each recommended event
-        const { data: eventsData, error } = await supabase
-          .from('all_events')
-          .select('*, latitude, longitude')
-          .in('name', data.recommended_events);
-
-        if (error) {
-          console.error('Error fetching event details:', error);
-          return;
-        }
-
-        // Create a map of event names to their index in the recommended list
-        const recommendedOrder = data.recommended_events.reduce((acc: { [key: string]: number }, name: string, index: number) => {
-          acc[name] = index;
-          return acc;
-        }, {});
-
-        // Add distance calculation and sort by recommended order
-        const eventsWithDistance = eventsData
-          .map((event: any) => {
-            let distance = null;
-            if (userLocation && event.latitude != null && event.longitude != null) {
-              distance = calculateDistance(
-                userLocation.latitude,
-                userLocation.longitude,
-                event.latitude,
-                event.longitude
-              );
-            }
-            return {
-              ...event,
-              distance: distance,
-            };
-          })
-          .sort((a: any, b: any) => {
-            // Sort based on the order in recommended_events
-            return (recommendedOrder[a.name] ?? Infinity) - (recommendedOrder[b.name] ?? Infinity);
-          });
-
-        setEVENTS(eventsWithDistance);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
-        setLoading(false);
+        throw new Error(`Server responded with ${response.status}: ${errorText}`);
       }
-    };
+
+      const data = await response.json();
+
+
+      console.log('data', data);
+      // Fetch the full event details for each recommended event
+      const { data: eventsData, error } = await supabase
+        .from('all_events')
+        .select('*, latitude, longitude')
+        .in('name', data.recommended_events);
+
+      if (error) {
+        console.error('Error fetching event details:', error);
+        return;
+      }
+
+      // Create a map of event names to their index in the recommended list
+      const recommendedOrder = data.recommended_events.reduce((acc: { [key: string]: number }, name: string, index: number) => {
+        acc[name] = index;
+        return acc;
+      }, {});
+
+      // Add distance calculation and sort by recommended order
+      const eventsWithDistance = eventsData
+        .map((event: any) => {
+          let distance = null;
+          if (userLocation && event.latitude != null && event.longitude != null) {
+            distance = calculateDistance(
+              userLatitude,
+              userLongitude,
+              event.latitude,
+              event.longitude
+            );
+          }
+          return {
+            ...event,
+            distance: distance,
+          };
+        })
+        .sort((a: any, b: any) => {
+          // Sort based on the order in recommended_events
+          return (recommendedOrder[a.name] ?? Infinity) - (recommendedOrder[b.name] ?? Infinity);
+        });
+
+      // Reset the Swiper state
+      setCardIndex(0);
+      setEVENTS([]); // Clear current events
+      setTimeout(() => {
+        setEVENTS(eventsWithDistance); // Set new events after a brief delay
+        setLoading(false);
+        setIsFetchingActivities(false); // Reset fetching activities state
+      }, 100);
+    } catch (error) {
+      console.error('Error fetching recommendations:', error);
+      setLoading(false);
+      setIsFetchingActivities(false); // Reset fetching activities state
+    }
+  };
+
+  useEffect(() => {
+
 
     loadImages();
     loadSavedFilters();
-    fetchUserEvents(); // Consider if this should be here or after filters are loaded
-    requestLocationPermission(); // Request and get user location
-    
+    console.log('here???');
+    //fetchUserEvents(); // Consider if this should be here or after filters are loaded
     fetchTokenAndCallBackend(recommendedEvents);
+    requestLocationPermission(); // Request and get user location
   }, []);
 
   useEffect(() => {
@@ -269,84 +304,6 @@ export default function SuggestedEvents() {
     }
   };
 
-  // Example of how to use the image URLs in your render
-  const renderImage = (imageUrl: string) => {
-    return (
-      <Image 
-        source={{ uri: imageUrl }}
-        style={styles.image}
-        resizeMode="cover"
-      />
-    )
-  }
-
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  const fetchData = async () => {
-    try {
-      setLoading(true)
-      
-      const { data: eventsData, error } = await supabase
-        .from('all_events')
-        .select('*, latitude, longitude'); // Select latitude and longitude
-
-      if (error) {
-        throw error
-      }
-
-      let eventsWithCalculatedDistance: EventCard[] = [];
-      if (eventsData) {
-        eventsWithCalculatedDistance = eventsData.map((event: any): EventCard => {
-          let distance = null;
-          if (userLocation && event.latitude != null && event.longitude != null) {
-            distance = calculateDistance(
-              userLocation.latitude,
-              userLocation.longitude,
-              event.latitude,
-              event.longitude
-            );
-          }
-          return {
-            ...event,
-            distance: distance, // Add calculated distance
-          };
-        });
-      }
-
-      // After fetching eventsData from Supabase, update locations (keeping fetched location for distance calc)
-      const eventsWithTorontoLocations = eventsWithCalculatedDistance; // Use events with calculated distance
-
-      let filteredEvents = eventsWithTorontoLocations;
-
-      if (filters.timePreferences && filters.timePreferences.start && filters.timePreferences.end) {
-        const toMinutes = (t: string) => {
-          const [h, m] = t.split(':');
-          return parseInt(h, 10) * 60 + parseInt(m, 10);
-        };
-        const startMins = toMinutes(filters.timePreferences.start);
-        const endMins = toMinutes(filters.timePreferences.end);
-
-        filteredEvents = filteredEvents.filter((event: any) => {
-          const eventMins = toMinutes(event.start_time);
-          if (endMins < startMins) {
-            // Overnight range
-            return eventMins >= startMins || eventMins <= endMins;
-          } else {
-            return eventMins >= startMins && eventMins <= endMins;
-          }
-        });
-      }
-
-      setEVENTS(filteredEvents || []);
-    } catch (error) {
-      console.error('Error fetching data:', error)
-
-    } finally {
-      setLoading(false)
-    }
-  }
   
   const interpolateColor = swipeX.interpolate({
     inputRange: [-width, 0, width],
@@ -596,128 +553,10 @@ export default function SuggestedEvents() {
     loadLikedEvents();
   }, []);
 
-  const toggleLike = async (event: EventCard) => {
-    try {
-      const savedEventsJson = await AsyncStorage.getItem('likedEvents');
-      let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      const isAlreadyLiked = savedEvents.some(e => e.id === event.id);
-      if (isAlreadyLiked) {
-        savedEvents = savedEvents.filter(e => e.id !== event.id);
-      } else {
-        savedEvents.push(event);
-      }
-      await AsyncStorage.setItem('likedEvents', JSON.stringify(savedEvents));
-      setLikedEvents(savedEvents);
-    } catch (error) {
-      console.error('Error toggling like:', error);
-    }
-  };
-
   const fetchUserEvents = async () => {
-    setLoading(true);
     try {
-      // 1. Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
-      }
+      fetchTokenAndCallBackend(recommendedEvents);
 
-      // 2. Get all relevant columns from all_users
-      const { data: userDataRaw, error: userError } = await supabase
-        .from('all_users')
-        .select('preferences, start-time, end-time, location, travel-distance')
-        .eq('email', user.email)
-        .maybeSingle();
-
-      if (userError || !userDataRaw) {
-        setLoading(false);
-        return;
-      }
-
-      const userData: any = userDataRaw;
-
-      // Parse preferences (event types)
-      let preferences: string[] = [];
-      if (Array.isArray(userData.preferences)) {
-        preferences = userData.preferences;
-      } else if (typeof userData.preferences === 'string') {
-        // If stored as a Postgres array string, parse it
-        preferences = userData.preferences
-          .replace(/[{}"]/g, '')
-          .split(',')
-          .map((s: string) => s.trim())
-          .filter(Boolean);
-      }
-
-      // Parse times
-      const startTime = userData['start-time']; // e.g. '18:00:00'
-      const endTime = userData['end-time'];     // e.g. '23:00:00'
-      const location = userData.location;
-      const travelDistance = userData['travel-distance'];
-
-      // 3. Query all_events based on these preferences
-      let query = supabase.from('all_events').select('*, latitude, longitude'); // Select latitude and longitude
-
-       if (preferences.length > 0) {
-         query = query.in('event_type', preferences);
-       }
-      // You can add more filters here, e.g. for time, travelDistance, etc.
-
-      const { data: eventsData, error: eventsError } = await query;
-
-
-      if (eventsError) {
-        setLoading(false);
-        return;
-      }
-
-      let eventsWithCalculatedDistance: EventCard[] = [];
-      if (eventsData) {
-         eventsWithCalculatedDistance = eventsData.map((event: any): EventCard => {
-           let distance = null;
-           if (userLocation && event.latitude != null && event.longitude != null) {
-             distance = calculateDistance(
-               userLocation.latitude,
-               userLocation.longitude,
-               event.latitude,
-               event.longitude
-             );
-           }
-           return {
-             ...event,
-             distance: distance, // Add calculated distance
-           };
-         });
-      }
-
-      // After fetching eventsData from Supabase, update locations (keeping fetched location for distance calc)
-      const eventsWithTorontoLocations = eventsWithCalculatedDistance; // Use events with calculated distance
-
-      // After fetching eventsData from Supabase
-      let filteredEvents = eventsWithTorontoLocations; // Use events with calculated distance
-
-      if (startTime && endTime) {
-        const toMinutes = (t: string) => {
-          const [h, m] = t.split(':');
-          return parseInt(h, 10) * 60 + parseInt(m, 10);
-        };
-        const startMins = toMinutes(startTime);
-        const endMins = toMinutes(endTime);
-
-        filteredEvents = filteredEvents.filter((event: any) => {
-          const eventMins = toMinutes(event.start_time);
-          if (endMins < startMins) {
-            // Overnight range (e.g., 21:00 to 03:00)
-            return eventMins >= startMins || eventMins <= endMins;
-          } else {
-            // Normal range (e.g., 18:00 to 23:00)
-            return eventMins >= startMins && eventMins <= endMins;
-          }
-        });
-      }
-
-      setEVENTS(filteredEvents || []);
     } catch (err) {
       // handle error
       setEVENTS([]);
@@ -766,6 +605,7 @@ export default function SuggestedEvents() {
     
     console.log('About to update recommendedEvents with:', newRecommendedEvents);
     setRecommendedEvents(newRecommendedEvents);
+
   };
 
   // Add effect to get user email when component mounts
@@ -785,97 +625,6 @@ export default function SuggestedEvents() {
 
   // Effect to handle API call when recommendedEvents changes
   useEffect(() => {
-    const fetchTokenAndCallBackend = async (eventsToRecommend: string[]) => {
-      if (!userEmail) {
-        console.error('No user email available');
-        return;
-      }
-
-      try {
-        console.log('Making request to backend with data:', {
-          email: userEmail,
-          top_n: 10,
-          recommended_events: eventsToRecommend
-        });
-
-        const response = await fetch('http://192.168.68.139:5000/recommend', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: JSON.stringify({ 
-            email: userEmail, 
-            top_n: 10, 
-            recommended_events: eventsToRecommend 
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Server responded with error:', {
-            status: response.status,
-            statusText: response.statusText,
-            errorText
-          });
-          throw new Error(`Server responded with ${response.status}: ${errorText}`);
-        }
-
-        const data = await response.json();
-
-        // Fetch the full event details for each recommended event
-        const { data: eventsData, error } = await supabase
-          .from('all_events')
-          .select('*, latitude, longitude')
-          .in('name', data.recommended_events);
-
-        if (error) {
-          console.error('Error fetching event details:', error);
-          return;
-        }
-
-        // Create a map of event names to their index in the recommended list
-        const recommendedOrder = data.recommended_events.reduce((acc: { [key: string]: number }, name: string, index: number) => {
-          acc[name] = index;
-          return acc;
-        }, {});
-
-        // Add distance calculation and sort by recommended order
-        const eventsWithDistance = eventsData
-          .map((event: any) => {
-            let distance = null;
-            if (userLocation && event.latitude != null && event.longitude != null) {
-              distance = calculateDistance(
-                userLocation.latitude,
-                userLocation.longitude,
-                event.latitude,
-                event.longitude
-              );
-            }
-            return {
-              ...event,
-              distance: distance,
-            };
-          })
-          .sort((a: any, b: any) => {
-            // Sort based on the order in recommended_events
-            return (recommendedOrder[a.name] ?? Infinity) - (recommendedOrder[b.name] ?? Infinity);
-          });
-
-        // Reset the Swiper state
-        setCardIndex(0);
-        setEVENTS([]); // Clear current events
-        setTimeout(() => {
-          setEVENTS(eventsWithDistance); // Set new events after a brief delay
-          setLoading(false);
-          setIsFetchingActivities(false); // Reset fetching activities state
-        }, 100);
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
-        setLoading(false);
-        setIsFetchingActivities(false); // Reset fetching activities state
-      }
-    };
 
     // Only run the API call if recommendedEvents is not empty and we have a user email
     if (recommendedEvents.length > 0 && userEmail) {

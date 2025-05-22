@@ -10,6 +10,7 @@ from jwt import PyJWKClient
 from flask_cors import CORS
 from datetime import datetime, time, timedelta
 from beacon_torch import BeaconAI
+import math
 
 app = Flask(__name__)
 CORS(app)
@@ -76,16 +77,21 @@ def remove_elements_set(main_array, elements_to_remove):
 @app.route('/recommend', methods=['POST', 'GET'])
 def recommend():
 
+    print("request.json:", request.json)
+
     target_user = request.json.get("email")
+    user_latitude = request.json.get("user_latitude") # Get user latitude from request
+    user_longitude = request.json.get("user_longitude") # Get user longitude from request
 
     print("target_user:", target_user)
+    print("user_location:", user_latitude, user_longitude) # Log user location
 
     if not target_user:
         print("No target user email provided.")
         return jsonify({"recommended_events": []}), 400 # Bad Request
 
     # 1. Fetch the target user's preferences
-    user_result = Client.table("all_users").select("preferences").eq("email", target_user).maybe_single().execute()
+    user_result = Client.table("all_users").select("preferences, travel-distance").eq("email", target_user).maybe_single().execute()
     user_data = user_result.data
 
     if not user_data:
@@ -94,7 +100,10 @@ def recommend():
         return jsonify({"recommended_events": []}) # Return empty list if user not found
 
     user_preferences = parse_preferences(user_data.get("preferences", []))
+    # Get user's travel distance preference, default to 50km if not set
+    user_travel_distance = user_data.get("travel-distance", 50)
 
+    print("user_travel_distance:", user_travel_distance)
     # 2. Query all_events, filtering by user preferences
     query = Client.table("all_events").select("*", "latitude", "longitude") # Select latitude and longitude
 
@@ -104,16 +113,48 @@ def recommend():
         query = query.in_('event_type', list(user_preferences))
 
     event_result = query.execute()
-    all_events_filtered = event_result.data
+    all_events_raw = event_result.data # Renamed to all_events_raw
 
-    if not all_events_filtered:
+    if not all_events_raw:
         print("No events found matching user preferences.")
         return jsonify({"recommended_events": []}) # Return empty list if no matching events
 
-    # 3. Build event_names from the filtered events
+    # Apply distance filtering if user location is available
+    all_events_filtered = []
+    # Use user's travel distance preference instead of hardcoded value
+    distance_threshold_km = user_travel_distance
+
+    if user_latitude is not None and user_longitude is not None:
+        for event in all_events_raw:
+            event_latitude = event.get("latitude")
+            event_longitude = event.get("longitude")
+            # Check if event has location data
+            if event_latitude is not None and event_longitude is not None:
+                distance = calculate_distance(
+                    user_latitude,
+                    user_longitude,
+                    event_latitude,
+                    event_longitude
+                )
+                # Only include events within the user's travel distance threshold
+                if distance <= distance_threshold_km:
+                    all_events_filtered.append(event)
+            else:
+                # Optionally include events without location data, or filter them out
+                # For now, let's include events without location data (cannot calculate distance)
+                all_events_filtered.append(event)
+    else:
+        # If user location is not available, use all events filtered by preferences
+        all_events_filtered = all_events_raw
+
+    if not all_events_filtered:
+        print("No events found after applying distance filter.")
+        return jsonify({"recommended_events": []})
+
+    # 3. Build event_names from the FILTERED events
     event_names_filtered = [event.get("name") for event in all_events_filtered if event.get("name")]
 
-    print("event_names (after preference filtering):", event_names_filtered)
+    print("event_names (after preference and distance filtering):", event_names_filtered)
 
     # 4. Build user feature tuples and interactions from ALL users
     # We need data from all users for the AI model to learn relationships correctly.
@@ -156,6 +197,7 @@ def recommend():
         event_types = parse_event_types(event.get("event_type", []))
         start_time = event.get("start_time")
         end_time = event.get("end_time")
+        # Use event's time for time tag, not user's time
         time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
         age_restriction = event.get("age_restriction")
         cost = event.get("cost")
@@ -332,7 +374,21 @@ def parse_event_types(event_type):
     else:
         return tuple()
 
+def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the great circle distance between two points on the earth (specified in decimal degrees)
+    Returns the distance in kilometers
+    """
+    # Convert decimal degrees to radians
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
 
+    # Haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    r = 6371  # Radius of earth in kilometers
+    return c * r
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
