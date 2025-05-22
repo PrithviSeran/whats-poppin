@@ -75,51 +75,91 @@ def remove_elements_set(main_array, elements_to_remove):
 
 @app.route('/recommend', methods=['POST', 'GET'])
 def recommend():
-    print("recommend endpoint called")
 
-    result = Client.table("all_users").select("*").execute()
-    all_users = result.data
+    target_user = request.json.get("email")
 
-    result = Client.table("all_events").select("*").execute()
-    all_events = result.data
+    print("target_user:", target_user)
 
-    interactions = build_interactions(all_users)
-    #print(all_users)
+    if not target_user:
+        print("No target user email provided.")
+        return jsonify({"recommended_events": []}), 400 # Bad Request
+
+    # 1. Fetch the target user's preferences
+    user_result = Client.table("all_users").select("preferences").eq("email", target_user).maybe_single().execute()
+    user_data = user_result.data
+
+    if not user_data:
+        # Handle case where user is not found
+        print(f"User {target_user} not found.")
+        return jsonify({"recommended_events": []}) # Return empty list if user not found
+
+    user_preferences = parse_preferences(user_data.get("preferences", []))
+
+    # 2. Query all_events, filtering by user preferences
+    query = Client.table("all_events").select("*", "latitude", "longitude") # Select latitude and longitude
+
+    if user_preferences:
+        # If user has preferences, filter events by event_type
+        # Supabase client requires list for .in_()
+        query = query.in_('event_type', list(user_preferences))
+
+    event_result = query.execute()
+    all_events_filtered = event_result.data
+
+    if not all_events_filtered:
+        print("No events found matching user preferences.")
+        return jsonify({"recommended_events": []}) # Return empty list if no matching events
+
+    # 3. Build event_names from the filtered events
+    event_names_filtered = [event.get("name") for event in all_events_filtered if event.get("name")]
+
+    print("event_names (after preference filtering):", event_names_filtered)
+
+    # 4. Build user feature tuples and interactions from ALL users
+    # We need data from all users for the AI model to learn relationships correctly.
+    all_users_result = Client.table("all_users").select("*").execute()
+    all_users = all_users_result.data
+
+    if not all_users:
+        print("No users found in the database.")
+        return jsonify({"recommended_events": []})
 
     user_emails = [user.get("email") for user in all_users if user.get("email")]
-    event_names = [event.get("name") for event in all_events if event.get("name")]
-
-    recommended_events = request.json.get("recommended_events", [])
-
-    print("recommended_events:", recommended_events)
-
-    event_names = remove_elements(event_names, recommended_events)
-
-    print("event_names:", event_names)
+    interactions = build_interactions(all_users) # Build interactions from all users
 
     user_feature_tuples = []
     for user in all_users:
         identifier = user.get("email") or user.get("name")
-        preferences = parse_preferences(user.get("preferences", []))
+        # Use the specifically fetched preferences for the target user,
+        # and generic parsing for other users.
+        if identifier == target_user:
+            current_user_preferences = user_preferences
+        else:
+            current_user_preferences = parse_preferences(user.get("preferences", []))
+
         birthday = user.get("birthday")
-        age = calculate_age(birthday)
-        age_group = get_age_group(age)
+        # Handle potential None for age and time_tag parsing
+        age = calculate_age(birthday) if birthday else None
+        age_group = get_age_group(age) if age is not None else None
         start_time = user.get("start-time")
         end_time = user.get("end-time")
-        time_tag = get_time_tag(start_time, end_time)
+        time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
         gender = user.get("gender")
-        # The features are in a list, and the tuple has two elements
-        user_feature_tuples.append((identifier, [preferences, age_group, time_tag, gender]))
 
+        user_feature_tuples.append((identifier, [current_user_preferences, age_group, time_tag, gender]))
+
+    # 5. Build event feature tuples from the FILTERED events
     event_feature_tuples = []
-    for event in all_events:
+    for event in all_events_filtered:
         name = event.get("name")
+        # Ensure event feature parsing also handles potential None values
         event_types = parse_event_types(event.get("event_type", []))
         start_time = event.get("start_time")
         end_time = event.get("end_time")
-        time_tag = get_time_tag(start_time, end_time)
+        time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
         age_restriction = event.get("age_restriction")
         cost = event.get("cost")
+        cost_range = None
         if cost is not None:
             if cost < 20:
                 cost_range = "$"
@@ -129,49 +169,56 @@ def recommend():
                 cost_range = "$$$"
             else:
                 cost_range = "$$$$"
-        else:
-            cost_range = None
+
         reservation = event.get("reservation")
         reservation_required = "yes" if reservation and reservation.lower() in ["yes", "y", "true", "1"] else "no"
         # The features are in a list, and the tuple has two elements
         event_feature_tuples.append((name, [event_types, time_tag, age_restriction, cost_range, reservation_required]))
 
+    recommended_events = request.json.get("recommended_events", [])
+    # Remove events from the filtered list that were already recommended in this session
+    event_names_for_recommendation = remove_elements(event_names_filtered, recommended_events)
 
+    if not event_names_for_recommendation:
+         print("No new events available after filtering out previously recommended.")
+         return jsonify({"recommended_events": []})
+
+
+    # 6. Fit and train the AI model using filtered events
     rec = BeaconAI()
-    rec.fit_data(user_emails, event_names, user_feature_tuples, event_feature_tuples, interactions)
+    rec.fit_data(user_emails, event_names_for_recommendation, user_feature_tuples, event_feature_tuples, interactions)
     rec.train_model()
 
-    target_user = request.json.get("email")
-    user_feats = [feats for uid, feats in user_feature_tuples if uid == target_user]
-    print(f"\n{target_user} Features:\n{user_feats[0] if user_feats else 'User not found'}")
+    # 7. Recommend from the filtered and un-recommended pool
+    print("\nTop 5 Recommended Events (filtered by user preferences and session history):")
+    top_5_recommended_events = []
 
-    liked = [e for u, e, v in interactions if u == target_user and v == 1]
-    print(f"\n{target_user} previously liked {len(liked)} event(s):\n{liked}")
+    # Ensure the recommendation engine knows to only pick from the available pool
+    recommendations = rec.recommend_for_user(
+        target_user,
+        top_n=5,
+        )
 
-    print("\nFeatures of Liked Events:")
-    for eid, feats in event_feature_tuples:
-        if eid in liked:
-            print(f"{eid}: {feats}")
-
-    print("\nTop 5 Recommended Events:")
-    top_5 = []
-    recommendations = rec.recommend_for_user(target_user, top_n=5)
     for eid, score in recommendations:
         print(f"{eid} (score: {score:.4f})")
-        top_5.append(eid)
+        top_5_recommended_events.append(eid)
 
-    print("\nFeatures of Recommended Events:")
-    for eid, feats in event_feature_tuples:
-        if eid in [x[0] for x in recommendations]:
-            print(f"{eid}: {feats}")
-    
-    return jsonify({"recommended_events": top_5})
+    print("\nFeatures of Recommended Events (from filtered pool):")
+    # Only print features for the events that were actually recommended
+    recommended_event_features = [feats for eid, feats in event_feature_tuples if eid in top_5_recommended_events]
+    for feats in recommended_event_features:
+        print(feats)
+
+
+    return jsonify({"recommended_events": top_5_recommended_events})
 
 
     
 
 
 def get_age_group(age):
+    if age is None:
+        return None
     if 18 <= age <= 24:
         return "18-24"
     elif 25 <= age <= 34:
