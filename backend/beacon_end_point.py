@@ -168,8 +168,10 @@ def recommend():
     user_emails = [user.get("email") for user in all_users if user.get("email")]
     interactions = build_interactions(all_users) # Build interactions from all users
 
+
     user_feature_tuples = []
     for user in all_users:
+
         identifier = user.get("email") or user.get("name")
         # Use the specifically fetched preferences for the target user,
         # and generic parsing for other users.
@@ -185,6 +187,7 @@ def recommend():
         start_time = user.get("start-time")
         end_time = user.get("end-time")
         time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
+        print("WHYWYYYYY")
         gender = user.get("gender")
 
         user_feature_tuples.append((identifier, [current_user_preferences, age_group, time_tag, gender]))
@@ -217,6 +220,7 @@ def recommend():
         # The features are in a list, and the tuple has two elements
         event_feature_tuples.append((name, [event_types, time_tag, age_restriction, cost_range, reservation_required]))
 
+
     recommended_events = request.json.get("recommended_events", [])
     # Remove events from the filtered list that were already recommended in this session
     event_names_for_recommendation = remove_elements(event_names_filtered, recommended_events)
@@ -224,7 +228,6 @@ def recommend():
     if not event_names_for_recommendation:
          print("No new events available after filtering out previously recommended.")
          return jsonify({"recommended_events": []})
-
 
     # 6. Fit and train the AI model using filtered events
     rec = BeaconAI()
@@ -306,10 +309,24 @@ def time_in_range(start, end, t):
         return t >= start or t < end
 
 def get_time_tag(start_time_str, end_time_str):
+    print(start_time_str, end_time_str)
     start_time = parse_time(start_time_str)
     end_time = parse_time(end_time_str)
     if start_time is None or end_time is None:
         return None  # or return a default tag, e.g., "unknown"
+    
+    # Round times to nearest hour
+    start_dt = datetime.combine(datetime.today(), start_time)
+    end_dt = datetime.combine(datetime.today(), end_time)
+    
+    # Round to nearest hour
+    start_dt = start_dt.replace(minute=0, second=0, microsecond=0)
+    end_dt = end_dt.replace(minute=0, second=0, microsecond=0)
+    
+    # Convert back to time objects
+    start_time = start_dt.time()
+    end_time = end_dt.time()
+    
     tag_scores = {}
 
     # Handle overnight user time range
@@ -329,6 +346,8 @@ def get_time_tag(start_time_str, end_time_str):
     if not tag_scores:
         return None
     best_tag = max(tag_scores, key=tag_scores.get)
+    print("Best Tag: ", best_tag)
+
     return best_tag
 
 def parse_saved_events(saved_events):

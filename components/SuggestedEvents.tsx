@@ -93,6 +93,7 @@ export default function SuggestedEvents() {
   const swiperRef = useRef<Swiper<EventCard>>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const contentFadeAnim = useRef(new Animated.Value(0)).current;
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
@@ -816,6 +817,19 @@ export default function SuggestedEvents() {
     }
   }, [expandedSavedActivity]);
 
+  // Add effect for content fade animation
+  useEffect(() => {
+    if (!loading && !isFetchingActivities) {
+      Animated.timing(contentFadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      contentFadeAnim.setValue(0);
+    }
+  }, [loading, isFetchingActivities]);
+
   if (loading && !isFetchingActivities) {
     const spin = rotateAnim.interpolate({
       inputRange: [0, 1],
@@ -936,140 +950,149 @@ export default function SuggestedEvents() {
             {isFetchingActivities ? 'Fetching activities...' : 'Loading events...'}
           </Text>
         </View>
-      ) : EVENTS.length > 0 && imageUrls.length > 0 ? (
-        <>
-          <View style={styles.swiperContainer}>
-            <Swiper
-              ref={swiperRef}
-              cards={EVENTS}
-              cardIndex={cardIndex}
-              renderCard={(card: EventCard, index: number) => {
-                const isTopCard = index === cardIndex;
-                  // Use the first image URL for all cards if available
-                  const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
-
-                return (
-                  <TouchableOpacity 
-                    onPress={() => handleCardPress(card)}
-                    activeOpacity={1}
-                  >
-                    <Animated.View style={[
-                      styles.card,
-                      isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                    ]}>
-                        {eventImageUrl ? (
-                        <Image 
-                            source={{ uri: eventImageUrl }}
-                          style={styles.image} 
-                            onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
-                        />
-                      ) : (
-                          <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                            <Ionicons name="image-outline" size={40} color="#666" />
-                          </View>
-                      )}
-                      <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
-                        {/* Distance Display */}
-                        {card.distance != null ? (
-                          <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                            Distance: {card.distance.toFixed(2)} km
-                          </Text>
-                        ) : userLocation ? (
-                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                             Distance: Calculating...
-                           </Text>
-                        ) : (
-                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                              Distance: N/A (Location required)
-                           </Text>
-                        )}
-                    </Animated.View>
-                  </TouchableOpacity>
-                );
-              }}
-              onSwipedLeft={() => {
-                setCardIndex((i) => i + 1);
-                Animated.parallel([
-                  Animated.timing(fadeAnim, {
-                    toValue: 0,
-                    duration: 200,
-                    useNativeDriver: true,
-                  }),
-                  Animated.spring(scaleAnim, {
-                    toValue: 0.8,
-                    friction: 5,
-                    tension: 50,
-                    useNativeDriver: true,
-                  })
-                ]).start(() => {
-                  setExpandedCard(null);
-                });
-              }}
-              onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-                onSwipedAll={handleSwipedAll}
-              onSwiping={(x) => swipeX.setValue(x)}
-              backgroundColor="transparent"
-              stackSize={3}
-              stackSeparation={15}
-              overlayLabels={{
-                left: {
-                  style: { 
-                    label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
-                    wrapper: { 
-                      flexDirection: 'column', 
-                      alignItems: 'flex-end', 
-                      justifyContent: 'flex-start', 
-                      marginTop: 30, 
-                      marginLeft: -30 
-                    } 
-                  }
-                },
-                right: {
-                  style: { 
-                    label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
-                    wrapper: { 
-                      flexDirection: 'column', 
-                      alignItems: 'flex-start', 
-                      justifyContent: 'flex-start', 
-                      marginTop: 30, 
-                      marginLeft: 30 
-                    } 
-                  }
-                }
-              }}
-              disableTopSwipe
-              disableBottomSwipe
-              pointerEvents="box-none"
-              useViewOverflow={false}
-            />
-          </View>
-
-          <Animated.View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={[styles.actionButton, styles.nopeButton]}
-              onPress={() => swiperRef.current?.swipeLeft()}
-            >
-              <Ionicons name="close" size={32} color="red" />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.actionButton, styles.likeButton]}
-              onPress={() => swiperRef.current?.swipeRight()}
-            >
-              <Ionicons name="checkmark" size={32} color="green" />
-            </TouchableOpacity>
-          </Animated.View>
-        </>
       ) : (
-        <View style={styles.noEventsContainer}>
-          <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-            No Events Found
-          </Text>
-          <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
-            <Text style={styles.adjustFiltersText}>
-              Try adjusting your filters
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <Animated.View 
+          style={[
+            styles.contentContainer,
+            { opacity: contentFadeAnim }
+          ]}
+        >
+          {EVENTS.length > 0 && imageUrls.length > 0 ? (
+            <>
+              <View style={styles.swiperContainer}>
+                <Swiper
+                  ref={swiperRef}
+                  cards={EVENTS}
+                  cardIndex={cardIndex}
+                  renderCard={(card: EventCard, index: number) => {
+                    const isTopCard = index === cardIndex;
+                      // Use the first image URL for all cards if available
+                      const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
+
+                    return (
+                      <TouchableOpacity 
+                        onPress={() => handleCardPress(card)}
+                        activeOpacity={1}
+                      >
+                        <Animated.View style={[
+                          styles.card,
+                          isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                        ]}>
+                            {eventImageUrl ? (
+                            <Image 
+                                source={{ uri: eventImageUrl }}
+                              style={styles.image} 
+                                onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
+                            />
+                          ) : (
+                              <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                                <Ionicons name="image-outline" size={40} color="#666" />
+                              </View>
+                          )}
+                          <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
+                            {/* Distance Display */}
+                            {card.distance != null ? (
+                              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                                Distance: {card.distance.toFixed(2)} km
+                              </Text>
+                            ) : userLocation ? (
+                               <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                                 Distance: Calculating...
+                               </Text>
+                            ) : (
+                               <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                                  Distance: N/A (Location required)
+                               </Text>
+                            )}
+                        </Animated.View>
+                      </TouchableOpacity>
+                    );
+                  }}
+                  onSwipedLeft={() => {
+                    setCardIndex((i) => i + 1);
+                    Animated.parallel([
+                      Animated.timing(fadeAnim, {
+                        toValue: 0,
+                        duration: 200,
+                        useNativeDriver: true,
+                      }),
+                      Animated.spring(scaleAnim, {
+                        toValue: 0.8,
+                        friction: 5,
+                        tension: 50,
+                        useNativeDriver: true,
+                      })
+                    ]).start(() => {
+                      setExpandedCard(null);
+                    });
+                  }}
+                  onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
+                    onSwipedAll={handleSwipedAll}
+                  onSwiping={(x) => swipeX.setValue(x)}
+                  backgroundColor="transparent"
+                  stackSize={3}
+                  stackSeparation={15}
+                  overlayLabels={{
+                    left: {
+                      style: { 
+                        label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
+                        wrapper: { 
+                          flexDirection: 'column', 
+                          alignItems: 'flex-end', 
+                          justifyContent: 'flex-start', 
+                          marginTop: 30, 
+                          marginLeft: -30 
+                        } 
+                      }
+                    },
+                    right: {
+                      style: { 
+                        label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
+                        wrapper: { 
+                          flexDirection: 'column', 
+                          alignItems: 'flex-start', 
+                          justifyContent: 'flex-start', 
+                          marginTop: 30, 
+                          marginLeft: 30 
+                        } 
+                      }
+                    }
+                  }}
+                  disableTopSwipe
+                  disableBottomSwipe
+                  pointerEvents="box-none"
+                  useViewOverflow={false}
+                />
+              </View>
+
+              <Animated.View style={styles.actionButtons}>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.nopeButton]}
+                  onPress={() => swiperRef.current?.swipeLeft()}
+                >
+                  <Ionicons name="close" size={32} color="red" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.likeButton]}
+                  onPress={() => swiperRef.current?.swipeRight()}
+                >
+                  <Ionicons name="checkmark" size={32} color="green" />
+                </TouchableOpacity>
+              </Animated.View>
+            </>
+          ) : (
+            <View style={styles.noEventsContainer}>
+              <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                No Events Found
+              </Text>
+              <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
+                <Text style={styles.adjustFiltersText}>
+                  Try adjusting your filters
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </Animated.View>
       )}
 
       <View style={styles.footerContainer}>
@@ -1549,11 +1572,10 @@ const styles = StyleSheet.create({
   },
   swiperContainer: {
     width: '95%',
-    // Reduced height by calculating remaining space and taking less of it
-    height: height - FOOTER_HEIGHT - TOP_BUTTONS_HEIGHT - ACTION_BUTTONS_HEIGHT - 40,
+    height: height - FOOTER_HEIGHT - TOP_BUTTONS_HEIGHT - ACTION_BUTTONS_HEIGHT - 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: TOP_BUTTONS_HEIGHT, // Add margin to account for top buttons
+    marginTop: TOP_BUTTONS_HEIGHT - 80,
   },
   footerContainer: {
     position: 'absolute',
@@ -1601,8 +1623,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     width: '100%',
     paddingHorizontal: 40,
-    marginBottom: 20, // Reduced from 40
-    marginTop: -20, // Reduced from -40
+    marginBottom: 10,
+    marginTop: -60,
     zIndex: 10
   },
   actionButton: {
@@ -1867,7 +1889,9 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-    width: '95%',
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   organizationText: {
     fontSize: 18,

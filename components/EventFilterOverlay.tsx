@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +23,16 @@ import Slider from '@react-native-community/slider';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '@/lib/supabase';
+
+interface UserPreferences {
+  'start-time': string;
+  'end-time': string;
+}
+
+interface SupabaseResponse {
+  data: UserPreferences | null;
+  error: any;
+}
 
 const { width, height } = Dimensions.get('window');
 
@@ -99,6 +110,42 @@ export default function EventFilterOverlay({
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const [isAnimating, setIsAnimating] = useState(false);
 
+  const fetchUserPreferences = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('No user logged in');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('all_users')
+        .select('start-time, end-time')
+        .eq('email', user.email)
+        .single() as SupabaseResponse;
+
+      if (error) {
+        console.error('Error fetching user preferences:', error);
+        return;
+      }
+
+      if (data) {
+        // Convert time strings to minutes
+        const startTimeStr = data['start-time'] || defaultStart;
+        const endTimeStr = data['end-time'] || defaultEnd;
+        
+        const [startHour, startMin] = startTimeStr.split(':').map(Number);
+        const [endHour, endMin] = endTimeStr.split(':').map(Number);
+        
+        setStartTime(startHour * 60 + startMin);
+        setEndTime(endHour * 60 + endMin);
+        setSelectedTimePreferences({ start: startTimeStr, end: endTimeStr });
+      }
+    } catch (error) {
+      console.error('Error in fetchUserPreferences:', error);
+    }
+  };
+
   useEffect(() => {
     if (visible) {
       setIsAnimating(true);
@@ -115,6 +162,7 @@ export default function EventFilterOverlay({
           useNativeDriver: true,
         })
       ]).start();
+      fetchUserPreferences(); // Fetch user preferences when overlay becomes visible
     } else {
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -400,123 +448,105 @@ export default function EventFilterOverlay({
               </View>
               
               {showStartTimePicker && (
-                <Animated.View 
-                  style={[
-                    styles.timePickerOverlay,
-                    { opacity: fadeAnim }
-                  ]}
-                >
-                  <Animated.View 
-                    style={[
-                      styles.timePickerContent,
-                      { 
-                        backgroundColor: Colors[colorScheme ?? 'light'].background,
-                        transform: [{ 
-                          translateY: slideAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [height, 0]
-                          })
-                        }]
-                      }
-                    ]}
+                  <Modal
+                    transparent={true}
+                    animationType="slide"
+                    visible={showStartTimePicker}
                   >
-                    <View style={styles.timePickerHeader}>
-                      <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Select Start Time
-                      </Text>
-                      <TouchableOpacity onPress={() => setShowStartTimePicker(false)}>
-                        <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-                      </TouchableOpacity>
+                    <View style={styles.timePickerModalContainer}>
+                      <View style={[
+                        styles.timePickerModalContent,
+                        { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                      ]}>
+                        <View style={styles.timePickerHeader}>
+                          <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                            Select Start Time
+                          </Text>
+                          <TouchableOpacity onPress={() => setShowStartTimePicker(false)}>
+                            <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+                          </TouchableOpacity>
+                        </View>
+                        <DateTimePicker
+                          value={getDateFromMinutes(startTime)}
+                          mode="time"
+                          is24Hour={false}
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                          onChange={(event, selectedTime) => {
+                            if (selectedTime) {
+                              const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
+                              setStartTime(minutes);
+                            }
+                          }}
+                          style={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
+                        />
+                        <TouchableOpacity
+                          style={styles.timePickerConfirmButton}
+                          onPress={() => setShowStartTimePicker(false)}
+                        >
+                          <LinearGradient
+                            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            locations={[0, 0.3, 0.7, 1]}
+                            style={styles.timePickerGradientButton}
+                          >
+                            <Text style={styles.timePickerConfirmText}>Done</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <DateTimePicker
-                      value={getDateFromMinutes(startTime)}
-                      mode="time"
-                      is24Hour={false}
-                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                      onChange={(event, selectedTime) => {
-                        if (selectedTime) {
-                          const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
-                          setStartTime(minutes);
-                        }
-                      }}
-                      style={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
-                    />
-                    <TouchableOpacity
-                      style={styles.timePickerConfirmButton}
-                      onPress={() => setShowStartTimePicker(false)}
-                    >
-                      <LinearGradient
-                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        locations={[0, 0.3, 0.7, 1]}
-                        style={styles.timePickerGradientButton}
-                      >
-                        <Text style={styles.timePickerConfirmText}>Done</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animated.View>
-                </Animated.View>
+                  </Modal>
               )}
               
               {showEndTimePicker && (
-                <Animated.View 
-                  style={[
-                    styles.timePickerOverlay,
-                    { opacity: fadeAnim }
-                  ]}
+                <Modal
+                  transparent={true}
+                  animationType="slide"
+                  visible={showEndTimePicker}
                 >
-                  <Animated.View 
-                    style={[
-                      styles.timePickerContent,
-                      { 
-                        backgroundColor: Colors[colorScheme ?? 'light'].background,
-                        transform: [{ 
-                          translateY: slideAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [height, 0]
-                          })
-                        }]
-                      }
-                    ]}
-                  >
-                    <View style={styles.timePickerHeader}>
-                      <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Select End Time
-                      </Text>
-                      <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
-                        <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+                  <View style={styles.timePickerModalContainer}>
+                    <View style={[
+                      styles.timePickerModalContent,
+                      { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                    ]}>
+                      <View style={styles.timePickerHeader}>
+                        <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          Select End Time
+                        </Text>
+                        <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
+                          <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+                        </TouchableOpacity>
+                      </View>
+                      <DateTimePicker
+                        value={getDateFromMinutes(endTime)}
+                        mode="time"
+                        is24Hour={false}
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        onChange={(event, selectedTime) => {
+                          if (selectedTime) {
+                            const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
+                            setEndTime(minutes);
+                          }
+                        }}
+                        style={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
+                      />
+                      <TouchableOpacity
+                        style={styles.timePickerConfirmButton}
+                        onPress={() => setShowEndTimePicker(false)}
+                      >
+                        <LinearGradient
+                          colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          locations={[0, 0.3, 0.7, 1]}
+                          style={styles.timePickerGradientButton}
+                        >
+                          <Text style={styles.timePickerConfirmText}>Done</Text>
+                        </LinearGradient>
                       </TouchableOpacity>
                     </View>
-                    <DateTimePicker
-                      value={getDateFromMinutes(endTime)}
-                      mode="time"
-                      is24Hour={false}
-                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                      onChange={(event, selectedTime) => {
-                        if (selectedTime) {
-                          const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
-                          setEndTime(minutes);
-                        }
-                      }}
-                      style={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
-                    />
-                    <TouchableOpacity
-                      style={styles.timePickerConfirmButton}
-                      onPress={() => setShowEndTimePicker(false)}
-                    >
-                      <LinearGradient
-                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        locations={[0, 0.3, 0.7, 1]}
-                        style={styles.timePickerGradientButton}
-                      >
-                        <Text style={styles.timePickerConfirmText}>Done</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animated.View>
-                </Animated.View>
+                  </View>
+                </Modal>
               )}
             </View>
 
@@ -885,4 +915,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  timePickerModalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  timePickerModalContent: {
+    borderRadius: 20,
+    padding: 20,
+    margin: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    width: width * 0.9,
+  }
 }); 
