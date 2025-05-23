@@ -91,7 +91,7 @@ def recommend():
         return jsonify({"recommended_events": []}), 400 # Bad Request
 
     # 1. Fetch the target user's preferences
-    user_result = Client.table("all_users").select("preferences, travel-distance").eq("email", target_user).maybe_single().execute()
+    user_result = Client.table("all_users").select("preferences, travel-distance, saved_events, rejected_events").eq("email", target_user).maybe_single().execute()
     user_data = user_result.data
 
     if not user_data:
@@ -102,8 +102,19 @@ def recommend():
     user_preferences = parse_preferences(user_data.get("preferences", []))
     # Get user's travel distance preference, default to 50km if not set
     user_travel_distance = user_data.get("travel-distance", 50)
+    # Get user's saved and rejected events (as lists of IDs)
+    saved_events = user_data.get("saved_events", [])
+    rejected_events = user_data.get("rejected_events", [])
+    # Convert all elements to int, regardless of type
+    rejected_events = [int(e) for e in rejected_events if str(e).strip().isdigit()]
+    if isinstance(saved_events, str):
+        saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
+    if isinstance(rejected_events, str):
+        rejected_events = [int(e.strip()) for e in rejected_events.strip('{}').split(',') if e.strip()]
 
     print("user_travel_distance:", user_travel_distance)
+    print("saved_events:", saved_events)
+    print("rejected_events:", rejected_events)
     # 2. Query all_events, filtering by user preferences
     query = Client.table("all_events").select("*", "latitude", "longitude") # Select latitude and longitude
 
@@ -123,6 +134,7 @@ def recommend():
     all_events_filtered = []
     # Use user's travel distance preference instead of hardcoded value
     distance_threshold_km = user_travel_distance
+    
 
     if user_latitude is not None and user_longitude is not None:
         for event in all_events_raw:
@@ -147,60 +159,48 @@ def recommend():
         # If user location is not available, use all events filtered by preferences
         all_events_filtered = all_events_raw
 
+    print("all_events_filtered:", len(all_events_filtered))
+
     if not all_events_filtered:
         print("No events found after applying distance filter.")
         return jsonify({"recommended_events": []})
 
-    # 3. Build event_names from the FILTERED events
-    event_names_filtered = [event.get("name") for event in all_events_filtered if event.get("name")]
-
-    print("event_names (after preference and distance filtering):", event_names_filtered)
+    # 3. Build event_ids from the FILTERED events
+    event_ids_filtered = [event.get("id") for event in all_events_filtered if event.get("id")]
+    # Remove saved and rejected events from the pool
+    exclude_ids = set(saved_events) | set(rejected_events)
+    event_ids_filtered = [eid for eid in event_ids_filtered if eid not in exclude_ids]
+    print("event_ids (after removing saved/rejected):", event_ids_filtered)
 
     # 4. Build user feature tuples and interactions from ALL users
-    # We need data from all users for the AI model to learn relationships correctly.
     all_users_result = Client.table("all_users").select("*").execute()
     all_users = all_users_result.data
-
     if not all_users:
         print("No users found in the database.")
         return jsonify({"recommended_events": []})
-
     user_emails = [user.get("email") for user in all_users if user.get("email")]
     interactions = build_interactions(all_users) # Build interactions from all users
 
-
     user_feature_tuples = []
     for user in all_users:
-
         identifier = user.get("email") or user.get("name")
-        # Use the specifically fetched preferences for the target user,
-        # and generic parsing for other users.
-        if identifier == target_user:
-            current_user_preferences = user_preferences
-        else:
-            current_user_preferences = parse_preferences(user.get("preferences", []))
-
+        current_user_preferences = parse_preferences(user.get("preferences", []))
         birthday = user.get("birthday")
-        # Handle potential None for age and time_tag parsing
         age = calculate_age(birthday) if birthday else None
         age_group = get_age_group(age) if age is not None else None
         start_time = user.get("start-time")
         end_time = user.get("end-time")
         time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
-        print("WHYWYYYYY")
         gender = user.get("gender")
-
         user_feature_tuples.append((identifier, [current_user_preferences, age_group, time_tag, gender]))
 
     # 5. Build event feature tuples from the FILTERED events
     event_feature_tuples = []
     for event in all_events_filtered:
-        name = event.get("name")
-        # Ensure event feature parsing also handles potential None values
+        eid = event.get("id")
         event_types = parse_event_types(event.get("event_type", []))
         start_time = event.get("start_time")
         end_time = event.get("end_time")
-        # Use event's time for time tag, not user's time
         time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
         age_restriction = event.get("age_restriction")
         cost = event.get("cost")
@@ -214,47 +214,36 @@ def recommend():
                 cost_range = "$$$"
             else:
                 cost_range = "$$$$"
-
         reservation = event.get("reservation")
         reservation_required = "yes" if reservation and reservation.lower() in ["yes", "y", "true", "1"] else "no"
-        # The features are in a list, and the tuple has two elements
-        event_feature_tuples.append((name, [event_types, time_tag, age_restriction, cost_range, reservation_required]))
-
+        event_feature_tuples.append((eid, [event_types, time_tag, age_restriction, cost_range, reservation_required]))
 
     recommended_events = request.json.get("recommended_events", [])
     # Remove events from the filtered list that were already recommended in this session
-    event_names_for_recommendation = remove_elements(event_names_filtered, recommended_events)
-
-    if not event_names_for_recommendation:
-         print("No new events available after filtering out previously recommended.")
-         return jsonify({"recommended_events": []})
+    event_ids_for_recommendation = remove_elements(event_ids_filtered, recommended_events)
+    if not event_ids_for_recommendation:
+        print("No new events available after filtering out previously recommended.")
+        return jsonify({"recommended_events": []})
 
     # 6. Fit and train the AI model using filtered events
     rec = BeaconAI()
-    rec.fit_data(user_emails, event_names_for_recommendation, user_feature_tuples, event_feature_tuples, interactions)
+    rec.fit_data(user_emails, event_ids_for_recommendation, user_feature_tuples, event_feature_tuples, interactions)
     rec.train_model()
 
     # 7. Recommend from the filtered and un-recommended pool
     print("\nTop 5 Recommended Events (filtered by user preferences and session history):")
     top_5_recommended_events = []
-
-    # Ensure the recommendation engine knows to only pick from the available pool
     recommendations = rec.recommend_for_user(
         target_user,
         top_n=5,
-        )
-
+    )
     for eid, score in recommendations:
         print(f"{eid} (score: {score:.4f})")
         top_5_recommended_events.append(eid)
-
     print("\nFeatures of Recommended Events (from filtered pool):")
-    # Only print features for the events that were actually recommended
     recommended_event_features = [feats for eid, feats in event_feature_tuples if eid in top_5_recommended_events]
     for feats in recommended_event_features:
         print(feats)
-
-
     return jsonify({"recommended_events": top_5_recommended_events})
 
 
@@ -364,9 +353,14 @@ def build_interactions(all_users):
     interactions = []
     for user in all_users:
         user_name = user.get("email")
-        saved_events = parse_saved_events(user.get("saved_events", []))
-        for event_name in saved_events:
-            interactions.append((user_name, event_name, 1))
+        saved_events = user.get("saved_events", [])
+        # Ensure saved_events is always a list
+        if not saved_events:
+            continue
+        if isinstance(saved_events, str):
+            saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
+        for event_id in saved_events:
+            interactions.append((user_name, event_id, 1))
     return interactions
 
 def parse_preferences(preferences):

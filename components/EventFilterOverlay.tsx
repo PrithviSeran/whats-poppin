@@ -44,12 +44,14 @@ interface EventFilterOverlayProps {
     timePreferences: { start: string; end: string };
     locationPreferences: string[];
     travelDistance: number;
+    dayPreferences: string[];
   }) => void;
   currentFilters: {
     eventTypes: string[];
     timePreferences: { start: string; end: string };
     locationPreferences: string[];
     travelDistance: number;
+    dayPreferences: string[];
   };
 }
 
@@ -80,6 +82,16 @@ const EVENT_TYPES = [
 const defaultStart = '21:00';
 const defaultEnd = '3:00';
 
+const DAYS_OF_WEEK = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday'
+];
+
 export default function EventFilterOverlay({
   visible,
   onClose,
@@ -87,6 +99,7 @@ export default function EventFilterOverlay({
   currentFilters,
 }: EventFilterOverlayProps) {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>(currentFilters.eventTypes);
+  const [selectedDayPreferences, setSelectedDayPreferences] = useState<string[]>(currentFilters.dayPreferences || []);
   const [selectedTimePreferences, setSelectedTimePreferences] = useState<{ start: string; end: string }>(currentFilters.timePreferences);
   const [selectedLocationPreferences, setSelectedLocationPreferences] = useState<string[]>(currentFilters.locationPreferences);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
@@ -230,6 +243,7 @@ export default function EventFilterOverlay({
     timePreferences: { start: string; end: string };
     locationPreferences: string[];
     travelDistance: number;
+    dayPreferences: string[];
   }) => {
     try {
       await AsyncStorage.setItem('eventFilters', JSON.stringify(filters));
@@ -244,6 +258,14 @@ export default function EventFilterOverlay({
       prev.includes(type)
         ? prev.filter(t => t !== type)
         : [...prev, type]
+    );
+  };
+
+  const toggleDayPreference = (day: string) => {
+    setSelectedDayPreferences(prev =>
+      prev.includes(day)
+        ? prev.filter(d => d !== day)
+        : [...prev, day]
     );
   };
 
@@ -286,13 +308,11 @@ export default function EventFilterOverlay({
       timePreferences: { start, end },
       locationPreferences: locationPermission ? [] : [manualLocation],
       travelDistance: travelDistance,
+      dayPreferences: selectedDayPreferences,
     };
 
-    // Save to AsyncStorage (optional: you may want to store minutes for persistence)
-    await saveFiltersToStorage({
-      ...newFilters,
-      timePreferences: { start, end },
-    });
+    // Save to AsyncStorage
+    await saveFiltersToStorage(newFilters);
     
     // Apply filters
     onApplyFilters(newFilters);
@@ -305,6 +325,7 @@ export default function EventFilterOverlay({
       timePreferences: { start: defaultStart, end: defaultEnd },
       locationPreferences: [],
       travelDistance: 8,
+      dayPreferences: [],
     };
     
     // Save empty filters to AsyncStorage
@@ -312,6 +333,7 @@ export default function EventFilterOverlay({
     
     // Reset local state
     setSelectedEventTypes([]);
+    setSelectedDayPreferences([]);
     setSelectedTimePreferences({ start: defaultStart, end: defaultEnd });
     setSelectedLocationPreferences([]);
     setStartTime(21 * 60);
@@ -414,6 +436,39 @@ export default function EventFilterOverlay({
                   </TouchableOpacity>
                 ))}
               </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Day Preference</Text>
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+                style={styles.dayGradientContainer}
+              >
+                <View style={styles.dayButtonContainer}>
+                  {DAYS_OF_WEEK.map((day) => (
+                    <TouchableOpacity
+                      key={day}
+                      style={[
+                        styles.dayCircleButton,
+                        selectedDayPreferences.includes(day) && styles.dayCircleButtonSelected
+                      ]}
+                      onPress={() => toggleDayPreference(day)}
+                    >
+                      <Text
+                        style={[
+                          styles.dayCircleButtonText,
+                          { color: selectedDayPreferences.includes(day) ? '#F45B5B' : 'white' }
+                        ]}
+                      >
+                        {day.slice(0, 1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </LinearGradient>
             </View>
 
             <View style={styles.section}>
@@ -935,5 +990,34 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
     width: width * 0.9,
-  }
+  },
+  dayGradientContainer: {
+    borderRadius: 30,
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    marginTop: 10,
+    alignItems: 'center',
+  },
+  dayButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+  },
+  dayCircleButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  dayCircleButtonSelected: {
+    backgroundColor: 'white',
+    borderColor: '#FF3366',
+  },
+  dayCircleButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
 }); 

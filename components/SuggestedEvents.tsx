@@ -56,6 +56,7 @@ interface FilterState {
   timePreferences: { start: string; end: string };
   locationPreferences: string[];
   travelDistance: number;
+  dayPreferences: string[];
 }
 
 // Function to calculate distance between two coordinates using Haversine formula
@@ -87,6 +88,7 @@ export default function SuggestedEvents() {
     timePreferences: { start: '21:00', end: '3:00' },
     locationPreferences: [],
     travelDistance: 0,
+    dayPreferences: [],
   });
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const swipeX = useRef(new Animated.Value(0)).current;
@@ -118,7 +120,6 @@ export default function SuggestedEvents() {
   const savedActivityOpacityAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const [isAnimating, setIsAnimating] = useState(false);
-  const savedActivitySlideAnim = useRef(new Animated.Value(0)).current;
 
   const fetchTokenAndCallBackend = async (eventsToRecommend: string[]) => {
 
@@ -182,7 +183,7 @@ export default function SuggestedEvents() {
       const { data: eventsData, error } = await supabase
         .from('all_events')
         .select('*, latitude, longitude')
-        .in('name', data.recommended_events);
+        .in('id', data.recommended_events);
 
       if (error) {
         console.error('Error fetching event details:', error);
@@ -514,11 +515,10 @@ export default function SuggestedEvents() {
     try {
       // Get current saved events (local)
       const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-      
-      let savedEvents: EventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      const isAlreadySaved = savedEvents.some(event => event.id === likedEvent.id);
+      let savedEvents: number[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+      const isAlreadySaved = savedEvents.some(eventId => eventId === likedEvent.id);
       if (!isAlreadySaved) {
-        savedEvents.push(likedEvent);
+        savedEvents.push(likedEvent.id);
         await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
         console.log('Event saved successfully');
       } else {
@@ -527,7 +527,7 @@ export default function SuggestedEvents() {
       // Update local state
       const newLikedEvents = [...likedEvents, likedEvent];
       setLikedEvents(newLikedEvents);
-      // Update saved_events in Supabase (append event name)
+      // Update saved_events in Supabase (append event id)
       if (userEmail) {
         // Fetch current saved_events from Supabase
         const { data: userRow, error: userError } = await supabase
@@ -536,17 +536,17 @@ export default function SuggestedEvents() {
           .eq('email', userEmail)
           .maybeSingle();
         if (!userError && userRow) {
-          let savedEventsArr: string[] = [];
+          let savedEventsArr: number[] = [];
           if (Array.isArray(userRow.saved_events)) {
             savedEventsArr = userRow.saved_events;
           } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
-            savedEventsArr = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+            savedEventsArr = userRow.saved_events.replace(/[{}"']+/g, '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter(Boolean);
           }
           // Only append if not already present
-          if (!savedEventsArr.includes(likedEvent.name)) {
-            savedEventsArr.push(likedEvent.name);
+          if (!savedEventsArr.includes(likedEvent.id)) {
+            savedEventsArr.push(likedEvent.id);
             // Convert to Postgres array string
-            const pgArray = '{' + savedEventsArr.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
+            const pgArray = '{' + savedEventsArr.join(',') + '}';
             await supabase
               .from('all_users')
               .update({ saved_events: pgArray })
@@ -572,10 +572,7 @@ export default function SuggestedEvents() {
       ]).start(() => {
         setExpandedCard(null);
       });
-
       console.log('EVENTS', EVENTS[0].name);
-
-      // Update recommendedEvents with the liked event
     } catch (error) {
       console.error('Error saving liked event:', error);
     }
@@ -596,18 +593,6 @@ export default function SuggestedEvents() {
     };
     loadLikedEvents();
   }, []);
-
-  const fetchUserEvents = async () => {
-    try {
-      fetchTokenAndCallBackend(recommendedEvents);
-
-    } catch (err) {
-      // handle error
-      setEVENTS([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Function to request location permission and get current location using expo-location
   const requestLocationPermission = async () => {
@@ -687,7 +672,7 @@ export default function SuggestedEvents() {
         setSavedActivitiesLoading(false);
         return;
       }
-      // Get saved event names from all_users
+      // Get saved event ids from all_users
       const { data: userRow, error: userError } = await supabase
         .from('all_users')
         .select('saved_events')
@@ -698,22 +683,22 @@ export default function SuggestedEvents() {
         setSavedActivitiesLoading(false);
         return;
       }
-      let savedEventNames: string[] = [];
+      let savedEventIds: number[] = [];
       if (Array.isArray(userRow.saved_events)) {
-        savedEventNames = userRow.saved_events;
+        savedEventIds = userRow.saved_events;
       } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
-        savedEventNames = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+        savedEventIds = userRow.saved_events.replace(/[{}"']+/g, '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter(Boolean);
       }
-      if (savedEventNames.length === 0) {
+      if (savedEventIds.length === 0) {
         setSavedActivitiesEvents([]);
         setSavedActivitiesLoading(false);
         return;
       }
-      // Fetch full event details for these names
+      // Fetch full event details for these ids
       const { data: eventsData, error: eventsError } = await supabase
         .from('all_events')
         .select('*')
-        .in('name', savedEventNames);
+        .in('id', savedEventIds);
       if (eventsError || !eventsData) {
         setSavedActivitiesEvents([]);
         setSavedActivitiesLoading(false);
@@ -829,6 +814,59 @@ export default function SuggestedEvents() {
       contentFadeAnim.setValue(0);
     }
   }, [loading, isFetchingActivities]);
+
+  const handleSwipedLeft = async (cardIndex: number) => {
+    const rejectedEvent = EVENTS[cardIndex];
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !user.email) return;
+
+      // Fetch current rejected_events from Supabase
+      const { data: userRow, error: userError } = await supabase
+        .from('all_users')
+        .select('rejected_events')
+        .eq('email', user.email)
+        .maybeSingle();
+      if (userError) return;
+
+      let rejectedEventsArr: number[] = [];
+      if (Array.isArray(userRow?.rejected_events)) {
+        rejectedEventsArr = userRow.rejected_events;
+      } else if (typeof userRow?.rejected_events === 'string' && userRow.rejected_events.length > 0) {
+        rejectedEventsArr = userRow.rejected_events.replace(/[{}"']+/g, '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter(Boolean);
+      }
+      // Only append if not already present
+      if (!rejectedEventsArr.includes(rejectedEvent.id)) {
+        rejectedEventsArr.push(rejectedEvent.id);
+        // Convert to Postgres array string
+        const pgArray = '{' + rejectedEventsArr.join(',') + '}';
+        await supabase
+          .from('all_users')
+          .update({ rejected_events: pgArray })
+          .eq('email', user.email);
+      }
+    } catch (error) {
+      console.error('Error updating rejected events:', error);
+    }
+    // Existing swipe left logic (advance card, animate, etc.)
+    setCardIndex((i) => i + 1);
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 0.8,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      })
+    ]).start(() => {
+      setExpandedCard(null);
+    });
+  };
 
   if (loading && !isFetchingActivities) {
     const spin = rotateAnim.interpolate({
@@ -1008,24 +1046,7 @@ export default function SuggestedEvents() {
                       </TouchableOpacity>
                     );
                   }}
-                  onSwipedLeft={() => {
-                    setCardIndex((i) => i + 1);
-                    Animated.parallel([
-                      Animated.timing(fadeAnim, {
-                        toValue: 0,
-                        duration: 200,
-                        useNativeDriver: true,
-                      }),
-                      Animated.spring(scaleAnim, {
-                        toValue: 0.8,
-                        friction: 5,
-                        tension: 50,
-                        useNativeDriver: true,
-                      })
-                    ]).start(() => {
-                      setExpandedCard(null);
-                    });
-                  }}
+                  onSwipedLeft={(cardIndex) => handleSwipedLeft(cardIndex)}
                   onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
                     onSwipedAll={handleSwipedAll}
                   onSwiping={(x) => swipeX.setValue(x)}
@@ -1982,11 +2003,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     justifyContent: 'center',
   },
-  savedLikesCardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 6,
-  },
   savedLikesCardInfoContainer: {
     gap: 4,
   },
@@ -1999,5 +2015,10 @@ const styles = StyleSheet.create({
   savedLikesCardInfoText: {
     fontSize: 16,
     opacity: 0.8,
+  },
+  savedLikesCardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 6,
   },
 });
