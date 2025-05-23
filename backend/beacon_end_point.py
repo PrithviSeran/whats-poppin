@@ -91,7 +91,7 @@ def recommend():
         return jsonify({"recommended_events": []}), 400 # Bad Request
 
     # 1. Fetch the target user's preferences
-    user_result = Client.table("all_users").select("preferences, travel-distance, saved_events, rejected_events").eq("email", target_user).maybe_single().execute()
+    user_result = Client.table("all_users").select("preferences, travel-distance, saved_events, rejected_events, start-time, end-time").eq("email", target_user).maybe_single().execute()
     user_data = user_result.data
 
     if not user_data:
@@ -112,6 +112,10 @@ def recommend():
     if isinstance(rejected_events, str):
         rejected_events = [int(e.strip()) for e in rejected_events.strip('{}').split(',') if e.strip()]
 
+    # Get user's time preferences
+    user_start_time = user_data.get("start-time")
+    user_end_time = user_data.get("end-time")
+
     print("user_travel_distance:", user_travel_distance)
     print("saved_events:", saved_events)
     print("rejected_events:", rejected_events)
@@ -129,6 +133,36 @@ def recommend():
     if not all_events_raw:
         print("No events found matching user preferences.")
         return jsonify({"recommended_events": []}) # Return empty list if no matching events
+
+    # --- Filter by time preference ---
+    def parse_time_str(tstr):
+        if tstr is None:
+            return None
+        for fmt in ("%H:%M:%S", "%H:%M"):
+            try:
+                return datetime.strptime(tstr, fmt).time()
+            except Exception:
+                continue
+        return None
+
+    def is_time_in_range(start, end, t):
+        if start <= end:
+            return start <= t <= end
+        else:  # Overnight
+            return t >= start or t <= end
+
+    if user_start_time and user_end_time:
+        user_start = parse_time_str(str(user_start_time))
+        user_end = parse_time_str(str(user_end_time))
+        if user_start and user_end:
+            filtered_by_time = []
+            for event in all_events_raw:
+                event_start = parse_time_str(str(event.get("start_time")))
+                if event_start and is_time_in_range(user_start, user_end, event_start):
+                    filtered_by_time.append(event)
+            all_events_raw = filtered_by_time
+
+    # --- End filter by time preference ---
 
     # Apply distance filtering if user location is available
     all_events_filtered = []

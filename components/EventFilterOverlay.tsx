@@ -24,14 +24,13 @@ import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '@/lib/supabase';
 
-interface UserPreferences {
+interface UserFilterPreferences {
+  preferences: string[] | string;
   'start-time': string;
   'end-time': string;
-}
-
-interface SupabaseResponse {
-  data: UserPreferences | null;
-  error: any;
+  location: string;
+  'travel-distance': number;
+  preferred_days: string[] | string;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -130,30 +129,48 @@ export default function EventFilterOverlay({
         console.log('No user logged in');
         return;
       }
-
       const { data, error } = await supabase
         .from('all_users')
-        .select('start-time, end-time')
+        .select('preferences, start-time, end-time, location, travel-distance, preferred_days')
         .eq('email', user.email)
-        .single() as SupabaseResponse;
-
+        .single();
       if (error) {
         console.error('Error fetching user preferences:', error);
         return;
       }
-
-      if (data) {
-        // Convert time strings to minutes
-        const startTimeStr = data['start-time'] || defaultStart;
-        const endTimeStr = data['end-time'] || defaultEnd;
-        
-        const [startHour, startMin] = startTimeStr.split(':').map(Number);
-        const [endHour, endMin] = endTimeStr.split(':').map(Number);
-        
-        setStartTime(startHour * 60 + startMin);
-        setEndTime(endHour * 60 + endMin);
-        setSelectedTimePreferences({ start: startTimeStr, end: endTimeStr });
+      if (!data || typeof data !== 'object') {
+        console.error('User preferences data is missing or invalid:', data);
+        return;
       }
+      const prefs = data as UserFilterPreferences;
+      // Set event types
+      let eventTypes: string[] = [];
+      if (Array.isArray(prefs.preferences)) {
+        eventTypes = prefs.preferences;
+      } else if (typeof prefs.preferences === 'string' && prefs.preferences.length > 0) {
+        eventTypes = prefs.preferences.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+      }
+      setSelectedEventTypes(eventTypes);
+      // Set time preferences
+      const startTimeStr = prefs['start-time'] || defaultStart;
+      const endTimeStr = prefs['end-time'] || defaultEnd;
+      const [startHour, startMin] = startTimeStr.split(':').map(Number);
+      const [endHour, endMin] = endTimeStr.split(':').map(Number);
+      setStartTime(startHour * 60 + startMin);
+      setEndTime(endHour * 60 + endMin);
+      setSelectedTimePreferences({ start: startTimeStr, end: endTimeStr });
+      // Set location
+      setManualLocation(prefs.location || '');
+      // Set travel distance
+      setTravelDistance(prefs['travel-distance'] || 8);
+      // Set day preferences
+      let days: string[] = [];
+      if (Array.isArray(prefs.preferred_days)) {
+        days = prefs.preferred_days;
+      } else if (typeof prefs.preferred_days === 'string' && prefs.preferred_days.length > 0) {
+        days = prefs.preferred_days.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+      }
+      setSelectedDayPreferences(days.length > 0 ? days : DAYS_OF_WEEK);
     } catch (error) {
       console.error('Error in fetchUserPreferences:', error);
     }
@@ -175,7 +192,8 @@ export default function EventFilterOverlay({
           useNativeDriver: true,
         })
       ]).start();
-      fetchUserPreferences(); // Fetch user preferences when overlay becomes visible
+      fetchUserPreferences(); // Fetch user preferences from Supabase when overlay becomes visible
+      checkLocationPermission();
     } else {
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -192,13 +210,6 @@ export default function EventFilterOverlay({
       ]).start(() => {
         setIsAnimating(false);
       });
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    if (visible) {
-      loadSavedFilters();
-      checkLocationPermission();
     }
   }, [visible]);
 
@@ -220,36 +231,6 @@ export default function EventFilterOverlay({
     } catch (error) {
       console.error('Error checking location permission:', error);
       Alert.alert('Error', 'Failed to check location permission');
-    }
-  };
-
-  const loadSavedFilters = async () => {
-    try {
-      const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
-      if (savedFiltersJson) {
-        const savedFilters = JSON.parse(savedFiltersJson);
-
-        setSelectedEventTypes(savedFilters.eventTypes);
-        setManualLocation('');
-        setTravelDistance(savedFilters.travelDistance);
-      }
-    } catch (error) {
-      console.error('Error loading saved filters in overlay:', error);
-    }
-  };
-
-  const saveFiltersToStorage = async (filters: {
-    eventTypes: string[];
-    timePreferences: { start: string; end: string };
-    locationPreferences: string[];
-    travelDistance: number;
-    dayPreferences: string[];
-  }) => {
-    try {
-      await AsyncStorage.setItem('eventFilters', JSON.stringify(filters));
-
-    } catch (error) {
-      console.error('Error saving filters:', error);
     }
   };
 
@@ -286,6 +267,9 @@ export default function EventFilterOverlay({
       return;
     }
 
+    // If no days are selected, use all days
+    const daysToSave = selectedDayPreferences.length > 0 ? selectedDayPreferences : DAYS_OF_WEEK;
+
     // Update user preferences in Supabase
     const { error } = await supabase
       .from('all_users')
@@ -295,6 +279,7 @@ export default function EventFilterOverlay({
         ['end-time']: end,
         location: locationPermission ? null : manualLocation,
         ['travel-distance']: travelDistance,
+        preferred_days: daysToSave, // Save as text array
       })
       .eq('email', user.email);
 
@@ -308,12 +293,9 @@ export default function EventFilterOverlay({
       timePreferences: { start, end },
       locationPreferences: locationPermission ? [] : [manualLocation],
       travelDistance: travelDistance,
-      dayPreferences: selectedDayPreferences,
+      dayPreferences: daysToSave,
     };
 
-    // Save to AsyncStorage
-    await saveFiltersToStorage(newFilters);
-    
     // Apply filters
     onApplyFilters(newFilters);
     onClose();
@@ -327,9 +309,6 @@ export default function EventFilterOverlay({
       travelDistance: 8,
       dayPreferences: [],
     };
-    
-    // Save empty filters to AsyncStorage
-    await saveFiltersToStorage(emptyFilters);
     
     // Reset local state
     setSelectedEventTypes([]);
