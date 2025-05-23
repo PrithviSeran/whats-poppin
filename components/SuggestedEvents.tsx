@@ -1091,134 +1091,14 @@ export default function SuggestedEvents() {
                       marginTop: 30, 
                       marginLeft: 30 
                     } 
-
-            {loading && isFetchingActivities ? (
-              <View style={styles.loadingContainer}>
-                <Animated.View
-                  style={[
-                    styles.loadingCircle,
-                    {
-                      transform: [{ scale: pulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.8, 1.2],
-                      })}, { rotate: rotateAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ['0deg', '360deg'],
-                      })}],
-                      borderColor: '#FF1493',
-                    },
-                  ]}
-                >
-                  <View style={styles.innerCircle} />
-                </Animated.View>
-                <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>Fetching activities...</Text>
-              </View>
-            ) : (
-              <Swiper
-                ref={swiperRef}
-                cards={EVENTS}
-                cardIndex={cardIndex}
-                renderCard={(card: EventCard, index: number) => {
-                  const isTopCard = index === cardIndex;
-                  // Use the first image URL for all cards if available
-                  const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
-
-                  return (
-                    <TouchableOpacity
-                      onPress={() => handleCardPress(card)}
-                      activeOpacity={1}
-                    >
-                      <Animated.View style={[
-                        styles.card,
-                        isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                      ]}>
-                        {eventImageUrl ? (
-                          <Image
-                            source={{ uri: eventImageUrl }}
-                            style={styles.image}
-                            onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
-                          />
-                        ) : (
-                          <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                            <Ionicons name="image-outline" size={40} color="#666" />
-                          </View>
-                        )}
-                        <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
-                        {/* Distance Display */}
-                        {card.distance != null ? (
-                          <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                            Distance: {card.distance.toFixed(2)} km
-                          </Text>
-                        ) : userLocation ? (
-                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                             Distance: Calculating...
-                           </Text>
-                        ) : (
-                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                              Distance: N/A (Location required)
-                           </Text>
-                        )}
-                      </Animated.View>
-                    </TouchableOpacity>
-                  );
-                }}
-                onSwipedLeft={() => {
-                  setCardIndex((i) => i + 1);
-                  Animated.parallel([
-                    Animated.timing(fadeAnim, {
-                      toValue: 0,
-                      duration: 200,
-                      useNativeDriver: true,
-                    }),
-                    Animated.spring(scaleAnim, {
-                      toValue: 0.8,
-                      friction: 5,
-                      tension: 50,
-                      useNativeDriver: true,
-                    })
-                  ]).start(() => {
-                    setExpandedCard(null);
-                  });
-                }}
-                onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-                onSwipedAll={handleSwipedAll}
-                onSwiping={(x) => swipeX.setValue(x)}
-                backgroundColor="transparent"
-                stackSize={3}
-                stackSeparation={15}
-                overlayLabels={{
-                  left: {
-                    style: { 
-                      label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
-                      wrapper: { 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-end', 
-                        justifyContent: 'flex-start', 
-                        marginTop: 30, 
-                        marginLeft: -30 
-                      } 
-                    }
-                  },
-                  right: {
-                    style: { 
-                      label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
-                      wrapper: { 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-start', 
-                        justifyContent: 'flex-start', 
-                        marginTop: 30, 
-                        marginLeft: 30 
-                      } 
-                    }
-
                   }
-                }}
-                disableTopSwipe
-                disableBottomSwipe
-                pointerEvents="box-none"
-                useViewOverflow={false}
-              />
-            )}
+                }
+              }}
+              disableTopSwipe
+              disableBottomSwipe
+              pointerEvents="box-none"
+              useViewOverflow={false}
+            />
           </View>
 
           <Animated.View style={[styles.actionButtons]}>
