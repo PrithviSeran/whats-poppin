@@ -104,7 +104,7 @@ def recommend():
     user_travel_distance = user_data.get("travel-distance", 50)
     # Get user's saved and rejected events (as lists of IDs)
     saved_events = user_data.get("saved_events", [])
-    rejected_events = user_data.get("rejected_events", [])
+    rejected_events = user_data.get("rejected_events") or []
     # Convert all elements to int, regardless of type
     rejected_events = [int(e) for e in rejected_events if str(e).strip().isdigit()]
     if isinstance(saved_events, str):
@@ -130,11 +130,14 @@ def recommend():
     event_result = query.execute()
     all_events_raw = event_result.data # Renamed to all_events_raw
 
+    print("all_events_raw:", len(all_events_raw))
+
     if not all_events_raw:
         print("No events found matching user preferences.")
         return jsonify({"recommended_events": []}) # Return empty list if no matching events
 
     # --- Filter by time preference ---
+    
     def parse_time_str(tstr):
         if tstr is None:
             return None
@@ -164,6 +167,28 @@ def recommend():
 
     # --- End filter by time preference ---
 
+    print("Filtered by time:", len(filtered_by_time))
+
+    # --- Print all distances before filtering ---
+    """
+    if user_latitude is not None and user_longitude is not None:
+        print("Distances from user to each event (before filtering):")
+        for event in all_events_raw:
+            event_latitude = event.get("latitude")
+            event_longitude = event.get("longitude")
+            event_id = event.get("id")
+            event_name = event.get("name")
+            if event_latitude is not None and event_longitude is not None:
+                distance = calculate_distance(
+                    user_latitude,
+                    user_longitude,
+                    event_latitude,
+                    event_longitude
+                )
+                print(f"Event {event_id} ({event_name}): {distance:.2f} km")
+            else:
+                print(f"Event {event_id} ({event_name}): No location data")
+    """
     # Apply distance filtering if user location is available
     all_events_filtered = []
     # Use user's travel distance preference instead of hardcoded value

@@ -23,6 +23,16 @@ const TOP_BUTTONS_HEIGHT = 60; // Space for top buttons
 const ACTION_BUTTONS_HEIGHT = 80; // Space for action buttons
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 
+const DAYS_OF_WEEK = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday'
+];
+
 type RootStackParamList = {
   'saved-likes': { onClose: () => void } | undefined;
 };
@@ -49,6 +59,7 @@ interface EventCard {
   latitude?: number;
   longitude?: number;
   distance?: number | null;  // Add distance property
+  days_of_the_week?: string[];
 }
 
 interface FilterState {
@@ -704,7 +715,41 @@ export default function SuggestedEvents() {
         setSavedActivitiesLoading(false);
         return;
       }
-      setSavedActivitiesEvents(eventsData);
+
+      // Get user location if not already set
+      let userLat = userLocation?.latitude;
+      let userLon = userLocation?.longitude;
+      if (userLat == null || userLon == null) {
+        try {
+          let location = await Location.getCurrentPositionAsync({});
+          userLat = location.coords.latitude;
+          userLon = location.coords.longitude;
+          setUserLocation({ latitude: userLat, longitude: userLon });
+        } catch (e) {
+          // If location can't be fetched, just skip distance
+          userLat = undefined;
+          userLon = undefined;
+        }
+      }
+
+      // Attach distance to each event
+      const eventsWithDistance = eventsData.map(event => {
+        let distance = null;
+        if (
+          userLat != null && userLon != null &&
+          event.latitude != null && event.longitude != null
+        ) {
+          distance = calculateDistance(
+            userLat,
+            userLon,
+            event.latitude,
+            event.longitude
+          );
+        }
+        return { ...event, distance };
+      });
+
+      setSavedActivitiesEvents(eventsWithDistance);
     } catch (err) {
       setSavedActivitiesEvents([]);
     } finally {
@@ -1029,18 +1074,13 @@ export default function SuggestedEvents() {
                           )}
                           <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
                             {/* Distance Display */}
-                            {card.distance != null ? (
-                              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                                Distance: {card.distance.toFixed(2)} km
-                              </Text>
-                            ) : userLocation ? (
-                               <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                                 Distance: Calculating...
-                               </Text>
-                            ) : (
-                               <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                                  Distance: N/A (Location required)
-                               </Text>
+                            {typeof card.distance === 'number' && (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                                <Ionicons name="walk-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
+                                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}>
+                                  {card.distance.toFixed(2)} km
+                                </Text>
+                              </View>
                             )}
                         </Animated.View>
                       </TouchableOpacity>
@@ -1201,14 +1241,37 @@ export default function SuggestedEvents() {
                     <Ionicons name="calendar-outline" size={20} color="white" />
                   </LinearGradient>
                   <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date & Time</Text>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {new Date(expandedCard.start_date).toLocaleDateString()} at {expandedCard.start_time}
-                    </Text>
-              </View>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 4 }]}>Date & Occurrence</Text>
+                    {expandedCard.occurrence === 'Weekly' && Array.isArray(expandedCard.days_of_the_week) && expandedCard.days_of_the_week.length > 0 ? (
+                      <View style={styles.dayButtonContainer}>
+                        {DAYS_OF_WEEK.map((day) => (
+                          <View
+                            key={day}
+                            style={[
+                              styles.dayCircleButton,
+                              Array.isArray(expandedCard.days_of_the_week) && expandedCard.days_of_the_week.includes(day) && styles.dayCircleButtonSelected
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.dayCircleButtonText,
+                                { color: Array.isArray(expandedCard.days_of_the_week) && expandedCard.days_of_the_week.includes(day) ? '#F45B5B' : 'white' }
+                              ]}
+                            >
+                              {day.slice(0, 1)}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold', marginTop: 2 }]}> 
+                        {new Date(expandedCard.start_date).toLocaleDateString()} {expandedCard.occurrence !== 'Weekly' && `at ${expandedCard.start_time}`}
+                      </Text>
+                    )}
+                  </View>
                 </View>
 
-              <View style={styles.infoRow}>
+                <View style={styles.infoRow}>
                   <LinearGradient
                     colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
                     start={{ x: 0, y: 0 }}
@@ -1226,7 +1289,7 @@ export default function SuggestedEvents() {
               </View>
                 </View>
 
-                {expandedCard.distance !== null && expandedCard.distance !== undefined ? (
+                {typeof expandedCard.distance === 'number' && (
                   <View style={styles.infoRow}>
                     <LinearGradient
                       colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -1244,7 +1307,7 @@ export default function SuggestedEvents() {
                       </Text>
                     </View>
                   </View>
-                ) : null}
+                )}
               </View>
 
               <View style={styles.descriptionSection}>
@@ -1393,17 +1456,23 @@ export default function SuggestedEvents() {
                         </Text>
                         <View style={styles.savedLikesCardInfoContainer}>
                           <View style={styles.savedLikesCardInfoRow}>
-                            <Ionicons name="calendar-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-                            <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                              {event.start_date}
-                            </Text>
+                            {event.occurrence !== 'Weekly' && (
+                              <>
+                                <Ionicons name="calendar-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
+                                <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}> 
+                                  {new Date(event.start_date).toLocaleDateString()}
+                                </Text>
+                              </>
+                            )}
                           </View>
-                          <View style={styles.savedLikesCardInfoRow}>
-                            <Ionicons name="location-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-                            <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text }]} numberOfLines={1}>
-                              {event.location}
-                            </Text>
-                          </View>
+                          {typeof event.distance === 'number' && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                              <Ionicons name="walk-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
+                              <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}> 
+                                {event.distance.toFixed(2)} km
+                              </Text>
+                            </View>
+                          )}
                         </View>
                       </View>
                   </TouchableOpacity>
@@ -1488,6 +1557,9 @@ export default function SuggestedEvents() {
                 <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
                   {expandedSavedActivity.name}
                 </Text>
+                <Text style={[styles.organizationText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {expandedSavedActivity.organization}
+                </Text>
               </View>
               <View style={styles.infoSection}>
                 <View style={styles.infoRow}>
@@ -1501,10 +1573,33 @@ export default function SuggestedEvents() {
                     <Ionicons name="calendar-outline" size={20} color="white" />
                   </LinearGradient>
                   <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date & Time</Text>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {expandedSavedActivity.start_date} at {expandedSavedActivity.start_time}
-                    </Text>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 4 }]}>Date & Occurrence</Text>
+                    {expandedSavedActivity.occurrence === 'Weekly' && Array.isArray(expandedSavedActivity.days_of_the_week) && expandedSavedActivity.days_of_the_week.length > 0 ? (
+                      <View style={styles.dayButtonContainer}>
+                        {DAYS_OF_WEEK.map((day) => (
+                          <View
+                            key={day}
+                            style={[
+                              styles.dayCircleButton,
+                              Array.isArray(expandedSavedActivity.days_of_the_week) && expandedSavedActivity.days_of_the_week.includes(day) && styles.dayCircleButtonSelected
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.dayCircleButtonText,
+                                { color: Array.isArray(expandedSavedActivity.days_of_the_week) && expandedSavedActivity.days_of_the_week.includes(day) ? '#F45B5B' : 'white' }
+                              ]}
+                            >
+                              {day.slice(0, 1)}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold', marginTop: 2 }]}> 
+                        {new Date(expandedSavedActivity.start_date).toLocaleDateString()} {expandedSavedActivity.occurrence !== 'Weekly' && `at ${expandedSavedActivity.start_time}`}
+                      </Text>
+                    )}
                   </View>
                 </View>
                 <View style={styles.infoRow}>
@@ -1524,7 +1619,27 @@ export default function SuggestedEvents() {
                     </Text>
                   </View>
                 </View>
+                {typeof expandedSavedActivity.distance === 'number' && (
+                  <View style={styles.infoRow}>
+                    <LinearGradient
+                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.3, 0.7, 1]}
+                      style={styles.infoIconContainer}
+                    >
+                      <Ionicons name="walk-outline" size={20} color="white" />
+                    </LinearGradient>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Distance</Text>
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {expandedSavedActivity.distance.toFixed(2)} km away
+                      </Text>
+                    </View>
+                  </View>
+                )}
               </View>
+
               <View style={styles.descriptionSection}>
                 <Text style={[styles.descriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
                   About this event
@@ -1533,6 +1648,7 @@ export default function SuggestedEvents() {
                   {expandedSavedActivity.description}
                 </Text>
               </View>
+
               {/* Google Map */}
               <View style={styles.mapContainer}>
                 {userLocation && expandedSavedActivity.latitude && expandedSavedActivity.longitude ? (
@@ -2020,5 +2136,43 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 6,
+  },
+  dayPill: {
+    backgroundColor: '#FF1493',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginRight: 4,
+    marginBottom: 4,
+  },
+  dayPillText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  dayButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  dayCircleButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+    marginHorizontal: 2,
+  },
+  dayCircleButtonSelected: {
+    backgroundColor: 'white',
+    borderColor: '#FF3366',
+  },
+  dayCircleButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });
