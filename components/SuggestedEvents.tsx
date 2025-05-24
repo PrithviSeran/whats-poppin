@@ -1403,6 +1403,35 @@ export default function SuggestedEvents() {
                 <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
               </TouchableOpacity>
             </View>
+            {/* Clear Button */}
+            <TouchableOpacity
+              style={styles.clearSavedButton}
+              onPress={async () => {
+                // Clear local state
+                setSavedActivitiesEvents([]);
+                await AsyncStorage.removeItem('savedEvents');
+                // Clear in Supabase
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user && user.email) {
+                  await supabase
+                    .from('all_users')
+                    .update({ saved_events: [] })
+                    .eq('email', user.email);
+                }
+              }}
+              accessibilityLabel="Clear Saved Activities"
+              accessibilityRole="button"
+            >
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+                style={styles.clearSavedButtonGradient}
+              >
+                <Ionicons name="trash" size={28} color={'white'} />
+              </LinearGradient>
+            </TouchableOpacity>
             {savedActivitiesLoading ? (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 60 }}>
                 <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
@@ -1562,19 +1591,19 @@ export default function SuggestedEvents() {
                 </Text>
               </View>
               <View style={styles.infoSection}>
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="calendar-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 4 }]}>Date & Occurrence</Text>
-                    {expandedSavedActivity.occurrence === 'Weekly' && Array.isArray(expandedSavedActivity.days_of_the_week) && expandedSavedActivity.days_of_the_week.length > 0 ? (
+                {expandedSavedActivity.occurrence === 'Weekly' && Array.isArray(expandedSavedActivity.days_of_the_week) && expandedSavedActivity.days_of_the_week.length > 0 ? (
+                  <View style={styles.infoRow}>
+                    <LinearGradient
+                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.3, 0.7, 1]}
+                      style={styles.infoIconContainer}
+                    >
+                      <Ionicons name="calendar-outline" size={20} color="white" />
+                    </LinearGradient>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Days of the Week</Text>
                       <View style={styles.dayButtonContainer}>
                         {DAYS_OF_WEEK.map((day) => (
                           <View
@@ -1595,13 +1624,47 @@ export default function SuggestedEvents() {
                           </View>
                         ))}
                       </View>
-                    ) : (
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold', marginTop: 2 }]}> 
-                        {new Date(expandedSavedActivity.start_date).toLocaleDateString()} {expandedSavedActivity.occurrence !== 'Weekly' && `at ${expandedSavedActivity.start_time}`}
-                      </Text>
-                    )}
+                    </View>
                   </View>
-                </View>
+                ) : (
+                  <>
+                    <View style={styles.infoRow}>
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.infoIconContainer}
+                      >
+                        <Ionicons name="calendar-outline" size={20} color="white" />
+                      </LinearGradient>
+                      <View style={styles.infoTextContainer}>
+                        <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date</Text>
+                        <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          {new Date(expandedSavedActivity.start_date).toLocaleDateString()}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.infoIconContainer}
+                      >
+                        <Ionicons name="time-outline" size={20} color="white" />
+                      </LinearGradient>
+                      <View style={styles.infoTextContainer}>
+                        <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Time</Text>
+                        <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          {expandedSavedActivity.start_time}
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                )}
+
                 <View style={styles.infoRow}>
                   <LinearGradient
                     colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -2174,5 +2237,28 @@ const styles = StyleSheet.create({
   dayCircleButtonText: {
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  clearSavedButton: {
+    position: 'absolute',
+    bottom: 30,
+    right: 30,
+    borderRadius: 30,
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 1000,
+  },
+  clearSavedButtonGradient: {
+    borderRadius: 30,
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

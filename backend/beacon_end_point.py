@@ -130,7 +130,7 @@ def recommend():
     event_result = query.execute()
     all_events_raw = event_result.data # Renamed to all_events_raw
 
-    print("all_events_raw:", len(all_events_raw))
+    print("all_events_raw after preferences filter:", len(all_events_raw))
 
     if not all_events_raw:
         print("No events found matching user preferences.")
@@ -164,10 +164,27 @@ def recommend():
                 if event_start and is_time_in_range(user_start, user_end, event_start):
                     filtered_by_time.append(event)
             all_events_raw = filtered_by_time
+    print("all_events_raw after time filter:", len(all_events_raw))
 
     # --- End filter by time preference ---
 
     print("Filtered by time:", len(filtered_by_time))
+
+    # --- Filter by occurrence and days_of_the_week ---
+    user_preferred_days = parse_days(user_data.get("preferred_days", []))
+    filtered_by_occurrence = []
+    for event in all_events_raw:
+        occurrence = event.get("occurrence", "")
+        if occurrence != "Weekly":
+            filtered_by_occurrence.append(event)
+        else:
+            event_days = parse_days(event.get("days_of_the_week", []))
+            # Check for intersection
+            if any(day in user_preferred_days for day in event_days):
+                filtered_by_occurrence.append(event)
+    all_events_raw = filtered_by_occurrence
+    print("all_events_raw after occurrence/days_of_the_week filter:", len(all_events_raw))
+    # --- End filter by occurrence and days_of_the_week ---
 
     # --- Print all distances before filtering ---
     """
@@ -218,7 +235,7 @@ def recommend():
         # If user location is not available, use all events filtered by preferences
         all_events_filtered = all_events_raw
 
-    print("all_events_filtered:", len(all_events_filtered))
+    print("all_events_filtered after distance filter:", len(all_events_filtered))
 
     if not all_events_filtered:
         print("No events found after applying distance filter.")
@@ -461,6 +478,15 @@ def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     c = 2 * math.asin(math.sqrt(a))
     r = 6371  # Radius of earth in kilometers
     return c * r
+
+def parse_days(days):
+    # Handles both Postgres array string and Python list
+    if isinstance(days, list):
+        return [d.strip() for d in days if d.strip()]
+    elif isinstance(days, str):
+        return [d.strip().strip('"') for d in days.strip('{}').split(',') if d.strip()]
+    else:
+        return []
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
