@@ -104,13 +104,20 @@ def recommend():
     user_travel_distance = user_data.get("travel-distance", 50)
     # Get user's saved and rejected events (as lists of IDs)
     saved_events = user_data.get("saved_events", [])
-    rejected_events = user_data.get("rejected_events") or []
-    # Convert all elements to int, regardless of type
-    rejected_events = [int(e) for e in rejected_events if str(e).strip().isdigit()]
+    rejected_events = request.json.get("rejected_events") or []
+
+    # Convert all elements to string, regardless of type
+    #rejected_events = [str(e["id"]) for e in rejected_events if str(e["id"]).strip()]
+    print("rejected_events in recommend:", rejected_events)
+
+
     if isinstance(saved_events, str):
         saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
     if isinstance(rejected_events, str):
+        print("rejected_events is a string")
         rejected_events = [int(e.strip()) for e in rejected_events.strip('{}').split(',') if e.strip()]
+
+    print("rejected_events after conversion:", rejected_events)
 
     # Get user's time preferences
     user_start_time = user_data.get("start-time")
@@ -224,12 +231,15 @@ def recommend():
                     event_latitude,
                     event_longitude
                 )
+                # Add distance field to the event object
+                event["distance"] = distance
                 # Only include events within the user's travel distance threshold
                 if distance <= distance_threshold_km:
                     all_events_filtered.append(event)
             else:
                 # Optionally include events without location data, or filter them out
                 # For now, let's include events without location data (cannot calculate distance)
+                event["distance"] = None
                 all_events_filtered.append(event)
     else:
         # If user location is not available, use all events filtered by preferences
@@ -320,7 +330,10 @@ def recommend():
     recommended_event_features = [feats for eid, feats in event_feature_tuples if eid in top_5_recommended_events]
     for feats in recommended_event_features:
         print(feats)
-    return jsonify({"recommended_events": top_5_recommended_events})
+
+    # Return full event objects instead of just IDs
+    top_5_event_objs = [event for event in all_events_filtered if event.get("id") in top_5_recommended_events]
+    return jsonify({"recommended_events": top_5_event_objs})
 
 
     

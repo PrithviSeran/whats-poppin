@@ -7,15 +7,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import EventFilterOverlay from './EventFilterOverlay';
-import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { FileObject } from '@supabase/storage-js';
 import * as Location from 'expo-location';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import GlobalDataManager from '@/lib/GlobalDataManager';
-import MaskedView from '@react-native-masked-view/masked-view';
+import SavedActivities from './SavedActivities';
+import { EventCard } from '../lib/GlobalDataManager';
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
@@ -33,42 +32,6 @@ const DAYS_OF_WEEK = [
   'Sunday'
 ];
 
-type RootStackParamList = {
-  'saved-likes': { onClose: () => void } | undefined;
-};
-
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-interface EventCard {
-  id: number;
-  created_at: string;
-  name: string;
-  organization: string;
-  event_type: string;
-  start_time: string; // 'HH:MM'
-  end_time: string;   // 'HH:MM'
-  location: string;
-  cost: number;
-  age_restriction: number;
-  reservation: string;
-  description: string;
-  image: any;
-  start_date: string; // 'YYYY-MM-DD'
-  end_date: string;   // 'YYYY-MM-DD'
-  occurrence: string;
-  latitude?: number;
-  longitude?: number;
-  distance?: number | null;  // Add distance property
-  days_of_the_week?: string[];
-}
-
-interface FilterState {
-  eventTypes: string[];
-  timePreferences: { start: string; end: string };
-  locationPreferences: string[];
-  travelDistance: number;
-  dayPreferences: string[];
-}
 
 // Function to calculate distance between two coordinates using Haversine formula
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -85,30 +48,23 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return distance;
 };
 
+/*
 interface RouteCoordinates {
   latitude: number;
   longitude: number;
-}
+}*/
 
 export default function SuggestedEvents() {
   const [cardIndex, setCardIndex] = useState(0);
   const [expandedCard, setExpandedCard] = useState<EventCard | null>(null);
   const [isFilterVisible, setIsFilterVisible] = useState(false);
-  const [filters, setFilters] = useState<FilterState>({
-    eventTypes: [],
-    timePreferences: { start: '21:00', end: '3:00' },
-    locationPreferences: [],
-    travelDistance: 0,
-    dayPreferences: [],
-  });
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+
   const swipeX = useRef(new Animated.Value(0)).current;
   const swiperRef = useRef<Swiper<EventCard>>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
   const colorScheme = useColorScheme();
-  const navigation = useNavigation<NavigationProp>();
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFetchingActivities, setIsFetchingActivities] = useState(false);
@@ -119,7 +75,6 @@ export default function SuggestedEvents() {
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
   const cardOpacityAnim = useRef(new Animated.Value(0)).current;
-  const [recommendedEvents, setRecommendedEvents] = useState<string[]>([]);
   const [isSavedLikesVisible, setIsSavedLikesVisible] = useState(false);
   const [savedActivitiesEvents, setSavedActivitiesEvents] = useState<EventCard[]>([]);
   const [savedActivitiesLoading, setSavedActivitiesLoading] = useState(false);
@@ -132,34 +87,30 @@ export default function SuggestedEvents() {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const [isAnimating, setIsAnimating] = useState(false);
 
-  const fetchTokenAndCallBackend = async (eventsToRecommend: string[]) => {
+  const dataManager = GlobalDataManager.getInstance();
 
-    const userResponse = await supabase.auth.getUser();
-    const currentUserEmail = userResponse.data.user?.email ?? null;
+  const fetchTokenAndCallBackend = async () => {
+
+    const currentUserEmail = dataManager.getCurrentUser()?.email ?? null;
 
     const userLocation = await Location.getCurrentPositionAsync();
 
     const userLatitude = userLocation.coords.latitude;
     const userLongitude = userLocation.coords.longitude;
 
-    console.log('userLatitude', userLatitude);
-    console.log('userLongitude', userLongitude);
-
     if (!currentUserEmail) {
       console.error('No user email available');
       return;
     }
 
-
-
     try {
-      console.log('Making request to backend with data:', {
-        email: currentUserEmail,
-        top_n: 10,
-        recommended_events: eventsToRecommend,
-        user_latitude: userLatitude,
-        user_longitude: userLongitude,
-      });
+
+      const rejectedEvents = await dataManager.getRejectedEvents();
+
+      // Send only the ids of the rejected events
+      const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
+
+      console.log('rejectedEventIds in fetchTokenAndCallBackend', rejectedEventIds);
 
       const response = await fetch('http://192.168.68.139:5000/recommend', {
         method: 'POST',
@@ -169,12 +120,11 @@ export default function SuggestedEvents() {
         },
         body: JSON.stringify({
           email: currentUserEmail,
-          top_n: 10,
-          recommended_events: eventsToRecommend,
           user_latitude: userLatitude,
           user_longitude: userLongitude,
+          rejected_events: rejectedEventIds,
         }),
-      });
+      })
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -186,54 +136,13 @@ export default function SuggestedEvents() {
         throw new Error(`Server responded with ${response.status}: ${errorText}`);
       }
 
-      const data = await response.json();
-
-
-      console.log('data', data);
-      // Fetch the full event details for each recommended event
-      const { data: eventsData, error } = await supabase
-        .from('all_events')
-        .select('*, latitude, longitude')
-        .in('id', data.recommended_events);
-
-      if (error) {
-        console.error('Error fetching event details:', error);
-        return;
-      }
-
-      // Create a map of event names to their index in the recommended list
-      const recommendedOrder = data.recommended_events.reduce((acc: { [key: string]: number }, name: string, index: number) => {
-        acc[name] = index;
-        return acc;
-      }, {});
-
-      // Add distance calculation and sort by recommended order
-      const eventsWithDistance = eventsData
-        .map((event: any) => {
-          let distance = null;
-          if (userLocation && event.latitude != null && event.longitude != null) {
-            distance = calculateDistance(
-              userLatitude,
-              userLongitude,
-              event.latitude,
-              event.longitude
-            );
-          }
-          return {
-            ...event,
-            distance: distance,
-          };
-        })
-        .sort((a: any, b: any) => {
-          // Sort based on the order in recommended_events
-          return (recommendedOrder[a.name] ?? Infinity) - (recommendedOrder[b.name] ?? Infinity);
-        });
+      const eventsData = await response.json();
 
       // Reset the Swiper state
       setCardIndex(0);
       setEVENTS([]); // Clear current events
       setTimeout(() => {
-        setEVENTS(eventsWithDistance); // Set new events after a brief delay
+        setEVENTS(eventsData.recommended_events); // Set new events after a brief delay
         setLoading(false);
         setIsFetchingActivities(false); // Reset fetching activities state
       }, 100);
@@ -248,10 +157,10 @@ export default function SuggestedEvents() {
 
 
     loadImages();
-    loadSavedFilters();
+    //loadSavedFilters();
     console.log('here???');
     //fetchUserEvents(); // Consider if this should be here or after filters are loaded
-    fetchTokenAndCallBackend(recommendedEvents);
+    fetchTokenAndCallBackend();
     requestLocationPermission(); // Request and get user location
   }, []);
 
@@ -327,134 +236,6 @@ export default function SuggestedEvents() {
       : ['#FFE5E5', '#FFFFFF', '#E5FFE5'],
   });
 
-  // Add focus effect to reload filters when returning to this screen
-  useFocusEffect(
-    React.useCallback(() => {
-      loadSavedFilters();
-    }, [])
-  );
-
-  const loadSavedFilters = async () => {
-    try {
-      const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
-      if (savedFiltersJson) {
-        const savedFilters = JSON.parse(savedFiltersJson);
-
-        setFilters(savedFilters);
-        // Apply filters immediately
-        applyFilters(savedFilters);
-        // Reset card index to show filtered results from the beginning
-        setCardIndex(0);
-      }
-    } catch (error) {
-      console.error('Error loading saved filters:', error);
-    }
-  };
-
-  const applyFilters = (filtersToApply: FilterState) => {
-    const filtered = EVENTS.filter(event => {
-      // Filter by event type
-      if (filtersToApply.eventTypes.length > 0) {
-        const matchesEventType = filtersToApply.eventTypes.some(type => 
-          event.event_type.toLowerCase().includes(type.toLowerCase())
-        );
-        if (!matchesEventType) {
-          return false;
-        }
-      }
-
-      // Filter by time range (parse 'HH:MM' to minutes)
-      if (filtersToApply.timePreferences && filtersToApply.timePreferences.start && filtersToApply.timePreferences.end) {
-        const [startHour, startMin] = filtersToApply.timePreferences.start.split(':').map(Number);
-        const [endHour, endMin] = filtersToApply.timePreferences.end.split(':').map(Number);
-        const startTime = startHour * 60 + startMin;
-        const endTime = endHour * 60 + endMin;
-        const [eventHour, eventMin] = event.start_time.split(':').map(Number);
-        const eventTime = eventHour * 60 + eventMin;
-        // Handle overnight time ranges (e.g., 21:00 to 3:00)
-        if (endTime < startTime) {
-          if (!(eventTime >= startTime || eventTime <= endTime)) {
-          return false;
-          }
-        } else {
-          if (!(eventTime >= startTime && eventTime <= endTime)) {
-            return false;
-          }
-        }
-      }
-
-      // Filter by location
-      if (filtersToApply.locationPreferences.length > 0) {
-        const matchesLocationPref = filtersToApply.locationPreferences.some(location => 
-          event.location.toLowerCase().includes(location.toLowerCase())
-        );
-        if (!matchesLocationPref) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    setEVENTS(filtered);
-  };
-
-  const handleApplyFilters = async (newFilters: FilterState) => {
-    try {
-      setLoading(true); // Start loading animation
-      setIsFetchingActivities(true); // Show fetching activities state
-      
-      // Save to AsyncStorage first
-      await AsyncStorage.setItem('eventFilters', JSON.stringify(newFilters));
-      
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        Alert.alert('Error', 'User not logged in');
-        setLoading(false);
-        setIsFetchingActivities(false);
-        return;
-      }
-
-      // Update user preferences in Supabase and wait for it to complete
-      const { error } = await supabase
-        .from('all_users')
-        .update({
-          preferences: newFilters.eventTypes,
-          ['start-time']: newFilters.timePreferences.start,
-          ['end-time']: newFilters.timePreferences.end,
-          location: newFilters.locationPreferences.length > 0 ? newFilters.locationPreferences[0] : null,
-          ['travel-distance']: newFilters.travelDistance,
-        })
-        .eq('email', user.email);
-
-      if (error) {
-        Alert.alert('Error', 'Failed to update preferences: ' + error.message);
-        setLoading(false);
-        setIsFetchingActivities(false);
-        return;
-      }
-
-      // Wait a short moment to ensure database is updated
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Then update state and apply filters
-      setFilters(newFilters);
-      applyFilters(newFilters);
-      setCardIndex(0); // Reset to first card when filters change
-      
-      // Now fetch new events with updated filters
-      await fetchTokenAndCallBackend(recommendedEvents);
-      
-      // Loading states will be set to false in fetchTokenAndCallBackend
-    } catch (error) {
-      console.error('Error saving filters:', error);
-      Alert.alert('Error', 'Failed to save filters');
-      setLoading(false);
-      setIsFetchingActivities(false);
-    }
-  };
-
   const handleCardPress = (card: EventCard) => {
     setExpandedCard(card);
     // Reset the animation values
@@ -525,46 +306,7 @@ export default function SuggestedEvents() {
     const likedEvent = EVENTS[cardIndex];
     try {
       // Get current saved events (local)
-      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-      let savedEvents: number[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      const isAlreadySaved = savedEvents.some(eventId => eventId === likedEvent.id);
-      if (!isAlreadySaved) {
-        savedEvents.push(likedEvent.id);
-        await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
-        console.log('Event saved successfully');
-      } else {
-        console.log('Event already saved');
-      }
-      // Update local state
-      const newLikedEvents = [...likedEvents, likedEvent];
-      setLikedEvents(newLikedEvents);
-      // Update saved_events in Supabase (append event id)
-      if (userEmail) {
-        // Fetch current saved_events from Supabase
-        const { data: userRow, error: userError } = await supabase
-          .from('all_users')
-          .select('saved_events')
-          .eq('email', userEmail)
-          .maybeSingle();
-        if (!userError && userRow) {
-          let savedEventsArr: number[] = [];
-          if (Array.isArray(userRow.saved_events)) {
-            savedEventsArr = userRow.saved_events;
-          } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
-            savedEventsArr = userRow.saved_events.replace(/[{}"']+/g, '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter(Boolean);
-          }
-          // Only append if not already present
-          if (!savedEventsArr.includes(likedEvent.id)) {
-            savedEventsArr.push(likedEvent.id);
-            // Convert to Postgres array string
-            const pgArray = '{' + savedEventsArr.join(',') + '}';
-            await supabase
-              .from('all_users')
-              .update({ saved_events: pgArray })
-              .eq('email', userEmail);
-          }
-        }
-      }
+      await dataManager.addEventToSavedEvents(likedEvent.id);
       // Refresh global data so SavedLikes and others update
       await GlobalDataManager.getInstance().refreshAllData();
       loadImages();
@@ -631,86 +373,25 @@ export default function SuggestedEvents() {
 
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
+    const rejectedEvents = await dataManager.getRejectedEvents();
+    const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
     console.log('All cards have been swiped');
     setLoading(true);
     setIsFetchingActivities(true); // Set fetching activities state
-    
-    // Add current events to recommendedEvents array
-    const newRecommendedEvents = [...recommendedEvents];
-    for (let i = 0; i < EVENTS.length; i++) {
-      if (!newRecommendedEvents.includes(EVENTS[i].name)) {
-        newRecommendedEvents.push(EVENTS[i].name);
-      }
-    }
-    
-    console.log('About to update recommendedEvents with:', newRecommendedEvents);
-    setRecommendedEvents(newRecommendedEvents);
-
+    fetchTokenAndCallBackend();
+    await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
+    setCardIndex(0);
   };
 
-  // Add effect to get user email when component mounts
-  useEffect(() => {
-    const getUserEmail = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user?.email) {
-          setUserEmail(user.email);
-        }
-    } catch (error) {
-        console.error('Error getting user email:', error);
-    }
-  };
-    getUserEmail();
-  }, []);
-
-  // Effect to handle API call when recommendedEvents changes
-  useEffect(() => {
-
-    // Only run the API call if recommendedEvents is not empty and we have a user email
-    if (recommendedEvents.length > 0 && userEmail) {
-      console.log('recommendedEvents updated, making API call with:', recommendedEvents);
-      fetchTokenAndCallBackend(recommendedEvents);
-    }
-  }, [recommendedEvents, userEmail]); // Add userEmail to dependencies
 
   const fetchSavedActivities = async () => {
     setSavedActivitiesLoading(true);
+
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !user.email) {
-        setSavedActivitiesEvents([]);
-        setSavedActivitiesLoading(false);
-        return;
-      }
       // Get saved event ids from all_users
-      const { data: userRow, error: userError } = await supabase
-        .from('all_users')
-        .select('saved_events')
-        .eq('email', user.email)
-        .maybeSingle();
-      if (userError || !userRow || !userRow.saved_events) {
-        setSavedActivitiesEvents([]);
-        setSavedActivitiesLoading(false);
-        return;
-      }
-      let savedEventIds: number[] = [];
-      if (Array.isArray(userRow.saved_events)) {
-        savedEventIds = userRow.saved_events;
-      } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
-        savedEventIds = userRow.saved_events.replace(/[{}"']+/g, '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter(Boolean);
-      }
-      if (savedEventIds.length === 0) {
-        setSavedActivitiesEvents([]);
-        setSavedActivitiesLoading(false);
-        return;
-      }
-      // Fetch full event details for these ids
-      const { data: eventsData, error: eventsError } = await supabase
-        .from('all_events')
-        .select('*')
-        .in('id', savedEventIds);
-      if (eventsError || !eventsData) {
+      const userEvents = await dataManager.getSavedEvents();
+
+      if (!userEvents) {
         setSavedActivitiesEvents([]);
         setSavedActivitiesLoading(false);
         return;
@@ -733,7 +414,7 @@ export default function SuggestedEvents() {
       }
 
       // Attach distance to each event
-      const eventsWithDistance = eventsData.map(event => {
+      const eventsWithDistance = (userEvents as any[]).filter(e => typeof e === 'object' && e !== null).map(event => {
         let distance = null;
         if (
           userLat != null && userLon != null &&
@@ -862,39 +543,11 @@ export default function SuggestedEvents() {
 
   const handleSwipedLeft = async (cardIndex: number) => {
     const rejectedEvent = EVENTS[cardIndex];
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !user.email) return;
 
-      // Fetch current rejected_events from Supabase
-      const { data: userRow, error: userError } = await supabase
-        .from('all_users')
-        .select('rejected_events')
-        .eq('email', user.email)
-        .maybeSingle();
-      if (userError) return;
+    console.log('rejectedEvent', rejectedEvent);
 
-      let rejectedEventsArr: number[] = [];
-      if (Array.isArray(userRow?.rejected_events)) {
-        rejectedEventsArr = userRow.rejected_events;
-      } else if (typeof userRow?.rejected_events === 'string' && userRow.rejected_events.length > 0) {
-        rejectedEventsArr = userRow.rejected_events.replace(/[{}"']+/g, '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter(Boolean);
-      }
-      // Only append if not already present
-      if (!rejectedEventsArr.includes(rejectedEvent.id)) {
-        rejectedEventsArr.push(rejectedEvent.id);
-        // Convert to Postgres array string
-        const pgArray = '{' + rejectedEventsArr.join(',') + '}';
-        await supabase
-          .from('all_users')
-          .update({ rejected_events: pgArray })
-          .eq('email', user.email);
-      }
-    } catch (error) {
-      console.error('Error updating rejected events:', error);
-    }
-    // Existing swipe left logic (advance card, animate, etc.)
+    await dataManager.updateRejectedEvents(rejectedEvent);
+
     setCardIndex((i) => i + 1);
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -1165,8 +818,8 @@ export default function SuggestedEvents() {
         onClose={() => {
           setIsFilterVisible(false);
         }}
-        onApplyFilters={handleApplyFilters}
-        currentFilters={filters}
+        setLoading={setLoading}
+        fetchTokenAndCallBackend={fetchTokenAndCallBackend}
       />
 
       {/* Expanded Card Overlay */}
@@ -1371,147 +1024,23 @@ export default function SuggestedEvents() {
         </Animated.View>
       )}
 
-      {(isSavedLikesVisible || isAnimating) && (
-        <Animated.View 
-          style={[
-            styles.savedLikesOverlay,
-            { opacity: savedActivitiesFadeAnim }
-          ]}
-        >
-          <Animated.View 
-            style={[
-              styles.savedLikesContent,
-              {
-                backgroundColor: Colors[colorScheme ?? 'light'].background,
-                transform: [{ 
-                  translateY: slideAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [height, 0]
-                  })
-                }]
-              }
-            ]}
-          >
-            <View style={styles.savedLikesHeader}>
-              <Text style={[styles.savedLikesTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Saved Activities</Text>
-              <TouchableOpacity 
-                style={styles.savedLikesCloseButton}
-                onPress={handleCloseSavedActivities}
-                accessibilityLabel="Close Saved Activities"
-                accessibilityRole="button"
-              >
-                <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-              </TouchableOpacity>
-            </View>
-            {/* Clear Button */}
-            <TouchableOpacity
-              style={styles.clearSavedButton}
-              onPress={async () => {
-                // Clear local state
-                setSavedActivitiesEvents([]);
-                await AsyncStorage.removeItem('savedEvents');
-                // Clear in Supabase
-                const { data: { user } } = await supabase.auth.getUser();
-                if (user && user.email) {
-                  await supabase
-                    .from('all_users')
-                    .update({ saved_events: [] })
-                    .eq('email', user.email);
-                }
-              }}
-              accessibilityLabel="Clear Saved Activities"
-              accessibilityRole="button"
-            >
-              <LinearGradient
-                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
-                style={styles.clearSavedButtonGradient}
-              >
-                <Ionicons name="trash" size={28} color={'white'} />
-              </LinearGradient>
-            </TouchableOpacity>
-            {savedActivitiesLoading ? (
-              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 60 }}>
-                <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
-              </View>
-            ) : savedActivitiesEvents.length === 0 ? (
-              <View style={styles.savedLikesEmptyContainer}>
-                <Ionicons name="heart" size={60} color={colorScheme === 'dark' ? '#666' : '#ccc'} />
-                <Text style={[styles.savedLikesEmptyText, { color: Colors[colorScheme ?? 'light'].text }]}>No saved events yet</Text>
-                <Text style={[styles.savedLikesEmptySubtext, { color: Colors[colorScheme ?? 'light'].text, opacity: 0.7 }]}>Like events to save them here</Text>
-              </View>
-            ) : (
-              <ScrollView style={styles.savedLikesScroll} contentContainerStyle={{ paddingBottom: 40 }}>
-                {savedActivitiesEvents.map((event, idx) => (
-                  <LinearGradient
-                    key={event.id ? `event-${event.id}` : `event-${event.name}-${idx}`}
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.savedLikesCardGradientBorder}
-                  >
-                <TouchableOpacity 
-                      style={[
-                        styles.savedLikesCard,
-                        { backgroundColor: Colors[colorScheme ?? 'light'].card, opacity: pressedCardIdx === idx ? 0.92 : 1 },
-                      ]}
-                      activeOpacity={0.85}
-                      accessibilityLabel={`View details for ${event.name}`}
-                      accessibilityRole="button"
-                      onPressIn={() => setPressedCardIdx(idx)}
-                      onPressOut={() => setPressedCardIdx(null)}
-                      onPress={() => {
-                        setExpandedSavedActivity(event);
-                        savedActivityFadeAnim.setValue(0);
-                        savedActivityScaleAnim.setValue(0.8);
-                        savedActivityOpacityAnim.setValue(0);
-                      }}
-                    >
-                      <Image
-                        source={event.image ? { uri: event.image } : require('../assets/images/balloons.png')}
-                        style={styles.savedLikesCardImage}
-                        resizeMode="cover"
-                        accessibilityLabel={event.name || 'Event image'}
-                      />
-                      <View style={styles.savedLikesCardTextColumn}>
-                        <Text style={[
-                          styles.savedLikesCardTitle,
-                          { color: Colors[colorScheme ?? 'light'].tint }
-                        ]} numberOfLines={1}>
-                          {event.name || 'Untitled Event'}
-                        </Text>
-                        <View style={styles.savedLikesCardInfoContainer}>
-                          <View style={styles.savedLikesCardInfoRow}>
-                            {event.occurrence !== 'Weekly' && (
-                              <>
-                                <Ionicons name="calendar-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-                                <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}> 
-                                  {new Date(event.start_date).toLocaleDateString()}
-                                </Text>
-                              </>
-                            )}
-                          </View>
-                          {typeof event.distance === 'number' && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                              <Ionicons name="walk-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-                              <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}> 
-                                {event.distance.toFixed(2)} km
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                      </View>
-                  </TouchableOpacity>
-                    </LinearGradient>
-                  ))}
-              </ScrollView>
-            )}
-          </Animated.View>
-        </Animated.View>
-      )}
+      {/* Saved Activities Overlay (fully integrated) */}
+      <SavedActivities
+        visible={isSavedLikesVisible || isAnimating}
+        onClose={handleCloseSavedActivities}
+        userLocation={userLocation}
+        savedActivitiesEvents={savedActivitiesEvents}
+        setSavedActivitiesEvents={setSavedActivitiesEvents}
+        savedActivitiesLoading={savedActivitiesLoading}
+        pressedCardIdx={pressedCardIdx}
+        setPressedCardIdx={setPressedCardIdx}
+        setExpandedSavedActivity={setExpandedSavedActivity}
+        savedActivityFadeAnim={savedActivityFadeAnim}
+        savedActivityScaleAnim={savedActivityScaleAnim}
+        savedActivityOpacityAnim={savedActivityOpacityAnim}
+        slideAnim={slideAnim}
+        savedActivitiesFadeAnim={savedActivitiesFadeAnim}
+      />
 
       {/* Add the expanded saved activity overlay */}
       {expandedSavedActivity && (

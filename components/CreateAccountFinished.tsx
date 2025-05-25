@@ -73,6 +73,7 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
             ['end-time']: userData.preferences.timePreferences.end,
             location: userData.preferences.locationPreferences[0],
             ['travel-distance']: userData.preferences.travelDistance,
+            
           }]);
         if (insertError) {
           console.error('Error inserting into all_users:', insertError.message);

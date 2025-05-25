@@ -17,41 +17,20 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import Slider from '@react-native-community/slider';
-import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { supabase } from '@/lib/supabase';
+import GlobalDataManager from '@/lib/GlobalDataManager';
+import { UserProfile } from '@/lib/GlobalDataManager';
 
-interface UserFilterPreferences {
-  preferences: string[] | string;
-  'start-time': string;
-  'end-time': string;
-  location: string;
-  'travel-distance': number;
-  preferred_days: string[] | string;
-}
 
 const { width, height } = Dimensions.get('window');
 
 interface EventFilterOverlayProps {
   visible: boolean;
   onClose: () => void;
-  onApplyFilters: (filters: {
-    eventTypes: string[];
-    timePreferences: { start: string; end: string };
-    locationPreferences: string[];
-    travelDistance: number;
-    dayPreferences: string[];
-  }) => void;
-  currentFilters: {
-    eventTypes: string[];
-    timePreferences: { start: string; end: string };
-    locationPreferences: string[];
-    travelDistance: number;
-    dayPreferences: string[];
-  };
+  setLoading: (loading: boolean) => void;
+  fetchTokenAndCallBackend: () => void;
 }
 
 const EVENT_TYPES = [
@@ -91,30 +70,14 @@ const DAYS_OF_WEEK = [
   'Sunday'
 ];
 
-export default function EventFilterOverlay({
-  visible,
-  onClose,
-  onApplyFilters,
-  currentFilters,
-}: EventFilterOverlayProps) {
-  const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>(currentFilters.eventTypes);
-  const [selectedDayPreferences, setSelectedDayPreferences] = useState<string[]>(currentFilters.dayPreferences || []);
-  const [selectedTimePreferences, setSelectedTimePreferences] = useState<{ start: string; end: string }>(currentFilters.timePreferences);
-  const [selectedLocationPreferences, setSelectedLocationPreferences] = useState<string[]>(currentFilters.locationPreferences);
+export default function EventFilterOverlay({ visible, onClose, setLoading, fetchTokenAndCallBackend }: EventFilterOverlayProps) {
+  const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
+  const [selectedDayPreferences, setSelectedDayPreferences] = useState<string[]>([]);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [manualLocation, setManualLocation] = useState('');
-  const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
-  const [travelDistance, setTravelDistance] = useState(currentFilters.travelDistance);
-  const [startTime, setStartTime] = useState(
-    currentFilters.timePreferences?.start
-      ? parseInt(currentFilters.timePreferences.start.split(':')[0], 10) * 60 + parseInt(currentFilters.timePreferences.start.split(':')[1], 10)
-      : 21 * 60
-  );
-  const [endTime, setEndTime] = useState(
-    currentFilters.timePreferences?.end
-      ? parseInt(currentFilters.timePreferences.end.split(':')[0], 10) * 60 + parseInt(currentFilters.timePreferences.end.split(':')[1], 10)
-      : 3 * 60
-  );
+  const [travelDistance, setTravelDistance] = useState(8);
+  const [startTime, setStartTime] = useState(21 * 60);
+  const [endTime, setEndTime] = useState(3 * 60);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
   const colorScheme = useColorScheme();
@@ -122,27 +85,14 @@ export default function EventFilterOverlay({
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const [isAnimating, setIsAnimating] = useState(false);
 
+  const dataManager = GlobalDataManager.getInstance();
+
   const fetchUserPreferences = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.log('No user logged in');
-        return;
-      }
-      const { data, error } = await supabase
-        .from('all_users')
-        .select('preferences, start-time, end-time, location, travel-distance, preferred_days')
-        .eq('email', user.email)
-        .single();
-      if (error) {
-        console.error('Error fetching user preferences:', error);
-        return;
-      }
-      if (!data || typeof data !== 'object') {
-        console.error('User preferences data is missing or invalid:', data);
-        return;
-      }
-      const prefs = data as UserFilterPreferences;
+      
+      const userProfile = await dataManager.getUserProfile();
+
+      const prefs = userProfile as UserProfile;
       // Set event types
       let eventTypes: string[] = [];
       if (Array.isArray(prefs.preferences)) {
@@ -158,7 +108,6 @@ export default function EventFilterOverlay({
       const [endHour, endMin] = endTimeStr.split(':').map(Number);
       setStartTime(startHour * 60 + startMin);
       setEndTime(endHour * 60 + endMin);
-      setSelectedTimePreferences({ start: startTimeStr, end: endTimeStr });
       // Set location
       setManualLocation(prefs.location || '');
       // Set travel distance
@@ -193,7 +142,7 @@ export default function EventFilterOverlay({
         })
       ]).start();
       fetchUserPreferences(); // Fetch user preferences from Supabase when overlay becomes visible
-      checkLocationPermission();
+      //checkLocationPermission();
     } else {
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -213,6 +162,7 @@ export default function EventFilterOverlay({
     }
   }, [visible]);
 
+  /*
   const checkLocationPermission = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -223,16 +173,12 @@ export default function EventFilterOverlay({
         const location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High
         });
-        setCurrentLocation({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude
-        });
       }
     } catch (error) {
       console.error('Error checking location permission:', error);
       Alert.alert('Error', 'Failed to check location permission');
     }
-  };
+  };*/
 
   const toggleEventType = (type: string) => {
     setSelectedEventTypes(prev =>
@@ -260,45 +206,29 @@ export default function EventFilterOverlay({
     const start = formatTimeString(startTime);
     const end = formatTimeString(endTime);
 
-    // Get current user
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      Alert.alert('Error', 'User not logged in');
-      return;
-    }
-
     // If no days are selected, use all days
     const daysToSave = selectedDayPreferences.length > 0 ? selectedDayPreferences : DAYS_OF_WEEK;
 
-    // Update user preferences in Supabase
-    const { error } = await supabase
-      .from('all_users')
-      .update({
-        preferences: selectedEventTypes,
-        ['start-time']: start,
-        ['end-time']: end,
-        location: locationPermission ? null : manualLocation,
-        ['travel-distance']: travelDistance,
-        preferred_days: daysToSave, // Save as text array
-      })
-      .eq('email', user.email);
+    const userProfile = await dataManager.getUserProfile();
 
-    if (error) {
-      Alert.alert('Error', 'Failed to update preferences: ' + error.message);
+    if (!userProfile) {
+      Alert.alert('Error', 'User profile not found');
       return;
     }
 
-    const newFilters = {
-      eventTypes: selectedEventTypes,
-      timePreferences: { start, end },
-      locationPreferences: locationPermission ? [] : [manualLocation],
-      travelDistance: travelDistance,
-      dayPreferences: daysToSave,
-    };
+    // Update user preferences in Supabase
+    userProfile.preferences = selectedEventTypes;
+    userProfile['start-time'] = start;
+    userProfile['end-time'] = end;
+    userProfile.location = manualLocation;
+    userProfile['travel-distance'] = travelDistance;
+    userProfile.preferred_days = daysToSave;
 
-    // Apply filters
-    onApplyFilters(newFilters);
+    await dataManager.setUserProfile(userProfile);
+
     onClose();
+    setLoading(true);
+    fetchTokenAndCallBackend();
   };
 
    const handleReset = async () => {
