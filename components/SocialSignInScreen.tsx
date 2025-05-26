@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedGradientText from './GradientAnimatedText';
@@ -25,6 +26,7 @@ import { supabase } from '@/lib/supabase';
 type RootStackParamList = {
   'social-sign-in': undefined;
   'suggested-events': undefined;
+  'forgot-password': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -104,6 +106,16 @@ const SocialSignInScreen = () => {
     }
   };
 
+  const handleOpenTerms = () => {
+    const termsUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'; // Replace with your PDF URL
+    Linking.openURL(termsUrl).catch(err => console.error('An error occurred', err));
+  };
+
+  const handleOpenPrivacyPolicy = () => {
+    const privacyPolicyUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'; // Replace with your PDF URL
+    Linking.openURL(privacyPolicyUrl).catch(err => console.error('An error occurred', err));
+  };
+
   useEffect(() => {
     const interval = setInterval(() => {
       Animated.timing(fadeAnim, {
@@ -157,7 +169,7 @@ const SocialSignInScreen = () => {
             
             <View style={styles.buttonGroup}>
               <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
+                By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink} onPress={handleOpenTerms}>Terms of Service</Text> and <Text style={styles.termsLink} onPress={handleOpenPrivacyPolicy}>Privacy Policy</Text>.
               </Text>
 
               {error && (
@@ -220,7 +232,11 @@ const SocialSignInScreen = () => {
               </TouchableOpacity>
 
               <Text style={styles.troubleText}>
-                Trouble signing in? 
+                <TouchableOpacity onPress={() => navigation.navigate('forgot-password')}>
+                  <Text style={[styles.troubleText, { color: '#FF1493' }]}>
+                    Trouble signing in?
+                  </Text>
+                </TouchableOpacity>
               </Text>
             </View>
           </View>
@@ -285,7 +301,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 30,
     lineHeight: 24,
-    width: width * 0.8,
+    zIndex: 1,
   },
   inputContainer: {
     width: width * 0.8,
