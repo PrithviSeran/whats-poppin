@@ -46,15 +46,44 @@ interface EventCard {
   occurrence: string;
   latitude?: number;
   longitude?: number;
-  distance?: number | null;  // Add distance property
+
+  distance?: number | null; // Add distance property
 }
 
 interface FilterState {
   eventTypes: string[];
   timePreferences: { start: string; end: string };
   locationPreferences: string[];
-  travelDistance: number;
+  travelDistance: number; // Maximum distance in kilometers
 }
+
+// List of Toronto neighborhoods/locations
+const torontoLocations = [
+  "Downtown Yonge",
+  "Entertainment District",
+  "Distillery District",
+  "Kensington Market",
+  "Queen Street West",
+  "Yorkville",
+  "Midtown Yonge",
+  "Liberty Village",
+  " финансовый район ", // Financial District
+  "St. Lawrence Market",
+  "Cabbagetown",
+  "The Annex",
+  "Little Italy",
+  "Chinatown",
+  "Greektown",
+  "Leslieville",
+  "Riverside",
+  "High Park",
+  "Bloor West Village",
+  "Rosedale",
+  "Forest Hill",
+  "North York City Centre",
+  "Scarborough City Centre",
+  "Etobicoke City Centre"
+];
 
 // Function to calculate distance between two coordinates using Haversine formula
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -93,50 +122,64 @@ export default function SuggestedEvents() {
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
+  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isFetchingActivities, setIsFetchingActivities] = useState(false);
+  const [error, setError] = useState(null);
+  const [files, setFiles] = useState<FileObject[]>([]);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [EVENTS, setEVENTS] = useState<EventCard[]>([]);
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
-  const cardOpacityAnim = useRef(new Animated.Value(0)).current;
-  const [recommendedEvents, setRecommendedEvents] = useState<string[]>([]);
+  const [routeCoordinates, setRouteCoordinates] = useState<RouteCoordinates[]>([]);
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+
+  // Add recalculateDistances function inside component
+  const recalculateDistances = (events: EventCard[]): EventCard[] => {
+    console.log('Recalculating distances with userLocation:', userLocation);
+    return events.map(event => {
+      let distance = null;
+      if (userLocation && event.latitude != null && event.longitude != null) {
+        console.log('Calculating distance for event:', event.name);
+        console.log('User location:', userLocation);
+        console.log('Event location:', { latitude: event.latitude, longitude: event.longitude });
+        distance = calculateDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          event.latitude,
+          event.longitude
+        );
+        console.log('Calculated distance:', distance, 'km');
+      } else {
+        console.log('Missing location data for event:', event.name);
+        console.log('userLocation:', userLocation);
+        console.log('event coords:', { latitude: event.latitude, longitude: event.longitude });
+      }
+      return {
+        ...event,
+        distance: distance,
+      };
+    });
+  };
+
+  const recommendedEvents: string[] = []
+
+  
 
   useEffect(() => {
     const fetchTokenAndCallBackend = async (recommendedEvents: string[]) => {
       try {
-        console.log('Making request to backend with data:', {
-          email: 'jdh@shdid.com',
-          top_n: 10,
-          recommended_events: recommendedEvents
-        });
-
-        const response = await fetch('http://192.168.86.27:5000/recommend', {
+        const response = await fetch('http://192.168.68.144:5000/recommend', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
           },
-          body: JSON.stringify({ 
-            email: 'jdh@shdid.com', 
-            top_n: 10, 
-            recommended_events: recommendedEvents 
-          }),
+          body: JSON.stringify({ email: 'jdh@shdid.com', top_n: 10, recommended_events: recommendedEvents }),
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Server responded with error:', {
-            status: response.status,
-            statusText: response.statusText,
-            errorText
-          });
-          throw new Error(`Server responded with ${response.status}: ${errorText}`);
-        }
-
         const data = await response.json();
+        console.log('Recommended events:', data);
 
         // Fetch the full event details for each recommended event
         const { data: eventsData, error } = await supabase
@@ -219,6 +262,15 @@ export default function SuggestedEvents() {
     }
   }, [loading]);
 
+  useEffect(() => {
+    console.log('userLocation changed:', userLocation);
+    if (userLocation && EVENTS.length > 0) {
+      console.log('Recalculating distances for', EVENTS.length, 'events');
+      const eventsWithDistances = recalculateDistances(EVENTS);
+      setEVENTS(eventsWithDistances);
+    }
+  }, [userLocation]);
+
   const loadImages = async () => {
     try {
       // Get list of files in the bucket
@@ -278,33 +330,21 @@ export default function SuggestedEvents() {
       
       const { data: eventsData, error } = await supabase
         .from('all_events')
-        .select('*, latitude, longitude'); // Select latitude and longitude
+        .select('*, latitude, longitude');
 
       if (error) {
         throw error
       }
 
+      console.log('Fetched events data:', eventsData);
+
       let eventsWithCalculatedDistance: EventCard[] = [];
       if (eventsData) {
-        eventsWithCalculatedDistance = eventsData.map((event: any): EventCard => {
-          let distance = null;
-          if (userLocation && event.latitude != null && event.longitude != null) {
-            distance = calculateDistance(
-              userLocation.latitude,
-              userLocation.longitude,
-              event.latitude,
-              event.longitude
-            );
-          }
-          return {
-            ...event,
-            distance: distance, // Add calculated distance
-          };
-        });
+        eventsWithCalculatedDistance = recalculateDistances(eventsData);
       }
 
       // After fetching eventsData from Supabase, update locations (keeping fetched location for distance calc)
-      const eventsWithTorontoLocations = eventsWithCalculatedDistance; // Use events with calculated distance
+      const eventsWithTorontoLocations = eventsWithCalculatedDistance;
 
       let filteredEvents = eventsWithTorontoLocations;
 
@@ -330,7 +370,6 @@ export default function SuggestedEvents() {
       setEVENTS(filteredEvents || []);
     } catch (error) {
       console.error('Error fetching data:', error)
-
     } finally {
       setLoading(false)
     }
@@ -346,7 +385,12 @@ export default function SuggestedEvents() {
   // Add focus effect to reload filters when returning to this screen
   useFocusEffect(
     React.useCallback(() => {
-      loadSavedFilters();
+      // Only load filters on initial mount
+      if (filters.eventTypes.length === 0 && 
+          filters.locationPreferences.length === 0 && 
+          filters.travelDistance === 0) {
+        loadSavedFilters();
+      }
     }, [])
   );
 
@@ -355,7 +399,6 @@ export default function SuggestedEvents() {
       const savedFiltersJson = await AsyncStorage.getItem('eventFilters');
       if (savedFiltersJson) {
         const savedFilters = JSON.parse(savedFiltersJson);
-
         setFilters(savedFilters);
         // Apply filters immediately
         applyFilters(savedFilters);
@@ -379,7 +422,14 @@ export default function SuggestedEvents() {
         }
       }
 
-      // Filter by time range (parse 'HH:MM' to minutes)
+      // Filter by distance
+      if (filtersToApply.travelDistance > 0 && event.distance !== null && event.distance !== undefined) {
+        if (event.distance > filtersToApply.travelDistance) {
+          return false;
+        }
+      }
+
+      // Filter by time range
       if (filtersToApply.timePreferences && filtersToApply.timePreferences.start && filtersToApply.timePreferences.end) {
         const [startHour, startMin] = filtersToApply.timePreferences.start.split(':').map(Number);
         const [endHour, endMin] = filtersToApply.timePreferences.end.split(':').map(Number);
@@ -387,7 +437,7 @@ export default function SuggestedEvents() {
         const endTime = endHour * 60 + endMin;
         const [eventHour, eventMin] = event.start_time.split(':').map(Number);
         const eventTime = eventHour * 60 + eventMin;
-        // Handle overnight time ranges (e.g., 21:00 to 3:00)
+        
         if (endTime < startTime) {
           if (!(eventTime >= startTime || eventTime <= endTime)) {
             return false;
@@ -419,7 +469,6 @@ export default function SuggestedEvents() {
     try {
       // Save to AsyncStorage first
       await AsyncStorage.setItem('eventFilters', JSON.stringify(newFilters));
-
       
       // Then update state and apply filters
       setFilters(newFilters);
@@ -432,34 +481,19 @@ export default function SuggestedEvents() {
 
   const handleCardPress = (card: EventCard) => {
     setExpandedCard(card);
-    // Reset the animation values
+    // Reset the scale value
     fadeAnim.setValue(0);
-    scaleAnim.setValue(0.8);
-    cardOpacityAnim.setValue(0);
-    cardScaleAnim.setValue(0.8);
-
-    // Start the animations
+    // Start the animation
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 300,
+        duration: 400,
         useNativeDriver: true,
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-      Animated.timing(cardOpacityAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.spring(cardScaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
+        friction: 5,
+        tension: 50,
         useNativeDriver: true,
       })
     ]).start();
@@ -474,17 +508,6 @@ export default function SuggestedEvents() {
         useNativeDriver: true,
       }),
       Animated.spring(scaleAnim, {
-        toValue: 0.8,
-        friction: 5,
-        tension: 50,
-        useNativeDriver: true,
-      }),
-      Animated.timing(cardOpacityAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.spring(cardScaleAnim, {
         toValue: 0.8,
         friction: 5,
         tension: 50,
@@ -506,13 +529,14 @@ export default function SuggestedEvents() {
       if (!isAlreadySaved) {
         savedEvents.push(likedEvent);
         await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
-        console.log('Event saved successfully');
+        console.log('Event saved successfully:', likedEvent.name);
       } else {
-        console.log('Event already saved');
+        console.log('Event already saved:', likedEvent.name);
       }
       // Update local state
       const newLikedEvents = [...likedEvents, likedEvent];
       setLikedEvents(newLikedEvents);
+
       // Update saved_events in Supabase (append event name)
       const { data: { user } } = await supabase.auth.getUser();
       if (user && user.email) {
@@ -542,6 +566,7 @@ export default function SuggestedEvents() {
         }
       }
       loadImages();
+
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 0,
@@ -598,14 +623,12 @@ export default function SuggestedEvents() {
   const fetchUserEvents = async () => {
     setLoading(true);
     try {
-      // 1. Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setLoading(false);
         return;
       }
 
-      // 2. Get all relevant columns from all_users
       const { data: userDataRaw, error: userError } = await supabase
         .from('all_users')
         .select('preferences, start-time, end-time, location, travel-distance')
@@ -618,36 +641,22 @@ export default function SuggestedEvents() {
       }
 
       const userData: any = userDataRaw;
+      const travelDistance = userData['travel-distance'] || 0; // Get user's preferred travel distance
 
-      // Parse preferences (event types)
-      let preferences: string[] = [];
-      if (Array.isArray(userData.preferences)) {
-        preferences = userData.preferences;
-      } else if (typeof userData.preferences === 'string') {
-        // If stored as a Postgres array string, parse it
-        preferences = userData.preferences
-          .replace(/[{}"]/g, '')
-          .split(',')
-          .map((s: string) => s.trim())
-          .filter(Boolean);
+      // Update filters with the user's travel distance preference
+      setFilters(prev => ({
+        ...prev,
+        travelDistance: travelDistance
+      }));
+
+      // Query all_events based on these preferences
+      let query = supabase.from('all_events').select('*, latitude, longitude');
+
+      if (userData.preferences && userData.preferences.length > 0) {
+        query = query.in('event_type', userData.preferences);
       }
 
-      // Parse times
-      const startTime = userData['start-time']; // e.g. '18:00:00'
-      const endTime = userData['end-time'];     // e.g. '23:00:00'
-      const location = userData.location;
-      const travelDistance = userData['travel-distance'];
-
-      // 3. Query all_events based on these preferences
-      let query = supabase.from('all_events').select('*, latitude, longitude'); // Select latitude and longitude
-
-       if (preferences.length > 0) {
-         query = query.in('event_type', preferences);
-       }
-      // You can add more filters here, e.g. for time, travelDistance, etc.
-
       const { data: eventsData, error: eventsError } = await query;
-
 
       if (eventsError) {
         setLoading(false);
@@ -656,52 +665,20 @@ export default function SuggestedEvents() {
 
       let eventsWithCalculatedDistance: EventCard[] = [];
       if (eventsData) {
-         eventsWithCalculatedDistance = eventsData.map((event: any): EventCard => {
-           let distance = null;
-           if (userLocation && event.latitude != null && event.longitude != null) {
-             distance = calculateDistance(
-               userLocation.latitude,
-               userLocation.longitude,
-               event.latitude,
-               event.longitude
-             );
-           }
-           return {
-             ...event,
-             distance: distance, // Add calculated distance
-           };
-         });
+        eventsWithCalculatedDistance = recalculateDistances(eventsData);
       }
 
-      // After fetching eventsData from Supabase, update locations (keeping fetched location for distance calc)
-      const eventsWithTorontoLocations = eventsWithCalculatedDistance; // Use events with calculated distance
-
-      // After fetching eventsData from Supabase
-      let filteredEvents = eventsWithTorontoLocations; // Use events with calculated distance
-
-      if (startTime && endTime) {
-        const toMinutes = (t: string) => {
-          const [h, m] = t.split(':');
-          return parseInt(h, 10) * 60 + parseInt(m, 10);
-        };
-        const startMins = toMinutes(startTime);
-        const endMins = toMinutes(endTime);
-
-        filteredEvents = filteredEvents.filter((event: any) => {
-          const eventMins = toMinutes(event.start_time);
-          if (endMins < startMins) {
-            // Overnight range (e.g., 21:00 to 03:00)
-            return eventMins >= startMins || eventMins <= endMins;
-          } else {
-            // Normal range (e.g., 18:00 to 23:00)
-            return eventMins >= startMins && eventMins <= endMins;
-          }
-        });
-      }
+      // Apply filters including distance
+      const filteredEvents = eventsWithCalculatedDistance.filter(event => {
+        if (travelDistance > 0 && event.distance !== null && event.distance !== undefined) {
+          return event.distance <= travelDistance;
+        }
+        return true;
+      });
 
       setEVENTS(filteredEvents || []);
     } catch (err) {
-      // handle error
+      console.error('Error fetching events:', err);
       setEVENTS([]);
     } finally {
       setLoading(false);
@@ -711,26 +688,132 @@ export default function SuggestedEvents() {
   // Function to request location permission and get current location using expo-location
   const requestLocationPermission = async () => {
     try {
-      // Request foreground location permissions
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        console.error('Permission to access location was denied');
-        // Optionally show a message to the user explaining why location is needed
+        console.error('Location permission denied');
         return;
       }
 
-      // Get current location
-      let location = await Location.getCurrentPositionAsync({});
-      setUserLocation({
+      let location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High
+      });
+      
+      console.log('Got user location:', location.coords);
+      
+      const newUserLocation = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-      });
-      console.log('User Location:', location.coords);
+      };
+      
+      setUserLocation(newUserLocation);
 
+      // Recalculate distances for all events with the new location
+      if (EVENTS.length > 0) {
+        const eventsWithDistances = recalculateDistances(EVENTS);
+        setEVENTS(eventsWithDistances);
+      }
     } catch (err) {
       console.error('Error getting user location:', err);
     }
   };
+
+
+  // Function to fetch route from Google Directions API
+  const fetchRoute = async (origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) => {
+    try {
+      setIsLoadingRoute(true);
+      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+      
+      if (!apiKey) {
+        console.error('Google Maps API key is missing');
+        return;
+      }
+
+      console.log('Origin:', origin);
+      console.log('Destination:', destination);
+      
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=${apiKey}&mode=driving`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.routes && data.routes.length > 0) {
+        const points = data.routes[0].overview_polyline.points;
+        const coords = decodePolyline(points);
+        setRouteCoordinates(coords);
+      } else {
+        console.error('Directions API error:', data.status, data.error_message);
+        // Fallback to straight line
+        setRouteCoordinates([
+          { latitude: origin.latitude, longitude: origin.longitude },
+          { latitude: destination.latitude, longitude: destination.longitude }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      // Fallback to straight line
+      setRouteCoordinates([
+        { latitude: origin.latitude, longitude: origin.longitude },
+        { latitude: destination.latitude, longitude: destination.longitude }
+      ]);
+    } finally {
+      setIsLoadingRoute(false);
+    }
+  };
+
+  // Function to decode Google's polyline format
+  const decodePolyline = (encoded: string): RouteCoordinates[] => {
+    const poly: RouteCoordinates[] = [];
+    let index = 0;
+    let len = encoded.length;
+    let lat = 0;
+    let lng = 0;
+
+    while (index < len) {
+      let shift = 0;
+      let result = 0;
+
+      do {
+        let b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (result >= 0x20);
+
+      let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+
+      do {
+        let b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (result >= 0x20);
+
+      let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      poly.push({
+        latitude: lat / 1E5,
+        longitude: lng / 1E5
+      });
+    }
+
+    return poly;
+  };
+
+  // Update route when expanded card changes
+  useEffect(() => {
+    if (expandedCard && userLocation && expandedCard.latitude && expandedCard.longitude) {
+      fetchRoute(
+        { latitude: userLocation.latitude, longitude: userLocation.longitude },
+        { latitude: expandedCard.latitude, longitude: expandedCard.longitude }
+      );
+    }
+  }, [expandedCard, userLocation]);
+
+
 
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
@@ -738,52 +821,22 @@ export default function SuggestedEvents() {
     setLoading(true);
     setIsFetchingActivities(true); // Set fetching activities state
     
-    // Add current events to recommendedEvents array
-    const newRecommendedEvents = [...recommendedEvents];
     for (let i = 0; i < EVENTS.length; i++) {
-      if (!newRecommendedEvents.includes(EVENTS[i].name)) {
-        newRecommendedEvents.push(EVENTS[i].name);
-      }
+      recommendedEvents.push(EVENTS[i].name)
     }
-    
-    console.log('About to update recommendedEvents with:', newRecommendedEvents);
-    setRecommendedEvents(newRecommendedEvents);
-  };
 
-  // Effect to handle API call when recommendedEvents changes
-  useEffect(() => {
-    const fetchTokenAndCallBackend = async (eventsToRecommend: string[]) => {
+    const fetchTokenAndCallBackend = async (recommendedEvents: string[]) => {
       try {
-        console.log('Making request to backend with data:', {
-          email: 'jdh@shdid.com',
-          top_n: 10,
-          recommended_events: eventsToRecommend
-        });
-
-        const response = await fetch('http://192.168.86.27:5000/recommend', {
+        const response = await fetch('http://192.168.68.144:5000/recommend', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
           },
-          body: JSON.stringify({ 
-            email: 'jdh@shdid.com', 
-            top_n: 10, 
-            recommended_events: eventsToRecommend 
-          }),
+          body: JSON.stringify({ email: 'jdh@shdid.com', top_n: 10, recommended_events: recommendedEvents }),
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Server responded with error:', {
-            status: response.status,
-            statusText: response.statusText,
-            errorText
-          });
-          throw new Error(`Server responded with ${response.status}: ${errorText}`);
-        }
-
         const data = await response.json();
+        console.log('Recommended events:', data);
 
         // Fetch the full event details for each recommended event
         const { data: eventsData, error } = await supabase
@@ -839,14 +892,11 @@ export default function SuggestedEvents() {
       }
     };
 
-    // Only run the API call if recommendedEvents is not empty
-    if (recommendedEvents.length > 0) {
-      console.log('recommendedEvents updated, making API call with:', recommendedEvents);
-      fetchTokenAndCallBackend(recommendedEvents);
-    }
-  }, [recommendedEvents]); // This effect runs whenever recommendedEvents changes
+    await fetchTokenAndCallBackend(recommendedEvents);
+  };
 
   if (loading && !isFetchingActivities) {
+
     const spin = rotateAnim.interpolate({
       inputRange: [0, 1],
       outputRange: ['0deg', '360deg'],
@@ -946,132 +996,109 @@ export default function SuggestedEvents() {
       {EVENTS.length > 0 && imageUrls.length > 0 ? (
         <>
           <View style={styles.swiperContainer}>
-            {loading && isFetchingActivities ? (
-              <View style={styles.loadingContainer}>
-                <Animated.View
-                  style={[
-                    styles.loadingCircle,
-                    {
-                      transform: [{ scale: pulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.8, 1.2],
-                      })}, { rotate: rotateAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ['0deg', '360deg'],
-                      })}],
-                      borderColor: '#FF1493',
-                    },
-                  ]}
-                >
-                  <View style={styles.innerCircle} />
-                </Animated.View>
-                <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>Fetching activities...</Text>
-              </View>
-            ) : (
-              <Swiper
-                ref={swiperRef}
-                cards={EVENTS}
-                cardIndex={cardIndex}
-                renderCard={(card: EventCard, index: number) => {
-                  const isTopCard = index === cardIndex;
-                  // Use the first image URL for all cards if available
-                  const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
 
-                  return (
-                    <TouchableOpacity
-                      onPress={() => handleCardPress(card)}
-                      activeOpacity={1}
-                    >
-                      <Animated.View style={[
-                        styles.card,
-                        isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                      ]}>
-                        {eventImageUrl ? (
-                          <Image
-                            source={{ uri: eventImageUrl }}
-                            style={styles.image}
-                            onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
-                          />
-                        ) : (
-                          <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                            <Ionicons name="image-outline" size={40} color="#666" />
-                          </View>
-                        )}
-                        <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
-                        {/* Distance Display */}
-                        {card.distance != null ? (
-                          <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                            Distance: {card.distance.toFixed(2)} km
-                          </Text>
-                        ) : userLocation ? (
-                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                             Distance: Calculating...
-                           </Text>
-                        ) : (
-                           <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
-                              Distance: N/A (Location required)
-                           </Text>
-                        )}
-                      </Animated.View>
-                    </TouchableOpacity>
-                  );
-                }}
-                onSwipedLeft={() => {
-                  setCardIndex((i) => i + 1);
-                  Animated.parallel([
-                    Animated.timing(fadeAnim, {
-                      toValue: 0,
-                      duration: 200,
-                      useNativeDriver: true,
-                    }),
-                    Animated.spring(scaleAnim, {
-                      toValue: 0.8,
-                      friction: 5,
-                      tension: 50,
-                      useNativeDriver: true,
-                    })
-                  ]).start(() => {
-                    setExpandedCard(null);
-                  });
-                }}
-                onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-                onSwipedAll={handleSwipedAll}
-                onSwiping={(x) => swipeX.setValue(x)}
-                backgroundColor="transparent"
-                stackSize={3}
-                stackSeparation={15}
-                overlayLabels={{
-                  left: {
-                    style: { 
-                      label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
-                      wrapper: { 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-end', 
-                        justifyContent: 'flex-start', 
-                        marginTop: 30, 
-                        marginLeft: -30 
-                      } 
-                    }
-                  },
-                  right: {
-                    style: { 
-                      label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
-                      wrapper: { 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-start', 
-                        justifyContent: 'flex-start', 
-                        marginTop: 30, 
-                        marginLeft: 30 
-                      } 
-                    }
+            <Swiper
+              ref={swiperRef}
+              cards={EVENTS}
+              cardIndex={cardIndex}
+              renderCard={(card: EventCard, index: number) => {
+                const isTopCard = index === cardIndex;
+                // Use the first image URL for all cards if available
+                const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
+
+                return (
+                  <TouchableOpacity
+                    onPress={() => handleCardPress(card)}
+                    activeOpacity={1}
+                  >
+                    <Animated.View style={[
+                      styles.card,
+                      isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                    ]}>
+                      {eventImageUrl ? (
+                        <Image
+                          source={{ uri: eventImageUrl }}
+                          style={styles.image}
+                          onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
+                        />
+                      ) : (
+                        <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                          <Ionicons name="image-outline" size={40} color="#666" />
+                        </View>
+                      )}
+                      <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
+                      {/* Distance Display */}
+                      {card.distance !== undefined && card.distance !== null ? (
+                        <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                          Distance: {card.distance.toFixed(2)} km
+                        </Text>
+                      ) : userLocation ? (
+                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                           Distance: Calculating...
+                         </Text>
+                      ) : (
+                         <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 5 }]}>
+                            Distance: N/A (Location required)
+                         </Text>
+                      )}
+                    </Animated.View>
+                  </TouchableOpacity>
+                );
+              }}
+              onSwipedLeft={() => {
+                setCardIndex((i) => i + 1);
+                Animated.parallel([
+                  Animated.timing(fadeAnim, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                  }),
+                  Animated.spring(scaleAnim, {
+                    toValue: 0.8,
+                    friction: 5,
+                    tension: 50,
+                    useNativeDriver: true,
+                  })
+                ]).start(() => {
+                  setExpandedCard(null);
+                });
+              }}
+              onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
+              onSwiping={(x) => swipeX.setValue(x)}
+              backgroundColor="transparent"
+              stackSize={3}
+              stackSeparation={15}
+              overlayLabels={{
+                left: {
+                  style: { 
+                    label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
+                    wrapper: { 
+                      flexDirection: 'column', 
+                      alignItems: 'flex-end', 
+                      justifyContent: 'flex-start', 
+                      marginTop: 30, 
+                      marginLeft: -30 
+                    } 
                   }
-                }}
-                disableTopSwipe
-                disableBottomSwipe
-                pointerEvents="box-none"
-                useViewOverflow={false}
-              />
-            )}
+                },
+                right: {
+                  style: { 
+                    label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
+                    wrapper: { 
+                      flexDirection: 'column', 
+                      alignItems: 'flex-start', 
+                      justifyContent: 'flex-start', 
+                      marginTop: 30, 
+                      marginLeft: 30 
+                    } 
+                  }
+                }
+              }}
+              disableTopSwipe
+              disableBottomSwipe
+              pointerEvents="box-none"
+              useViewOverflow={false}
+            />
           </View>
 
           <Animated.View style={[styles.actionButtons]}>
@@ -1129,119 +1156,42 @@ export default function SuggestedEvents() {
         >
           <TouchableOpacity
             style={styles.backButton}
-            onPress={handleBackPress}
+            onPress={() => {
+              navigation.goBack();
+              handleBackPress();
+            }}
           >
-            <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.backButtonGradient}
-            >
-              <Ionicons name="arrow-back" size={24} color="white" />
-            </LinearGradient>
+            <Text style={styles.backButtonText}>{'←'}</Text>
           </TouchableOpacity>
+          <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+            <ScrollView style={styles.expandedContent}>
+              <Image source={expandedCard.image} style={styles.imageExpanded} />
+              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.name}</Text>
+              <View style={styles.infoRow}>
+                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{new Date(expandedCard.start_date).toLocaleDateString()}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.location}</Text>
+              </View>
 
-          <Animated.View 
-            style={[
-              styles.expandedCard,
-              { 
-                backgroundColor: Colors[colorScheme ?? 'light'].background,
-                opacity: cardOpacityAnim,
-                transform: [{ scale: cardScaleAnim }],
-              }
-            ]}
-          >
-            <ScrollView 
-              style={styles.expandedContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {imageUrls.length > 0 ? (
-                <Image 
-                  source={{ uri: imageUrls[0] }} 
-                  style={styles.imageExpanded}
-                />
+              {expandedCard.distance !== null && expandedCard.distance !== undefined ? (
+                <View style={styles.infoRow}>
+                  <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Distance: {expandedCard.distance.toFixed(2)} km
+                  </Text>
+                </View>
               ) : (
-                <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                  <Ionicons name="image-outline" size={40} color="#666" />
+                <View style={styles.infoRow}>
+                  <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Distance: Calculating...
+                  </Text>
                 </View>
               )}
-
-              <View style={styles.expandedHeader}>
-                <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {expandedCard.name}
-                </Text>
-                <Text style={[styles.organizationText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {expandedCard.organization}
-                </Text>
-              </View>
-
-              <View style={styles.infoSection}>
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="calendar-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date & Time</Text>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {new Date(expandedCard.start_date).toLocaleDateString()} at {expandedCard.start_time}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="location-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {expandedCard.location}
-                    </Text>
-                  </View>
-                </View>
-
-                {expandedCard.distance !== null && expandedCard.distance !== undefined ? (
-                  <View style={styles.infoRow}>
-                    <LinearGradient
-                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      locations={[0, 0.3, 0.7, 1]}
-                      style={styles.infoIconContainer}
-                    >
-                      <Ionicons name="walk-outline" size={20} color="white" />
-                    </LinearGradient>
-                    <View style={styles.infoTextContainer}>
-                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Distance</Text>
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {expandedCard.distance.toFixed(2)} km away
-                      </Text>
-                    </View>
-                  </View>
-                ) : null}
-              </View>
-
-              <View style={styles.descriptionSection}>
-                <Text style={[styles.descriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  About this event
-                </Text>
-                <Text style={[styles.descriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {expandedCard.description}
-                </Text>
-              </View>
+              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{expandedCard.description}</Text>
 
               {/* Google Map */}
               <View style={styles.mapContainer}>
@@ -1281,6 +1231,14 @@ export default function SuggestedEvents() {
                       </View>
                     </Marker>
 
+                    {routeCoordinates.length > 0 && (
+                      <Polyline
+                        coordinates={routeCoordinates}
+                        strokeColor="#2196F3"
+                        strokeWidth={4}
+                        lineDashPattern={[1]}
+                      />
+                    )}
                   </MapView>
                 ) : (
                   <View style={[styles.map, styles.mapPlaceholder]}>
@@ -1291,10 +1249,23 @@ export default function SuggestedEvents() {
                 )}
               </View>
             </ScrollView>
-          </Animated.View>
+            <Animated.View style={[styles.expandedActionButtons, { opacity: fadeAnim }]}>
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.nopeButton]}
+                onPress={() => swiperRef.current?.swipeLeft()}
+              >
+                <Ionicons name="close" size={32} color="red" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.likeButton]}
+                onPress={() => swiperRef.current?.swipeRight()}
+              >
+                <Ionicons name="checkmark" size={32} color="green" />
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
         </Animated.View>
       )}
-
     </SafeAreaView>
   );
 }
@@ -1426,12 +1397,12 @@ const styles = StyleSheet.create({
   expandedContent: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 100, // Add padding to account for the action buttons
+    paddingBottom: 100,
   },
   expandedTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   infoRow: {
     flexDirection: 'row',
@@ -1522,54 +1493,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  backButtonGradient: {
-    padding: 12,
-    borderRadius: 20,
-  },
-  expandedHeader: {
-    marginTop: 20,
-    marginBottom: 30,
-  },
-  infoSection: {
-    marginBottom: 30,
-  },
-  infoIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  infoTextContainer: {
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: 14,
-    opacity: 0.7,
-    marginBottom: 4,
-  },
-  infoValue: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  descriptionSection: {
-    marginBottom: 30,
-  },
-  descriptionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  descriptionText: {
-    fontSize: 16,
-    lineHeight: 24,
-  },
   mapContainer: {
+    marginTop: 20,
     height: 300,
-    borderRadius: 20,
+    borderRadius: 8,
     overflow: 'hidden',
-    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    position: 'relative',
   },
   map: {
     width: '100%',
@@ -1622,12 +1553,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  contentContainer: {
-    flex: 1,
-    width: '95%',
-  },
-  organizationText: {
-    fontSize: 18,
-    opacity: 0.7,
-  }
 });

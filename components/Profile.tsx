@@ -9,7 +9,6 @@ import MainFooter from './MainFooter';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import GlobalDataManager from '@/lib/GlobalDataManager';
 
 interface UserProfile {
   id: number;
@@ -32,7 +31,7 @@ type RootStackParamList = {
     };
   };
   'edit-profile': { currentProfile: UserProfile };
-  'edit-images': undefined;
+  'edit-images': { currentProfile: UserProfile };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -57,48 +56,72 @@ export default function Profile() {
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    let isMounted = true;
-    const dataManager = GlobalDataManager.getInstance();
+  const fetchUserProfile = async () => {
+    try {
+      console.log('Fetching user profile...');
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('No user found');
+        return;
+      }
 
-    const fetchUserProfile = async () => {
-      try {
-        // Initialize global data if not already initialized
-        await dataManager.initialize();
-        
-        const profile = await dataManager.getUserProfile();
-        if (isMounted && profile) {
-          setProfile(profile);
-          setEditedProfile(profile);
-        }
-      } catch (error) {
+      console.log('Fetching profile for user:', user.email);
+      // Query the all_users table for this user's profile
+      const { data, error } = await supabase
+        .from('all_users')
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (error) {
         console.error('Error fetching user profile:', error);
+        return;
       }
-    };
 
-    // Listen for data updates
-    const handleDataUpdate = () => {
-      if (isMounted) {
-        fetchUserProfile();
+      if (!data) {
+        console.log('No user profile found for email:', user.email);
+        return;
       }
-    };
 
-    dataManager.on('dataInitialized', handleDataUpdate);
-    fetchUserProfile();
+      // Create folder path using user's email
+      const userFolder = user.email?.replace(/[^a-zA-Z0-9]/g, '_') || user.id;
 
-    return () => {
-      isMounted = false;
-      dataManager.removeListener('dataInitialized', handleDataUpdate);
-    };
-  }, []);
+      // Get the public URLs for both images
+      const { data: { publicUrl: profileUrl } } = supabase.storage
+        .from('user-images')
+        .getPublicUrl(`${userFolder}/profile.jpg`);
 
-  // Clean up animations when component unmounts
+      const { data: { publicUrl: bannerUrl } } = supabase.storage
+        .from('user-images')
+        .getPublicUrl(`${userFolder}/banner.jpg`);
+
+      console.log('Profile image URL:', profileUrl);
+      console.log('Banner image URL:', bannerUrl);
+      
+      // Set both image URLs
+      data.profileImage = profileUrl;
+      data.bannerImage = bannerUrl;
+
+      console.log('Profile fetched successfully:', data);
+      setProfile(data);
+      setEditedProfile(data);
+    } catch (error) {
+      console.error('Error in fetchUserProfile:', error);
+    }
+  };
+
+  // Initial fetch
   useEffect(() => {
-    return () => {
-      pulseAnim.stopAnimation();
-      rotateAnim.stopAnimation();
-    };
+    fetchUserProfile();
   }, []);
+
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchUserProfile();
+    }, [])
+  );
 
   // Start the animations when component mounts
   useEffect(() => {
@@ -139,12 +162,13 @@ export default function Profile() {
   };
 
   const handleEditImages = () => {
-    navigation.navigate('edit-images');
+    if (editedProfile) {
+      navigation.navigate('edit-images', { currentProfile: editedProfile });
+    }
   };
 
   const handleEditProfile = () => {
     if (editedProfile) {
-
       navigation.navigate('edit-profile', { currentProfile: editedProfile });
     }
   };
@@ -152,15 +176,136 @@ export default function Profile() {
     
 
   const handleSaveImages = async () => {
+    console.log("uyfedycgv")
     if (editedProfile) {
-      const cleanPreferences = Array.isArray(editedProfile.preferences)
-        ? editedProfile.preferences.map((pref: any) =>
-            typeof pref === 'string' ? pref : (pref.value || JSON.stringify(pref))
-          )
-        : [];
+      console.log("HERE????")
+      try {
+        // Get the current user
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          console.error('No authenticated user found');
+          Alert.alert('Error', 'You must be logged in to update your profile');
+          return;
+        }
 
+        console.log('Current user:', user.email);
+        let profileImageUrl = editedProfile.profileImage;
+        let bannerImageUrl = editedProfile.bannerImage;
 
+        // Upload profile image if it's a new local URI
+        if (editedProfile.profileImage?.startsWith('file://')) {
+          try {
+            console.log('Uploading profile image...');
+            const profileImagePath = `${user.id}/profile-${Date.now()}.jpg`;
+            
+            // Convert URI to blob
+            const response = await fetch(editedProfile.profileImage);
+            const blob = await response.blob();
+            
+            const { data: profileData, error: profileError } = await supabase.storage
+              .from('user-images')
+              .upload(profileImagePath, blob, {
+                contentType: 'image/jpeg',
+                upsert: true
+              });
 
+            if (profileError) {
+              console.error('Profile image upload error:', profileError);
+              throw profileError;
+            }
+
+            console.log('Profile image uploaded successfully');
+
+            // Get public URL for profile image
+            const { data: { publicUrl: profilePublicUrl } } = supabase.storage
+              .from('user-images')
+              .getPublicUrl(profileImagePath);
+            
+            profileImageUrl = profilePublicUrl;
+            console.log('Profile image URL:', profileImageUrl);
+          } catch (error) {
+            console.error('Error uploading profile image:', error);
+            Alert.alert('Error', 'Failed to upload profile image');
+            return;
+          }
+        }
+
+        // Upload banner image if it's a new local URI
+        if (editedProfile.bannerImage?.startsWith('file://')) {
+          try {
+            console.log('Uploading banner image...');
+            const bannerImagePath = `${user.id}/banner-${Date.now()}.jpg`;
+            
+            // Convert URI to blob
+            const response = await fetch(editedProfile.bannerImage);
+            const blob = await response.blob();
+
+            console.log("BLOB:  ", blob)
+            
+            const { data: bannerData, error: bannerError } = await supabase.storage
+              .from('user-images')
+              .upload(bannerImagePath, blob, {
+                contentType: 'image/jpeg',
+                upsert: true
+              });
+
+            if (bannerError) {
+              console.error('Banner image upload error:', bannerError);
+              throw bannerError;
+            }
+
+            console.log('Banner image uploaded successfully');
+
+            // Get public URL for banner image
+            const { data: { publicUrl: bannerPublicUrl } } = supabase.storage
+              .from('user-images')
+              .getPublicUrl(bannerImagePath);
+            
+            bannerImageUrl = bannerPublicUrl;
+            console.log('Banner image URL:', bannerImageUrl);
+          } catch (error) {
+            console.error('Error uploading banner image:', error);
+            Alert.alert('Error', 'Failed to upload banner image');
+            return;
+          }
+        }
+
+        // Update user profile in database
+        console.log('Updating profile in database...');
+        const { data: updateData, error: updateError } = await supabase
+          .from('all_users')
+          .update({
+            profile_image: profileImageUrl,
+            banner_image: bannerImageUrl,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('email', user.email)
+          .select();
+
+        if (updateError) {
+          console.error('Profile update error:', updateError);
+          throw updateError;
+        }
+
+        console.log('Profile updated successfully:', updateData);
+
+        // Update local state with the returned data
+        const updatedProfile = {
+          ...editedProfile,
+          profileImage: profileImageUrl,
+          bannerImage: bannerImageUrl,
+        };
+
+        // Update both profile states immediately
+        setProfile(updatedProfile);
+        setEditedProfile(updatedProfile);
+        setIsEditMode(false);
+
+        Alert.alert('Success', 'Profile images updated successfully!');
+      } catch (error) {
+        console.error('Error saving images:', error);
+        Alert.alert('Error', 'Failed to save images. Please try again.');
+      }
     }
   };
 
@@ -170,21 +315,27 @@ export default function Profile() {
   };
 
   const pickImage = async (type: 'profile' | 'banner') => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: type === 'profile' ? [1, 1] : [16, 9],
-      quality: 1,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: type === 'profile' ? [1, 1] : [16, 9],
+        quality: 0.8,
+      });
 
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const imageUri = result.assets[0].uri;
-      if (editedProfile) {
-        setEditedProfile({
-          ...editedProfile,
-          [type === 'profile' ? 'profileImage' : 'bannerImage']: imageUri
-        });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const imageUri = result.assets[0].uri;
+        console.log(`Selected ${type} image:`, imageUri);
+        if (editedProfile) {
+          setEditedProfile({
+            ...editedProfile,
+            [type === 'profile' ? 'profileImage' : 'bannerImage']: imageUri
+          });
+        }
       }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
 
@@ -241,42 +392,52 @@ export default function Profile() {
 
   return (
     <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-      <LinearGradient
-        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        locations={[0, 0.3, 0.7, 1]}
-        style={styles.headerGradient}
-      >
+      <View style={styles.headerContainer}>
         {editedProfile?.bannerImage && (
-          <Image source={{ uri: editedProfile.bannerImage }} style={styles.bannerImage} />
+          <Image 
+            source={{ uri: editedProfile.bannerImage }} 
+            style={styles.bannerImage}
+            resizeMode="cover"
+          />
         )}
-        <TouchableOpacity style={styles.editButton} onPress={handleEditImages}>
-          <Ionicons name="images" size={24} color="#fff" />
-        </TouchableOpacity>
-        {isEditMode && (
-          <TouchableOpacity style={styles.bannerEditButton} onPress={() => pickImage('banner')}>
-            <Ionicons name="image" size={24} color="#fff" />
+        <LinearGradient
+          colors={['rgba(255,107,107,0.5)', 'rgba(255,20,147,0.5)', 'rgba(179,136,235,0.5)', 'rgba(255,107,107,0.5)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          locations={[0, 0.3, 0.7, 1]}
+          style={styles.headerGradient}
+        >
+          <TouchableOpacity style={styles.editButton} onPress={handleEditImages}>
+            <Ionicons name="images" size={24} color="#fff" />
           </TouchableOpacity>
-        )}
-        <View style={styles.profileImageContainer}>
-          <View style={styles.profileImageWrapper}>
-            {editedProfile?.profileImage ? (
-              <Image source={{ uri: editedProfile.profileImage }} style={styles.profileImage} />
-            ) : (
-              <View style={[styles.profileImage, styles.placeholderImage]}>
-                <Ionicons name="person" size={50} color="#fff" />
-              </View>
-            )}
-            {isEditMode && (
-              <TouchableOpacity style={styles.uploadButton} onPress={() => pickImage('profile')}>
-                <Ionicons name="camera" size={24} color="#fff" />
-              </TouchableOpacity>
-            )}
+          {isEditMode && (
+            <TouchableOpacity style={styles.bannerEditButton} onPress={() => pickImage('banner')}>
+              <Ionicons name="image" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
+          <View style={styles.profileImageContainer}>
+            <View style={styles.profileImageWrapper}>
+              {editedProfile?.profileImage ? (
+                <Image 
+                  source={{ uri: editedProfile.profileImage }} 
+                  style={styles.profileImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.profileImage, styles.placeholderImage]}>
+                  <Ionicons name="person" size={50} color="#fff" />
+                </View>
+              )}
+              {isEditMode && (
+                <TouchableOpacity style={styles.uploadButton} onPress={() => pickImage('profile')}>
+                  <Ionicons name="camera" size={24} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        </View>
-        <Text style={styles.name}>{editedProfile?.name}</Text>
-      </LinearGradient>
+          <Text style={styles.name}>{editedProfile?.name}</Text>
+        </LinearGradient>
+      </View>
 
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
@@ -338,24 +499,34 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  headerContainer: {
+    width: '100%',
+    minHeight: 300,
+    position: 'relative',
+    overflow: 'hidden',
+  },
   headerGradient: {
     width: '100%',
+    height: '100%',
     paddingTop: 50,
     paddingBottom: 20,
     alignItems: 'center',
-    minHeight: 300,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'transparent',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
   },
   bannerImage: {
-    position: 'absolute',
     width: '100%',
     height: '100%',
-    opacity: 0.7,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 0,
   },
   editButton: {
     position: 'absolute',
@@ -504,6 +675,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
   },
   loadingCircle: {
     width: 60,
