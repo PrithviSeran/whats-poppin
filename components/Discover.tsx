@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle } from 'react-native';
+import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -7,6 +7,8 @@ import MainFooter from './MainFooter';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
+import { useFocusEffect } from '@react-navigation/native';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
@@ -32,6 +34,11 @@ export default function Discover() {
   const [allEvents, setAllEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasInitialLoad, setHasInitialLoad] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const ITEMS_PER_PAGE = 10;
   const scaleAnim = React.useRef(new Animated.Value(0)).current;
   const translateXAnim = React.useRef(new Animated.Value(0)).current;
   const translateYAnim = React.useRef(new Animated.Value(0)).current;
@@ -40,28 +47,88 @@ export default function Discover() {
   const colorScheme = useColorScheme();
 
   useEffect(() => {
-    loadLikedEvents();
-    loadSuggestedEvents();
+    let isMounted = true;
+    const dataManager = GlobalDataManager.getInstance();
+
+    const initializeData = async () => {
+      if (!hasInitialLoad && isMounted) {
+        setLoading(true);
+        try {
+          // Initialize global data if not already initialized
+          if (!dataManager.isDataInitialized()) {
+            await dataManager.initialize();
+          }
+
+          const events = await dataManager.getEvents();
+          const savedEvents = await dataManager.getSavedEvents();
+          
+          if (!isMounted) return;
+
+          const eventsWithLikes = events.map(event => ({
+            ...event,
+            isLiked: savedEvents.includes(event.name)
+          }));
+
+          setAllEvents(eventsWithLikes);
+          setEvents(eventsWithLikes);
+          setHasInitialLoad(true);
+        } catch (error) {
+          console.error('Error initializing data:', error);
+          setError('Failed to load events');
+        } finally {
+          if (isMounted) {
+            setLoading(false);
+          }
+        }
+      }
+    };
+
+    // Listen for data updates
+    const handleDataUpdate = () => {
+      if (isMounted) {
+        setHasInitialLoad(false);
+        initializeData();
+      }
+    };
+
+    dataManager.on('dataInitialized', handleDataUpdate);
+    initializeData();
+
+    return () => {
+      isMounted = false;
+      dataManager.removeListener('dataInitialized', handleDataUpdate);
+    };
   }, []);
 
+  // Clean up animations when component unmounts
   useEffect(() => {
-    setAllEvents([...events, ...suggestedEvents]);
-  }, [events, suggestedEvents]);
-
-  useEffect(() => {
-    const syncLikedStatus = async () => {
-      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-      let savedEvents: Event[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-      const savedEventNames = new Set(savedEvents.map((event: Event) => event.name));
-      setEvents(prevEvents =>
-        prevEvents.map(event => ({
-          ...event,
-          isLiked: savedEventNames.has(event.name)
-        }))
-      );
+    return () => {
+      scaleAnim.stopAnimation();
+      translateXAnim.stopAnimation();
+      translateYAnim.stopAnimation();
+      fadeAnim.stopAnimation();
+      cardOpacity.stopAnimation();
     };
-    syncLikedStatus();
-  }, [allEvents]);
+  }, []);
+
+  // Use useFocusEffect to handle tab switching
+  useFocusEffect(
+    React.useCallback(() => {
+      // Only sync liked status when returning to the tab
+      const syncLikedStatus = async () => {
+        const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+        let savedEvents: Event[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+        const savedEventNames = new Set(savedEvents.map((event: Event) => event.name));
+        setEvents(prevEvents =>
+          prevEvents.map(event => ({
+            ...event,
+            isLiked: savedEventNames.has(event.name)
+          }))
+        );
+      };
+      syncLikedStatus();
+    }, [])
+  );
 
   const loadLikedEvents = async () => {
     try {
@@ -93,12 +160,23 @@ export default function Discover() {
     }
   };
 
-  const fetchEvents = async () => {
-    setLoading(true);
+  const fetchEvents = async (pageNum: number = 1) => {
+    if (pageNum === 1) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
+    
     setError(null);
     try {
-      const { data, error } = await supabase.from('all_events').select('*');
+      const { data, error } = await supabase
+        .from('all_events')
+        .select('*')
+        .range((pageNum - 1) * ITEMS_PER_PAGE, pageNum * ITEMS_PER_PAGE - 1)
+        .order('created_at', { ascending: false });
+
       if (error) throw error;
+
       const mapped = (data || []).map((event: any) => ({
         id: event.id,
         name: event.name,
@@ -108,18 +186,50 @@ export default function Discover() {
         description: event.description,
         isLiked: false,
       }));
-      setAllEvents(mapped);
-      setEvents(mapped);
+
+      if (pageNum === 1) {
+        setAllEvents(mapped);
+        setEvents(mapped);
+      } else {
+        // When loading more, append new events
+        setAllEvents(prev => [...prev, ...mapped]);
+        setEvents(prev => [...prev, ...mapped]);
+      }
+
+      setHasMore(mapped.length === ITEMS_PER_PAGE);
+      setPage(pageNum);
     } catch (err: any) {
       setError(err.message || 'Failed to load events');
     } finally {
       setLoading(false);
+      setIsLoadingMore(false);
     }
   };
 
-  useEffect(() => {
-    fetchEvents();
-  }, []);
+  const handleScroll = ({ nativeEvent }: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+    const paddingToBottom = 20;
+    
+    // Check if we need to load more
+    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom) {
+      handleLoadMore();
+    }
+
+    // If we've scrolled all the way up, reset to initial state but keep the ability to load more
+    if (contentOffset.y <= 0) {
+      setEvents(allEvents.slice(0, ITEMS_PER_PAGE));
+      setPage(1);
+      // Reset hasMore to true to ensure we can load more events
+      setHasMore(true);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMore) {
+      // Always fetch the next page, regardless of current state
+      fetchEvents(page + 1);
+    }
+  };
 
   const handleSearch = (text: string) => {
     setSearchQuery(text);
@@ -318,7 +428,11 @@ export default function Discover() {
         </LinearGradient>
       </View>
 
-      <ScrollView style={styles.eventsGrid}>
+      <ScrollView 
+        style={styles.eventsGrid}
+        onScroll={handleScroll}
+        scrollEventThrottle={16} // More frequent updates for smoother scrolling
+      >
         <View style={styles.gridContainer}>
           {events.map((event, index) => (
             <Animated.View
@@ -367,6 +481,14 @@ export default function Discover() {
             </Animated.View>
           ))}
         </View>
+        {isLoadingMore && (
+          <View style={styles.loadingMoreContainer}>
+            <ActivityIndicator size="small" color="#FF1493" />
+            <Text style={[styles.loadingMoreText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              Loading more events...
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {modalVisible && selectedEvent && (
@@ -537,5 +659,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     marginTop: 20,
+  },
+  loadingMoreContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  loadingMoreText: {
+    marginLeft: 10,
+    fontSize: 14,
   },
 }); 

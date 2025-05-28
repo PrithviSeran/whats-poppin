@@ -51,7 +51,14 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
       locations={[0, 0.3, 0.7, 1]}
       style={styles.footer}
     >
-      <TouchableOpacity style={styles.tab} onPress={() => navigation.replace('suggested-events', {animation: 'none'})}>
+      <TouchableOpacity 
+        style={styles.tab} 
+        onPress={() => {
+          if (activeTab !== 'home') {
+            navigation.navigate('suggested-events');
+          }
+        }}
+      >
         <View style={{ position: 'relative', height: 28, width: 28, alignItems: 'center', justifyContent: 'center' }}>
           <Animated.View style={{ position: 'absolute', opacity: homeAnim }}>
             <Ionicons name="home" size={28} color="#fff" />
@@ -62,7 +69,14 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
         </View>
         <Text style={styles.label}>Home</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.tab} onPress={() => navigation.replace('discover')}>
+      <TouchableOpacity 
+        style={styles.tab} 
+        onPress={() => {
+          if (activeTab !== 'discover') {
+            navigation.navigate('discover');
+          }
+        }}
+      >
         <View style={{ position: 'relative', height: 28, width: 28, alignItems: 'center', justifyContent: 'center' }}>
           <Animated.View style={{ position: 'absolute', opacity: discoverAnim }}>
             <Feather name="search" size={28} color="#fff" />
@@ -73,7 +87,14 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
         </View>
         <Text style={styles.label}>Discover</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.tab} onPress={() => navigation.replace('me')}>
+      <TouchableOpacity 
+        style={styles.tab} 
+        onPress={() => {
+          if (activeTab !== 'me') {
+            navigation.navigate('me');
+          }
+        }}
+      >
         <View style={{ position: 'relative', height: 28, width: 28, alignItems: 'center', justifyContent: 'center' }}>
           <Animated.View style={{ position: 'absolute', opacity: meAnim }}>
             <Ionicons name="person" size={28} color="#fff" />

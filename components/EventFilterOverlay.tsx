@@ -81,6 +81,7 @@ export default function EventFilterOverlay({
   const [selectedLocationPreferences, setSelectedLocationPreferences] = useState<string[]>(currentFilters.locationPreferences);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [manualLocation, setManualLocation] = useState('');
+  const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [travelDistance, setTravelDistance] = useState(currentFilters.travelDistance);
   const [startTime, setStartTime] = useState(
     currentFilters.timePreferences?.start
@@ -107,6 +108,17 @@ export default function EventFilterOverlay({
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       setLocationPermission(status === 'granted');
+      
+      if (status === 'granted') {
+        // Get current location when permission is granted
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High
+        });
+        setCurrentLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude
+        });
+      }
     } catch (error) {
       console.error('Error checking location permission:', error);
       Alert.alert('Error', 'Failed to check location permission');
@@ -440,7 +452,9 @@ export default function EventFilterOverlay({
               </View>
 
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
+                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Location
+                </Text>
                 {locationPermission === false ? (
                   <View style={styles.locationInputContainer}>
                     <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
@@ -463,11 +477,27 @@ export default function EventFilterOverlay({
                     />
                   </View>
                 ) : (
-                  <Text style={[styles.locationText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Using your current location
-                  </Text>
+                  <View style={styles.locationContainer}>
+                    <LinearGradient
+                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.3, 0.7, 1]}
+                      style={styles.locationGradient}
+                    >
+                      <View style={styles.locationContent}>
+                        <Ionicons name="location" size={24} color="white" />
+                        <View style={styles.locationTextContainer}>
+                          <Text style={styles.locationTitle}>Using your current location</Text>
+                        </View>
+                      </View>
+                    </LinearGradient>
+                  </View>
                 )}
+              </View>
 
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Travel Distance</Text>
                 <View style={styles.distanceContainer}>
                   <Text style={[styles.distanceLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
                     Travel Distance: {travelDistance} km
@@ -606,6 +636,33 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  locationContainer: {
+    marginBottom: 20,
+    borderRadius: 15,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  locationGradient: {
+    padding: 15,
+  },
+  locationContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  locationTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
   locationInputContainer: {
     marginTop: 10,
     marginBottom: 20,
@@ -621,11 +678,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 50,
   },
-  locationText: {
+  sectionSubtitle: {
     fontSize: 16,
-    opacity: 0.7,
-    textAlign: 'center',
-    marginTop: 10,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  locationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  locationChip: {
+    padding: 10,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  locationChipSelected: {
+    borderColor: '#FF1493',
+  },
+  locationChipText: {
+    fontSize: 14,
+  },
+  locationChipTextSelected: {
+    fontWeight: 'bold',
   },
   distanceContainer: {
     marginTop: 20,

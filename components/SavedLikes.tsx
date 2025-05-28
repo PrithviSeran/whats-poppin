@@ -13,6 +13,7 @@ import * as Location from 'expo-location';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 import { supabase } from '@/lib/supabase';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 
 const { width, height } = Dimensions.get('window');
@@ -25,9 +26,9 @@ interface EventCard {
   image: ImageSourcePropType;
   location: string;
   start_date: string;
-  end_date: string;
+  end_date?: string;
   start_time: string;
-  end_time: string;
+  end_time?: string;
   event_type: string;
   latitude?: number;
   longitude?: number;
@@ -91,10 +92,115 @@ export default function SavedLikes() {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute<RouteProp<{ params: SavedLikesParams }, 'params'>>();
   const onClose = route.params?.onClose || (() => {});
+  const isMounted = React.useRef(true);
+  const animationRef = React.useRef<Animated.CompositeAnimation | null>(null);
+
+  // Add cleanup effect
   useEffect(() => {
-    loadSavedEvents();
+    return () => {
+      isMounted.current = false;
+      // Stop all animations
+      if (animationRef.current) {
+        animationRef.current.stop();
+      }
+      scaleAnim.stopAnimation();
+      translateXAnim.stopAnimation();
+      translateYAnim.stopAnimation();
+      fadeAnim.stopAnimation();
+      cardOpacity.stopAnimation();
+    };
   }, []);
 
+  // Initialize data when component mounts
+  useEffect(() => {
+    let isMounted = true;
+
+    const initializeData = async () => {
+      try {
+        const dataManager = GlobalDataManager.getInstance();
+        
+        // Initialize global data if not already initialized
+        if (!dataManager.isDataInitialized()) {
+          await dataManager.initialize();
+        }
+
+        if (!isMounted) return;
+
+        const savedEventNames = await dataManager.getSavedEvents();
+        const allEvents = await dataManager.getEvents();
+
+        // Filter events that are in savedEventNames and map them to EventCard type
+        const savedEventsList = allEvents
+          .filter(event => savedEventNames.includes(event.name))
+          .map(event => ({
+            ...event,
+            // Use start_date/time as fallback for end_date/time
+            end_date: (event as any).end_date || event.start_date,
+            end_time: (event as any).end_time || event.start_time,
+            image: event.image ? { uri: event.image } : require('../assets/images/balloons.png')
+          })) as EventCard[];
+
+        if (isMounted) {
+          setSavedEvents(savedEventsList);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error loading saved events:', error);
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    initializeData();
+    requestLocationPermission();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleRemoveEvent = async (event: EventCard) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !user.email) return;
+
+      // Get current saved events
+      const { data: userData, error: userError } = await supabase
+        .from('all_users')
+        .select('saved_events')
+        .eq('email', user.email)
+        .single();
+
+      if (userError) throw userError;
+
+      // Convert saved_events to array if it's a string
+      let savedEventsArr: string[] = [];
+      if (Array.isArray(userData.saved_events)) {
+        savedEventsArr = userData.saved_events;
+      } else if (typeof userData.saved_events === 'string' && userData.saved_events.length > 0) {
+        savedEventsArr = userData.saved_events.replace(/[{}"]+/g, '').split(',').map(s => s.trim()).filter(Boolean);
+      }
+
+      // Remove the event
+      savedEventsArr = savedEventsArr.filter(name => name !== event.name);
+
+      // Update Supabase
+      const pgArray = '{' + savedEventsArr.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
+      await supabase
+        .from('all_users')
+        .update({ saved_events: pgArray })
+        .eq('email', user.email);
+
+      // Update local state
+      setSavedEvents(prev => prev.filter(e => e.name !== event.name));
+
+      // Refresh global data
+      await GlobalDataManager.getInstance().refreshAllData();
+    } catch (error) {
+      console.error('Error removing event:', error);
+    }
+  };
 
   // Calculate distance between two coordinates
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -159,58 +265,14 @@ export default function SavedLikes() {
     }
   };
 
-  const loadSavedEvents = async () => {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !user.email) {
-        setSavedEvents([]);
-        return;
-      }
-      // Fetch saved_events array from Supabase
-      const { data: userRow, error: userError } = await supabase
-        .from('all_users')
-        .select('saved_events')
-        .eq('email', user.email)
-        .maybeSingle();
-      if (userError || !userRow || !userRow.saved_events) {
-        setSavedEvents([]);
-        return;
-      }
-      let savedEventNames: string[] = [];
-      if (Array.isArray(userRow.saved_events)) {
-        savedEventNames = userRow.saved_events;
-      } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
-        savedEventNames = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
-
-      }
-      if (savedEventNames.length === 0) {
-        setSavedEvents([]);
-        return;
-      }
-      // Fetch event details for each saved event name
-      const { data: eventsData, error: eventsError } = await supabase
-        .from('all_events')
-        .select('*')
-        .in('name', savedEventNames);
-      if (eventsError || !eventsData) {
-        setSavedEvents([]);
-        return;
-      }
-      setSavedEvents(eventsData);
-    } catch (error) {
-      console.error('Error loading saved events:', error);
-      setSavedEvents([]);
-
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    loadSavedEvents();
-    requestLocationPermission();
-  }, []);
+    if (selectedEvent && userLocation && selectedEvent.latitude && selectedEvent.longitude) {
+      fetchRoute(
+        { latitude: userLocation.latitude, longitude: userLocation.longitude },
+        { latitude: selectedEvent.latitude, longitude: selectedEvent.longitude }
+      );
+    }
+  }, [selectedEvent, userLocation]);
 
   // Fetch route for selected event
   const fetchRoute = async (origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) => {
@@ -279,16 +341,9 @@ export default function SavedLikes() {
     return poly;
   };
 
-  useEffect(() => {
-    if (selectedEvent && userLocation && selectedEvent.latitude && selectedEvent.longitude) {
-      fetchRoute(
-        { latitude: userLocation.latitude, longitude: userLocation.longitude },
-        { latitude: selectedEvent.latitude, longitude: selectedEvent.longitude }
-      );
-    }
-  }, [selectedEvent, userLocation]);
-
   const openModal = (event: EventCard, layout: LayoutRectangle) => {
+    if (!isMounted.current) return;
+
     setSelectedEvent(event);
     setCardLayout(layout);
     setHiddenCardId(event.id);
@@ -318,7 +373,8 @@ export default function SavedLikes() {
     translateYAnim.setValue(translateY);
     scaleAnim.setValue(0.1);
 
-    Animated.parallel([
+    // Store the animation reference
+    animationRef.current = Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 200,
@@ -342,11 +398,13 @@ export default function SavedLikes() {
         tension: 40,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]);
+
+    animationRef.current.start();
   };
 
   const closeModal = () => {
-    if (!cardLayout) return;
+    if (!cardLayout || !isMounted.current) return;
 
     // Start fading in the card immediately
     Animated.timing(cardOpacity, {
@@ -355,8 +413,8 @@ export default function SavedLikes() {
       useNativeDriver: true,
     }).start();
 
-    // Animate out the modal
-    Animated.parallel([
+    // Store the animation reference
+    animationRef.current = Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 200,
@@ -380,11 +438,15 @@ export default function SavedLikes() {
         tension: 50,
         useNativeDriver: true,
       }),
-    ]).start(() => {
-      setModalVisible(false);
-      setSelectedEvent(null);
-      setCardLayout(null);
-      setHiddenCardId(null);
+    ]);
+
+    animationRef.current.start(() => {
+      if (isMounted.current) {
+        setModalVisible(false);
+        setSelectedEvent(null);
+        setCardLayout(null);
+        setHiddenCardId(null);
+      }
     });
   };
 
@@ -460,13 +522,32 @@ export default function SavedLikes() {
         </View>
         <TouchableOpacity 
           style={styles.deleteButton}
-          onPress={() => deleteEvent(event.id)}
+          onPress={() => handleRemoveEvent(event)}
         >
           <Ionicons name="close" size={20} color="#fff" />
         </TouchableOpacity>
       </TouchableOpacity>
     </Animated.View>
   );
+
+  // Add navigation listener to handle back button press
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', () => {
+      if (isMounted.current) {
+        isMounted.current = false;
+        if (animationRef.current) {
+          animationRef.current.stop();
+        }
+        scaleAnim.stopAnimation();
+        translateXAnim.stopAnimation();
+        translateYAnim.stopAnimation();
+        fadeAnim.stopAnimation();
+        cardOpacity.stopAnimation();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   if (loading) {
     return (
@@ -565,45 +646,93 @@ export default function SavedLikes() {
             style={styles.backButton}
             onPress={closeModal}
           >
-            <Text style={styles.backButtonText}>{'←'}</Text>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.backButtonGradient}
+            >
+              <Ionicons name="arrow-back" size={24} color="white" />
+            </LinearGradient>
           </TouchableOpacity>
           
           <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
             <ScrollView style={styles.expandedContent}>
               <Image source={selectedEvent.image} style={styles.imageExpanded} />
-              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {selectedEvent.name}
-              </Text>
-              <View style={styles.infoRow}>
-                <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {formatDate(selectedEvent.start_date || '')} - {formatDate(selectedEvent.end_date || '')}
+              
+              <View style={styles.expandedHeader}>
+                <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {selectedEvent.name}
                 </Text>
               </View>
-              <View style={styles.infoRow}>
-                <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {selectedEvent.location}
+
+              <View style={styles.infoSection}>
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="calendar-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date & Time</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {formatDate(selectedEvent.start_date || '')} at {selectedEvent.start_time}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="location-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {selectedEvent.location}
+                    </Text>
+                  </View>
+                </View>
+
+                {selectedEvent.distance !== null && selectedEvent.distance !== undefined ? (
+                  <View style={styles.infoRow}>
+                    <LinearGradient
+                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.3, 0.7, 1]}
+                      style={styles.infoIconContainer}
+                    >
+                      <Ionicons name="walk-outline" size={20} color="white" />
+                    </LinearGradient>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Distance</Text>
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {selectedEvent.distance.toFixed(2)} km away
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.descriptionSection}>
+                <Text style={[styles.descriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  About this event
+                </Text>
+                <Text style={[styles.descriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {selectedEvent.description}
                 </Text>
               </View>
-              {selectedEvent.distance !== null && selectedEvent.distance !== undefined ? (
-                <View style={styles.infoRow}>
-                  <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Distance: {selectedEvent.distance.toFixed(2)} km
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.infoRow}>
-                  <Ionicons name="walk-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Distance: Calculating...
-                  </Text>
-                </View>
-              )}
-              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {selectedEvent.description}
-              </Text>
 
               {/* Google Map */}
               <View style={styles.mapContainer}>
@@ -646,7 +775,7 @@ export default function SavedLikes() {
                     {routeCoordinates.length > 0 && (
                       <Polyline
                         coordinates={routeCoordinates}
-                        strokeColor="#2196F3"
+                        strokeColor="#FF1493"
                         strokeWidth={4}
                         lineDashPattern={[1]}
                       />
@@ -781,13 +910,12 @@ const styles = StyleSheet.create({
     top: 50,
     left: 20,
     zIndex: 101,
-    backgroundColor: 'rgba(0,0,0,0.1)',
     borderRadius: 20,
-    padding: 8,
+    overflow: 'hidden',
   },
-  backButtonText: {
-    fontSize: 28,
-    color: '#FF1493',
+  backButtonGradient: {
+    padding: 12,
+    borderRadius: 20,
   },
   expandedCard: {
     position: 'absolute',
@@ -811,15 +939,49 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
     marginBottom: 20,
   },
+  expandedHeader: {
+    marginTop: 20,
+    marginBottom: 30,
+  },
   expandedTitle: {
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 20,
   },
-  description: {
+  infoSection: {
+    marginBottom: 30,
+  },
+  infoIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  infoTextContainer: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 14,
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  infoValue: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  descriptionSection: {
+    marginBottom: 30,
+  },
+  descriptionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  descriptionText: {
     fontSize: 16,
     lineHeight: 24,
-    marginTop: 20,
   },
   mapContainer: {
     marginTop: 20,
