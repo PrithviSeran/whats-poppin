@@ -23,6 +23,7 @@ const BALLOON_IMAGE = require('../assets/images/balloons.png');
 
 type RootStackParamList = {
   'create-account-location': { userData: string };
+  'user-preferences': { userData: string };
 };
 
 type CreateAccountPasswordRouteProp = RouteProp<{
@@ -71,7 +72,7 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
   const handleNext = () => {
     const valid = validatePassword(password) && validateConfirmPassword(confirmPassword);
     if (valid) {
-      navigation.navigate('create-account-location', {
+      navigation.navigate('user-preferences', {
         userData: JSON.stringify({ ...userData, password }),
       });
     }

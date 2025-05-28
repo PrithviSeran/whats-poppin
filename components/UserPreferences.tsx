@@ -1,86 +1,80 @@
-import { LinearGradient } from 'expo-linear-gradient';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   ScrollView,
   Dimensions,
-  Modal,
   TextInput,
+  Alert,
+  KeyboardAvoidingView,
   Platform,
+  Modal,
+  Image,
+  SafeAreaView,
+  Switch,
 } from 'react-native';
-import { useNavigation, RouteProp } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import Slider from '@react-native-community/slider';
-import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { useNavigation, RouteProp } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import MaskedView from '@react-native-masked-view/masked-view';
+import * as Location from 'expo-location';
 
 const { width, height } = Dimensions.get('window');
 
-type RootStackParamList = {
-  'create-account-finished': { userData: string };
-};
-
-type UserPreferencesRouteProp = RouteProp<{
-  'user-preferences': { userData: string };
-}, 'user-preferences'>;
-
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
 const EVENT_TYPES = [
-  'Live Concert',
-  'Rooftop Party',
-  'Comedy Night',
-  'Bar Hopping',
-  'Live Music',
-  'Dancing',
-  'Karaoke',
-  'Chill Lounge',
-  'Comedy Show',
-  'Game Night',
-  'Food Crawl',
-  'Sports Bar',
-  'Trivia Night',
-  'Outdoor Patio',
-  'Late Night Eats',
-  'Themed Party',
-  'Open Mic',
-  'Wine Tasting',
-  'Hookah',
-  'Board Games',
-  'Silent Disco',
+  'Live Concert', 'Rooftop Party', 'Comedy Night', 'Bar Hopping', 'Live Music', 'Dancing', 'Karaoke',
+  'Chill Lounge', 'Comedy Show', 'Game Night', 'Food Crawl', 'Sports Bar', 'Trivia Night',
+  'Outdoor Patio', 'Late Night Eats', 'Themed Party', 'Open Mic', 'Wine Tasting', 'Hookah',
+  'Board Games', 'Silent Disco'
 ];
-
+const DAYS_OF_WEEK = [
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
+];
 const defaultStart = '21:00';
 const defaultEnd = '3:00';
 
-export default function UserPreferences({ route }: { route: UserPreferencesRouteProp }) {
+// Navigation types
+ type RootStackParamList = {
+   'create-account-finished': { userData: string };
+ };
+ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const BALLOON_IMAGE = require('../assets/images/balloons.png');
+
+export default function UserPreferences({ route }: { route: any }) {
+  const colorScheme = useColorScheme();
+  const navigation = useNavigation<NavigationProp>();
+  const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
+
+  // State
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
+  const [selectedDayPreferences, setSelectedDayPreferences] = useState<string[]>([]);
   const [startTime, setStartTime] = useState(21 * 60);
   const [endTime, setEndTime] = useState(3 * 60);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [manualLocation, setManualLocation] = useState('');
   const [travelDistance, setTravelDistance] = useState(8);
-  const navigation = useNavigation<NavigationProp>();
-  const colorScheme = useColorScheme();
-  const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
-  const isDark = colorScheme === 'dark';
 
+  // Handlers
   const toggleEventType = (type: string) => {
     setSelectedEventTypes(prev =>
-      prev.includes(type)
-        ? prev.filter(t => t !== type)
-        : [...prev, type]
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
     );
   };
-
+  const toggleDayPreference = (day: string) => {
+    setSelectedDayPreferences(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    );
+  };
   const formatTime = (minutes: number) => {
     let h = Math.floor(minutes / 60);
     let m = minutes % 60;
@@ -89,7 +83,6 @@ export default function UserPreferences({ route }: { route: UserPreferencesRoute
     if (h === 0) h = 12;
     return `${h}${m === 0 ? '' : ':' + m.toString().padStart(2, '0')}${ampm}`;
   };
-
   const getDateFromMinutes = (minutes: number) => {
     const date = new Date();
     date.setHours(Math.floor(minutes / 60));
@@ -98,35 +91,23 @@ export default function UserPreferences({ route }: { route: UserPreferencesRoute
     return date;
   };
 
-  const formatTimeString = (minutes: number) => {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return `${h}:${m.toString().padStart(2, '0')}`;
-  };
-
-  const handleNext = async () => {
+  // Next button handler
+  const handleNext = () => {
     const preferences = {
       eventTypes: selectedEventTypes,
-      timePreferences: { start: formatTimeString(startTime), end: formatTimeString(endTime) },
-      locationPreferences: manualLocation ? [manualLocation] : [],
+      timePreferences: { start: `${Math.floor(startTime/60)}:${(startTime%60).toString().padStart(2, '0')}`, end: `${Math.floor(endTime/60)}:${(endTime%60).toString().padStart(2, '0')}` },
+      locationPreferences: locationPermission ? [] : [manualLocation],
       travelDistance: travelDistance,
+      dayPreferences: selectedDayPreferences.length > 0 ? selectedDayPreferences : DAYS_OF_WEEK,
     };
-    try {
-      const updatedUserData = { ...userData, preferences };
-      await AsyncStorage.setItem('userData', JSON.stringify(updatedUserData));
-      navigation.navigate('create-account-finished', {
-        userData: JSON.stringify(updatedUserData)
-      });
-    } catch (error) {
-      console.error('Error saving preferences:', error);
-    }
+    navigation.navigate('create-account-finished', {
+      userData: JSON.stringify({ ...userData, preferences })
+    });
   };
 
+  // UI
   return (
-    <SafeAreaView style={[
-      styles.container,
-      { backgroundColor: Colors[colorScheme ?? 'light'].background }
-    ]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <TouchableOpacity
         style={{
           position: 'absolute',
@@ -142,197 +123,326 @@ export default function UserPreferences({ route }: { route: UserPreferencesRoute
         <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
       </TouchableOpacity>
 
-      <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>Almost There! Let us know what you're feeling!</Text>
-      <Text style={[styles.subtitle, { color: isDark ? '#aaa' : '#888' }]}>Choose your interests for tonight</Text>
-    
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={true}
+      <View style={styles.headerContainer}>
+        <View style={styles.headerRow}>
+          <Image
+            source={BALLOON_IMAGE}
+            style={styles.balloons}
+            resizeMode="contain"
+          />
+          <MaskedView
+            maskElement={<Text style={[styles.headerTitle, { opacity: 1 }]}>{`What's Poppin?`}</Text>}
+          >
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+            >
+              <Text style={[styles.headerTitle, { opacity: 0 }]}>{`What's Poppin?`}</Text>
+            </LinearGradient>
+          </MaskedView>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
       >
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Event Types</Text>
-          <View style={styles.pillContainer}>
-            {EVENT_TYPES.map((type) => (
-              <TouchableOpacity
-                key={type}
-                style={[
-                  styles.pill,
-                  selectedEventTypes.includes(type) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
-                  {
-                    backgroundColor: selectedEventTypes.includes(type)
-                      ? (isDark ? '#F45B5B' : '#F45B5B')
-                      : (isDark ? '#222' : '#f5f5f5'),
-                    borderColor: selectedEventTypes.includes(type)
-                      ? (isDark ? '#FF3366' : '#FF3366')
-                      : (isDark ? '#333' : '#eee'),
-                  }
-                ]}
-                onPress={() => toggleEventType(type)}
-              >
-                <Text
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
+          {/* Event Types */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Event Types</Text>
+            <View style={styles.pillContainer}>
+              {EVENT_TYPES.map((type) => (
+                <TouchableOpacity
+                  key={type}
                   style={[
-                    styles.pillText,
-                    selectedEventTypes.includes(type) && styles.pillTextSelected,
-                    { 
-                      color: selectedEventTypes.includes(type) 
-                        ? '#fff' 
-                        : (isDark ? '#fff' : '#000')
+                    styles.pill,
+                    selectedEventTypes.includes(type) && (colorScheme === 'dark' ? styles.pillSelectedDark : styles.pillSelectedLight),
+                    {
+                      backgroundColor: selectedEventTypes.includes(type)
+                        ? (colorScheme === 'dark' ? '#F45B5B' : '#F45B5B')
+                        : (colorScheme === 'dark' ? '#222' : '#f5f5f5'),
+                      borderColor: selectedEventTypes.includes(type)
+                        ? (colorScheme === 'dark' ? '#FF3366' : '#FF3366')
+                        : (colorScheme === 'dark' ? '#333' : '#eee'),
                     }
                   ]}
+                  onPress={() => toggleEventType(type)}
                 >
-                  {type}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Time Preference</Text>
-          <View style={{ alignItems: 'center', marginVertical: 20 }}>
-            <View style={styles.timeButtonContainer}>
-              <TouchableOpacity
-                style={[styles.timeButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
-                onPress={() => setShowStartTimePicker(true)}
-              >
-                <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>Start Range</Text>
-                <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>{formatTime(startTime)}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.timeButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
-                onPress={() => setShowEndTimePicker(true)}
-              >
-                <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>End Range</Text>
-                <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>{formatTime(endTime)}</Text>
-              </TouchableOpacity>
+                  <Text
+                    style={[
+                      styles.pillText,
+                      selectedEventTypes.includes(type) && styles.pillTextSelected,
+                      { color: selectedEventTypes.includes(type) ? '#fff' : (colorScheme === 'dark' ? '#fff' : '#000') }
+                    ]}
+                  >
+                    {type}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
-          {showStartTimePicker && (
-            <Modal
-              transparent={true}
-              animationType="slide"
-              visible={showStartTimePicker}
-            >
-              <View style={styles.timePickerModalContainer}>
-                <View style={styles.timePickerModalContent}>
-                  <View style={styles.timePickerHeader}>
-                    <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Select Start Time</Text>
-                    <TouchableOpacity onPress={() => setShowStartTimePicker(false)}>
-                      <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-                    </TouchableOpacity>
-                  </View>
-                  <DateTimePicker
-                    value={getDateFromMinutes(startTime)}
-                    mode="time"
-                    is24Hour={false}
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={(event, selectedTime) => {
-                      if (selectedTime) {
-                        const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
-                        setStartTime(minutes);
-                      }
-                    }}
-                  />
-                  <TouchableOpacity
-                    style={styles.timePickerConfirmButton}
-                    onPress={() => setShowStartTimePicker(false)}
-                  >
-                    <LinearGradient
-                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      locations={[0, 0.3, 0.7, 1]}
-                      style={styles.timePickerGradientButton}
-                    >
-                      <Text style={styles.timePickerConfirmText}>Done</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </Modal>
-          )}
-          {showEndTimePicker && (
-            <Modal
-              transparent={true}
-              animationType="slide"
-              visible={showEndTimePicker}
-            >
-              <View style={styles.timePickerModalContainer}>
-                <View style={styles.timePickerModalContent}>
-                  <View style={styles.timePickerHeader}>
-                    <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Select End Time</Text>
-                    <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
-                      <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-                    </TouchableOpacity>
-                  </View>
-                  <DateTimePicker
-                    value={getDateFromMinutes(endTime)}
-                    mode="time"
-                    is24Hour={false}
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={(event, selectedTime) => {
-                      if (selectedTime) {
-                        const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
-                        setEndTime(minutes);
-                      }
-                    }}
-                  />
-                  <TouchableOpacity
-                    style={styles.timePickerConfirmButton}
-                    onPress={() => setShowEndTimePicker(false)}
-                  >
-                    <LinearGradient
-                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      locations={[0, 0.3, 0.7, 1]}
-                      style={styles.timePickerGradientButton}
-                    >
-                      <Text style={styles.timePickerConfirmText}>Done</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </Modal>
-          )}
-        </View>
 
-        <View style={styles.section}>
-          <View style={styles.distanceContainer}>
-            <Text style={[styles.distanceLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Travel Distance: {travelDistance} km</Text>
-            <Slider
-              style={styles.slider}
-              minimumValue={1}
-              maximumValue={40}
-              step={1}
-              value={travelDistance}
-              onValueChange={setTravelDistance}
-              minimumTrackTintColor="#FF1493"
-              maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
-              thumbTintColor="#FF1493"
-            />
-            <View style={styles.distanceMarkers}>
-              <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
-              <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>20 km</Text>
-              <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>40 km</Text>
+          {/* Day Preference */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Day Preference</Text>
+            <LinearGradient
+              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.dayGradientContainer}
+            >
+              <View style={styles.dayButtonContainer}>
+                {DAYS_OF_WEEK.map((day) => (
+                  <TouchableOpacity
+                    key={day}
+                    style={[
+                      styles.dayCircleButton,
+                      selectedDayPreferences.includes(day) && styles.dayCircleButtonSelected
+                    ]}
+                    onPress={() => toggleDayPreference(day)}
+                  >
+                    <Text
+                      style={[
+                        styles.dayCircleButtonText,
+                        { color: selectedDayPreferences.includes(day) ? '#F45B5B' : 'white' }
+                      ]}
+                    >
+                      {day.slice(0, 1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </LinearGradient>
+          </View>
+
+          {/* Time Preference */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Time Preference</Text>
+            <View style={{ alignItems: 'center', marginVertical: 20 }}>
+              <View style={styles.timeButtonContainer}>
+                <TouchableOpacity
+                  style={[styles.timeButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
+                  onPress={() => setShowStartTimePicker(true)}
+                >
+                  <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>Start Range</Text>
+                  <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>{formatTime(startTime)}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.timeButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
+                  onPress={() => setShowEndTimePicker(true)}
+                >
+                  <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>End Range</Text>
+                  <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>{formatTime(endTime)}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            {showStartTimePicker && (
+              <Modal
+                transparent={true}
+                animationType="slide"
+                visible={showStartTimePicker}
+              >
+                <View style={styles.timePickerModalContainer}>
+                  <View style={[
+                    styles.timePickerModalContent,
+                    { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                  ]}>
+                    <View style={styles.timePickerHeader}>
+                      <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Select Start Time</Text>
+                      <TouchableOpacity onPress={() => setShowStartTimePicker(false)}>
+                        <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+                      </TouchableOpacity>
+                    </View>
+                    <DateTimePicker
+                      value={getDateFromMinutes(startTime)}
+                      mode="time"
+                      is24Hour={false}
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      onChange={(event, selectedTime) => {
+                        if (selectedTime) {
+                          const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
+                          setStartTime(minutes);
+                        }
+                      }}
+                    />
+                    <TouchableOpacity
+                      style={styles.timePickerConfirmButton}
+                      onPress={() => setShowStartTimePicker(false)}
+                    >
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.timePickerGradientButton}
+                      >
+                        <Text style={styles.timePickerConfirmText}>Done</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Modal>
+            )}
+            {showEndTimePicker && (
+              <Modal
+                transparent={true}
+                animationType="slide"
+                visible={showEndTimePicker}
+              >
+                <View style={styles.timePickerModalContainer}>
+                  <View style={[
+                    styles.timePickerModalContent,
+                    { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                  ]}>
+                    <View style={styles.timePickerHeader}>
+                      <Text style={[styles.timePickerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Select End Time</Text>
+                      <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
+                        <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+                      </TouchableOpacity>
+                    </View>
+                    <DateTimePicker
+                      value={getDateFromMinutes(endTime)}
+                      mode="time"
+                      is24Hour={false}
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      onChange={(event, selectedTime) => {
+                        if (selectedTime) {
+                          const minutes = selectedTime.getHours() * 60 + selectedTime.getMinutes();
+                          setEndTime(minutes);
+                        }
+                      }}
+                    />
+                    <TouchableOpacity
+                      style={styles.timePickerConfirmButton}
+                      onPress={() => setShowEndTimePicker(false)}
+                    >
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.timePickerGradientButton}
+                      >
+                        <Text style={styles.timePickerConfirmText}>Done</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Modal>
+            )}
+          </View>
+
+          {/* Location */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
+            <View style={styles.locationToggleRow}>
+              <Text style={{ color: Colors[colorScheme ?? 'light'].text, fontSize: 16, flex: 1 }}>
+                Share my location
+              </Text>
+              <Switch
+                value={locationPermission === true}
+                onValueChange={async (value) => {
+                  if (value) {
+                    // Request permission
+                    const { status } = await Location.requestForegroundPermissionsAsync();
+                    if (status === 'granted') {
+                      setLocationPermission(true);
+                    } else {
+                      Alert.alert('Permission Denied', 'Location permission is required to use your current location.');
+                      setLocationPermission(false);
+                    }
+                  } else {
+                    setLocationPermission(false);
+                  }
+                }}
+                thumbColor={locationPermission === true ? '#FF1493' : (colorScheme === 'dark' ? '#888' : '#fff')}
+                trackColor={{ false: '#ccc', true: '#FFB6C1' }}
+              />
+            </View>
+            {locationPermission === true && (
+              <View style={styles.locationContainer}>
+                <LinearGradient
+                  colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  locations={[0, 0.3, 0.7, 1]}
+                  style={styles.locationGradient}
+                >
+                  <View style={styles.locationContent}>
+                    <Ionicons name="location" size={24} color="white" />
+                    <View style={styles.locationTextContainer}>
+                      <Text style={styles.locationTitle}>Your location will be used to personalize recommendations.</Text>
+                    </View>
+                  </View>
+                </LinearGradient>
+              </View>
+            )}
+            {locationPermission === false && (
+              <View style={styles.locationInputContainer}>
+                <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Enter your location</Text>
+                <TextInput
+                  style={[
+                    styles.locationInput,
+                    { 
+                      backgroundColor: Colors[colorScheme ?? 'light'].card,
+                      color: Colors[colorScheme ?? 'light'].text,
+                      borderColor: Colors[colorScheme ?? 'light'].card
+                    }
+                  ]}
+                  placeholder="e.g., New York, NY"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                  value={manualLocation}
+                  onChangeText={setManualLocation}
+                  returnKeyType="done"
+                />
+              </View>
+            )}
+          </View>
+
+          {/* Travel Distance */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Travel Distance</Text>
+            <View style={styles.distanceContainer}>
+              <Text style={[styles.distanceLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Travel Distance: {travelDistance} km</Text>
+              <Slider
+                style={styles.slider}
+                minimumValue={1}
+                maximumValue={40}
+                step={1}
+                value={travelDistance}
+                onValueChange={setTravelDistance}
+                minimumTrackTintColor="#FF1493"
+                maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
+                thumbTintColor="#FF1493"
+              />
+              <View style={styles.distanceMarkers}>
+                <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
+                <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>20 km</Text>
+                <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>40 km</Text>
+              </View>
             </View>
           </View>
-        </View>
-      </ScrollView>
-      <View style={styles.buttonGroup}>
-        <TouchableOpacity onPress={handleNext}>
-          <LinearGradient
-            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-            start={{x: 0, y: 0}}
-            end={{x: 1, y: 1}}
-            locations={[0, 0.3, 0.7, 1]}
-            style={styles.socialButton}
-          >
-            <Text style={styles.socialButtonText}>Next</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+
+          {/* Next Button - moved here */}
+          <View style={styles.buttonGroup}>
+            <TouchableOpacity onPress={handleNext}>
+              <LinearGradient
+                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
+                style={styles.socialButton}
+              >
+                <Text style={styles.socialButtonText}>Next</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -342,36 +452,54 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingTop: 20,
+    paddingBottom: 40,
+  },
+  headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  balloons: {
+    width: width * 0.22,
+    height: width * 0.22,
+    marginRight: -6,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#F45B5B',
+    textAlign: 'left',
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 4, height: 4 },
+    textShadowRadius: 6,
+    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
   },
   scrollContent: {
-    alignItems: 'center',
-    padding: 24,
-    paddingBottom: 60,
-    
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
-  title: {
-    fontSize: 26,
+  section: {
+    marginBottom: 30,
+  },
+  sectionTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 8,
-    marginTop: 86,
-  },
-  subtitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 15,
   },
   pillContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 12,
+    gap: 10,
   },
   pill: {
-    borderRadius: 22,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    margin: 6,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
     borderWidth: 1,
   },
   pillSelectedLight: {
@@ -383,43 +511,39 @@ const styles = StyleSheet.create({
     borderColor: '#FF3366',
   },
   pillText: {
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: 14,
   },
   pillTextSelected: {
     fontWeight: 'bold',
   },
-  buttonGroup: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  socialButton: {
+  dayGradientContainer: {
     borderRadius: 30,
-    width: width * 0.8,
-    paddingVertical: 13,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    marginTop: 10,
+    alignItems: 'center',
   },
-  socialButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  section: {
+  dayButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
     width: '100%',
-    marginBottom: 30,
   },
-  sectionTitle: {
-    fontSize: 18,
+  dayCircleButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  dayCircleButtonSelected: {
+    backgroundColor: 'white',
+    borderColor: '#FF3366',
+  },
+  dayCircleButtonText: {
+    fontSize: 14,
     fontWeight: 'bold',
-    marginBottom: 15,
-    marginLeft: 10,
   },
   timeButtonContainer: {
     flexDirection: 'row',
@@ -435,12 +559,13 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 20, 147, 0.3)',
   },
   timeButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 5,
   },
   timeButtonTime: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   timePickerModalContainer: {
     flex: 1,
@@ -449,62 +574,95 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   timePickerModalContent: {
-    backgroundColor: 'white',
-    padding: 20,
     borderRadius: 20,
-    width: '80%',
-    maxHeight: '80%',
+    padding: 20,
+    margin: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    width: width * 0.9,
   },
   timePickerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    width: '100%',
+    marginBottom: 20,
   },
   timePickerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
   },
   timePickerConfirmButton: {
-    borderRadius: 20,
-    padding: 10,
-    marginTop: 10,
-    alignItems: 'center',
+    marginTop: 20,
   },
   timePickerGradientButton: {
-    borderRadius: 20,
-    padding: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    alignItems: 'center',
   },
   timePickerConfirmText: {
-    color: 'white',
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
   locationInputContainer: {
+    marginTop: 10,
     marginBottom: 20,
   },
   locationLabel: {
     fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   locationInput: {
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    padding: 10,
+    borderRadius: 12,
+    padding: 15,
+    fontSize: 16,
+    minHeight: 50,
   },
-  locationText: {
-    fontSize: 14,
-    fontWeight: '500',
+  locationContainer: {
+    marginBottom: 20,
+    borderRadius: 15,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  locationGradient: {
+    padding: 15,
+  },
+  locationContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  locationTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   distanceContainer: {
-    marginBottom: 20,
+    marginTop: 20,
+    paddingHorizontal: 10,
   },
   distanceLabel: {
     fontSize: 16,
-    fontWeight: 'bold',
     marginBottom: 10,
+    textAlign: 'center',
   },
   slider: {
     width: '100%',
@@ -513,10 +671,40 @@ const styles = StyleSheet.create({
   distanceMarkers: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 5,
+    paddingHorizontal: 5,
+    marginTop: -5,
   },
   distanceMarker: {
     fontSize: 12,
-    fontWeight: '500',
+    opacity: 0.7,
+  },
+  buttonGroup: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    paddingTop: 18,
+  },
+  socialButton: {
+    borderRadius: 30,
+    width: width * 0.8,
+    paddingVertical: 13,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  socialButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  locationToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
   },
 });

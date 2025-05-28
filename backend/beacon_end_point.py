@@ -10,6 +10,7 @@ from jwt import PyJWKClient
 from flask_cors import CORS
 from datetime import datetime, time, timedelta
 from beacon_torch import BeaconAI
+import math
 
 app = Flask(__name__)
 CORS(app)
@@ -75,51 +76,221 @@ def remove_elements_set(main_array, elements_to_remove):
 
 @app.route('/recommend', methods=['POST', 'GET'])
 def recommend():
-    print("recommend endpoint called")
 
-    result = Client.table("all_users").select("*").execute()
-    all_users = result.data
+    print("request.json:", request.json)
 
-    result = Client.table("all_events").select("*").execute()
-    all_events = result.data
+    target_user = request.json.get("email")
+    user_latitude = request.json.get("user_latitude") # Get user latitude from request
+    user_longitude = request.json.get("user_longitude") # Get user longitude from request
 
-    interactions = build_interactions(all_users)
-    #print(all_users)
+    print("target_user:", target_user)
+    print("user_location:", user_latitude, user_longitude) # Log user location
 
+    if not target_user:
+        print("No target user email provided.")
+        return jsonify({"recommended_events": []}), 400 # Bad Request
+
+    # 1. Fetch the target user's preferences
+    user_result = Client.table("all_users").select("preferences, travel-distance, saved_events, rejected_events, start-time, end-time").eq("email", target_user).maybe_single().execute()
+    user_data = user_result.data
+
+    if not user_data:
+        # Handle case where user is not found
+        print(f"User {target_user} not found.")
+        return jsonify({"recommended_events": []}) # Return empty list if user not found
+
+    user_preferences = parse_preferences(user_data.get("preferences", []))
+    # Get user's travel distance preference, default to 50km if not set
+    user_travel_distance = user_data.get("travel-distance", 50)
+    # Get user's saved and rejected events (as lists of IDs)
+    saved_events = user_data.get("saved_events", [])
+    rejected_events = request.json.get("rejected_events") or []
+
+    # Convert all elements to string, regardless of type
+    #rejected_events = [str(e["id"]) for e in rejected_events if str(e["id"]).strip()]
+    print("rejected_events in recommend:", rejected_events)
+
+
+    if isinstance(saved_events, str):
+        saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
+    if isinstance(rejected_events, str):
+        print("rejected_events is a string")
+        rejected_events = [int(e.strip()) for e in rejected_events.strip('{}').split(',') if e.strip()]
+
+    print("rejected_events after conversion:", rejected_events)
+
+    # Get user's time preferences
+    user_start_time = user_data.get("start-time")
+    user_end_time = user_data.get("end-time")
+
+    print("user_travel_distance:", user_travel_distance)
+    print("saved_events:", saved_events)
+    print("rejected_events:", rejected_events)
+    # 2. Query all_events, filtering by user preferences
+    query = Client.table("all_events").select("*", "latitude", "longitude") # Select latitude and longitude
+
+    if user_preferences:
+        # If user has preferences, filter events by event_type
+        # Supabase client requires list for .in_()
+        query = query.in_('event_type', list(user_preferences))
+
+    event_result = query.execute()
+    all_events_raw = event_result.data # Renamed to all_events_raw
+
+    print("all_events_raw after preferences filter:", len(all_events_raw))
+
+    if not all_events_raw:
+        print("No events found matching user preferences.")
+        return jsonify({"recommended_events": []}) # Return empty list if no matching events
+
+    # --- Filter by time preference ---
+    
+    def parse_time_str(tstr):
+        if tstr is None:
+            return None
+        for fmt in ("%H:%M:%S", "%H:%M"):
+            try:
+                return datetime.strptime(tstr, fmt).time()
+            except Exception:
+                continue
+        return None
+
+    def is_time_in_range(start, end, t):
+        if start <= end:
+            return start <= t <= end
+        else:  # Overnight
+            return t >= start or t <= end
+
+    if user_start_time and user_end_time:
+        user_start = parse_time_str(str(user_start_time))
+        user_end = parse_time_str(str(user_end_time))
+        if user_start and user_end:
+            filtered_by_time = []
+            for event in all_events_raw:
+                event_start = parse_time_str(str(event.get("start_time")))
+                if event_start and is_time_in_range(user_start, user_end, event_start):
+                    filtered_by_time.append(event)
+            all_events_raw = filtered_by_time
+    print("all_events_raw after time filter:", len(all_events_raw))
+
+    # --- End filter by time preference ---
+
+    print("Filtered by time:", len(filtered_by_time))
+
+    # --- Filter by occurrence and days_of_the_week ---
+    user_preferred_days = parse_days(user_data.get("preferred_days", []))
+    filtered_by_occurrence = []
+    for event in all_events_raw:
+        occurrence = event.get("occurrence", "")
+        if occurrence != "Weekly":
+            filtered_by_occurrence.append(event)
+        else:
+            event_days = parse_days(event.get("days_of_the_week", []))
+            # Check for intersection
+            if any(day in user_preferred_days for day in event_days):
+                filtered_by_occurrence.append(event)
+    all_events_raw = filtered_by_occurrence
+    print("all_events_raw after occurrence/days_of_the_week filter:", len(all_events_raw))
+    # --- End filter by occurrence and days_of_the_week ---
+
+    # --- Print all distances before filtering ---
+    """
+    if user_latitude is not None and user_longitude is not None:
+        print("Distances from user to each event (before filtering):")
+        for event in all_events_raw:
+            event_latitude = event.get("latitude")
+            event_longitude = event.get("longitude")
+            event_id = event.get("id")
+            event_name = event.get("name")
+            if event_latitude is not None and event_longitude is not None:
+                distance = calculate_distance(
+                    user_latitude,
+                    user_longitude,
+                    event_latitude,
+                    event_longitude
+                )
+                print(f"Event {event_id} ({event_name}): {distance:.2f} km")
+            else:
+                print(f"Event {event_id} ({event_name}): No location data")
+    """
+    # Apply distance filtering if user location is available
+    all_events_filtered = []
+    # Use user's travel distance preference instead of hardcoded value
+    distance_threshold_km = user_travel_distance
+    
+
+    if user_latitude is not None and user_longitude is not None:
+        for event in all_events_raw:
+            event_latitude = event.get("latitude")
+            event_longitude = event.get("longitude")
+            # Check if event has location data
+            if event_latitude is not None and event_longitude is not None:
+                distance = calculate_distance(
+                    user_latitude,
+                    user_longitude,
+                    event_latitude,
+                    event_longitude
+                )
+                # Add distance field to the event object
+                event["distance"] = distance
+                # Only include events within the user's travel distance threshold
+                if distance <= distance_threshold_km:
+                    all_events_filtered.append(event)
+            else:
+                # Optionally include events without location data, or filter them out
+                # For now, let's include events without location data (cannot calculate distance)
+                event["distance"] = None
+                all_events_filtered.append(event)
+    else:
+        # If user location is not available, use all events filtered by preferences
+        all_events_filtered = all_events_raw
+
+    print("all_events_filtered after distance filter:", len(all_events_filtered))
+
+    if not all_events_filtered:
+        print("No events found after applying distance filter.")
+        return jsonify({"recommended_events": []})
+
+    # 3. Build event_ids from the FILTERED events
+    event_ids_filtered = [event.get("id") for event in all_events_filtered if event.get("id")]
+    # Remove saved and rejected events from the pool
+    exclude_ids = set(saved_events) | set(rejected_events)
+    event_ids_filtered = [eid for eid in event_ids_filtered if eid not in exclude_ids]
+    print("event_ids (after removing saved/rejected):", event_ids_filtered)
+
+    # 4. Build user feature tuples and interactions from ALL users
+    all_users_result = Client.table("all_users").select("*").execute()
+    all_users = all_users_result.data
+    if not all_users:
+        print("No users found in the database.")
+        return jsonify({"recommended_events": []})
     user_emails = [user.get("email") for user in all_users if user.get("email")]
-    event_names = [event.get("name") for event in all_events if event.get("name")]
-
-    recommended_events = request.json.get("recommended_events", [])
-
-    print("recommended_events:", recommended_events)
-
-    event_names = remove_elements(event_names, recommended_events)
-
-    print("event_names:", event_names)
+    interactions = build_interactions(all_users) # Build interactions from all users
 
     user_feature_tuples = []
     for user in all_users:
         identifier = user.get("email") or user.get("name")
-        preferences = parse_preferences(user.get("preferences", []))
+        current_user_preferences = parse_preferences(user.get("preferences", []))
         birthday = user.get("birthday")
-        age = calculate_age(birthday)
-        age_group = get_age_group(age)
+        age = calculate_age(birthday) if birthday else None
+        age_group = get_age_group(age) if age is not None else None
         start_time = user.get("start-time")
         end_time = user.get("end-time")
-        time_tag = get_time_tag(start_time, end_time)
+        time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
         gender = user.get("gender")
-        # The features are in a list, and the tuple has two elements
-        user_feature_tuples.append((identifier, [preferences, age_group, time_tag, gender]))
+        user_feature_tuples.append((identifier, [current_user_preferences, age_group, time_tag, gender]))
 
+    # 5. Build event feature tuples from the FILTERED events
     event_feature_tuples = []
-    for event in all_events:
-        name = event.get("name")
+    for event in all_events_filtered:
+        eid = event.get("id")
         event_types = parse_event_types(event.get("event_type", []))
         start_time = event.get("start_time")
         end_time = event.get("end_time")
-        time_tag = get_time_tag(start_time, end_time)
+        time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
         age_restriction = event.get("age_restriction")
         cost = event.get("cost")
+        cost_range = None
         if cost is not None:
             if cost < 20:
                 cost_range = "$"
@@ -129,49 +300,48 @@ def recommend():
                 cost_range = "$$$"
             else:
                 cost_range = "$$$$"
-        else:
-            cost_range = None
         reservation = event.get("reservation")
         reservation_required = "yes" if reservation and reservation.lower() in ["yes", "y", "true", "1"] else "no"
-        # The features are in a list, and the tuple has two elements
-        event_feature_tuples.append((name, [event_types, time_tag, age_restriction, cost_range, reservation_required]))
+        event_feature_tuples.append((eid, [event_types, time_tag, age_restriction, cost_range, reservation_required]))
 
+    recommended_events = request.json.get("recommended_events", [])
+    # Remove events from the filtered list that were already recommended in this session
+    event_ids_for_recommendation = remove_elements(event_ids_filtered, recommended_events)
+    if not event_ids_for_recommendation:
+        print("No new events available after filtering out previously recommended.")
+        return jsonify({"recommended_events": []})
 
+    # 6. Fit and train the AI model using filtered events
     rec = BeaconAI()
-    rec.fit_data(user_emails, event_names, user_feature_tuples, event_feature_tuples, interactions)
+    rec.fit_data(user_emails, event_ids_for_recommendation, user_feature_tuples, event_feature_tuples, interactions)
     rec.train_model()
 
-    target_user = request.json.get("email")
-    user_feats = [feats for uid, feats in user_feature_tuples if uid == target_user]
-    print(f"\n{target_user} Features:\n{user_feats[0] if user_feats else 'User not found'}")
-
-    liked = [e for u, e, v in interactions if u == target_user and v == 1]
-    print(f"\n{target_user} previously liked {len(liked)} event(s):\n{liked}")
-
-    print("\nFeatures of Liked Events:")
-    for eid, feats in event_feature_tuples:
-        if eid in liked:
-            print(f"{eid}: {feats}")
-
-    print("\nTop 5 Recommended Events:")
-    top_5 = []
-    recommendations = rec.recommend_for_user(target_user, top_n=5)
+    # 7. Recommend from the filtered and un-recommended pool
+    print("\nTop 5 Recommended Events (filtered by user preferences and session history):")
+    top_5_recommended_events = []
+    recommendations = rec.recommend_for_user(
+        target_user,
+        top_n=5,
+    )
     for eid, score in recommendations:
         print(f"{eid} (score: {score:.4f})")
-        top_5.append(eid)
+        top_5_recommended_events.append(eid)
+    print("\nFeatures of Recommended Events (from filtered pool):")
+    recommended_event_features = [feats for eid, feats in event_feature_tuples if eid in top_5_recommended_events]
+    for feats in recommended_event_features:
+        print(feats)
 
-    print("\nFeatures of Recommended Events:")
-    for eid, feats in event_feature_tuples:
-        if eid in [x[0] for x in recommendations]:
-            print(f"{eid}: {feats}")
-    
-    return jsonify({"recommended_events": top_5})
+    # Return full event objects instead of just IDs
+    top_5_event_objs = [event for event in all_events_filtered if event.get("id") in top_5_recommended_events]
+    return jsonify({"recommended_events": top_5_event_objs})
 
 
     
 
 
 def get_age_group(age):
+    if age is None:
+        return None
     if 18 <= age <= 24:
         return "18-24"
     elif 25 <= age <= 34:
@@ -217,10 +387,24 @@ def time_in_range(start, end, t):
         return t >= start or t < end
 
 def get_time_tag(start_time_str, end_time_str):
+    print(start_time_str, end_time_str)
     start_time = parse_time(start_time_str)
     end_time = parse_time(end_time_str)
     if start_time is None or end_time is None:
         return None  # or return a default tag, e.g., "unknown"
+    
+    # Round times to nearest hour
+    start_dt = datetime.combine(datetime.today(), start_time)
+    end_dt = datetime.combine(datetime.today(), end_time)
+    
+    # Round to nearest hour
+    start_dt = start_dt.replace(minute=0, second=0, microsecond=0)
+    end_dt = end_dt.replace(minute=0, second=0, microsecond=0)
+    
+    # Convert back to time objects
+    start_time = start_dt.time()
+    end_time = end_dt.time()
+    
     tag_scores = {}
 
     # Handle overnight user time range
@@ -240,6 +424,8 @@ def get_time_tag(start_time_str, end_time_str):
     if not tag_scores:
         return None
     best_tag = max(tag_scores, key=tag_scores.get)
+    print("Best Tag: ", best_tag)
+
     return best_tag
 
 def parse_saved_events(saved_events):
@@ -256,9 +442,14 @@ def build_interactions(all_users):
     interactions = []
     for user in all_users:
         user_name = user.get("email")
-        saved_events = parse_saved_events(user.get("saved_events", []))
-        for event_name in saved_events:
-            interactions.append((user_name, event_name, 1))
+        saved_events = user.get("saved_events", [])
+        # Ensure saved_events is always a list
+        if not saved_events:
+            continue
+        if isinstance(saved_events, str):
+            saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
+        for event_id in saved_events:
+            interactions.append((user_name, event_id, 1))
     return interactions
 
 def parse_preferences(preferences):
@@ -285,7 +476,30 @@ def parse_event_types(event_type):
     else:
         return tuple()
 
+def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the great circle distance between two points on the earth (specified in decimal degrees)
+    Returns the distance in kilometers
+    """
+    # Convert decimal degrees to radians
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
 
+    # Haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    r = 6371  # Radius of earth in kilometers
+    return c * r
+
+def parse_days(days):
+    # Handles both Postgres array string and Python list
+    if isinstance(days, list):
+        return [d.strip() for d in days if d.strip()]
+    elif isinstance(days, str):
+        return [d.strip().strip('"') for d in days.strip('{}').split(',') if d.strip()]
+    else:
+        return []
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
