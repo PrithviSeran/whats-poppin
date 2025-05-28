@@ -1,16 +1,17 @@
 import React from 'react';
 import { Stack } from 'expo-router';
-import EditProfile from '@/components/EditProfile';
+import ResetPasswordScreen from '@/components/ResetPasswordScreen';
 
-export default function EditProfileScreen() {
+export default function ResetPasswordPage() {
   return (
     <>
       <Stack.Screen
         options={{
           headerShown: false,
+          gestureEnabled: false,
         }}
       />
-      <EditProfile />
+      <ResetPasswordScreen />
     </>
   );
 } 

@@ -9,6 +9,7 @@ import {
   Dimensions,
   Platform,
   Animated,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedGradientText from './GradientAnimatedText';
@@ -43,6 +44,16 @@ const SignInScreen = () => {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+
+  const handleOpenTerms = () => {
+    const termsUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'; // Sample PDF URL
+    Linking.openURL(termsUrl).catch(err => console.error('An error occurred', err));
+  };
+
+  const handleOpenPrivacyPolicy = () => {
+    const privacyPolicyUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'; // Sample PDF URL
+    Linking.openURL(privacyPolicyUrl).catch(err => console.error('An error occurred', err));
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -97,7 +108,7 @@ const SignInScreen = () => {
 
         <View style={styles.buttonGroup}>
           <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
-            By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink}>Terms of Service</Text> and <Text style={styles.termsLink}>Privacy Policy</Text>.
+            By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink} onPress={handleOpenTerms}>Terms of Service</Text> and <Text style={styles.termsLink} onPress={handleOpenPrivacyPolicy}>Privacy Policy</Text>.
           </Text>
           <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
             <LinearGradient
@@ -176,7 +187,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 30,
     lineHeight: 24,
-    width: width * 0.8,
   },
   troubleText: {
     fontSize: 16,

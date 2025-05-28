@@ -33,6 +33,34 @@ const DAYS_OF_WEEK = [
 ];
 
 
+// List of Toronto neighborhoods/locations
+const torontoLocations = [
+  "Downtown Yonge",
+  "Entertainment District",
+  "Distillery District",
+  "Kensington Market",
+  "Queen Street West",
+  "Yorkville",
+  "Midtown Yonge",
+  "Liberty Village",
+  " финансовый район ", // Financial District
+  "St. Lawrence Market",
+  "Cabbagetown",
+  "The Annex",
+  "Little Italy",
+  "Chinatown",
+  "Greektown",
+  "Leslieville",
+  "Riverside",
+  "High Park",
+  "Bloor West Village",
+  "Rosedale",
+  "Forest Hill",
+  "North York City Centre",
+  "Scarborough City Centre",
+  "Etobicoke City Centre"
+];
+
 // Function to calculate distance between two coordinates using Haversine formula
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371; // Radius of Earth in kilometers
@@ -66,8 +94,11 @@ export default function SuggestedEvents() {
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
   const colorScheme = useColorScheme();
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
+  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isFetchingActivities, setIsFetchingActivities] = useState(false);
+  const [error, setError] = useState(null);
+  const [files, setFiles] = useState<FileObject[]>([]);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [EVENTS, setEVENTS] = useState<EventCard[]>([]);
   const pulseAnim = useRef(new Animated.Value(0)).current;
@@ -190,6 +221,15 @@ export default function SuggestedEvents() {
     }
   }, [loading]);
 
+  useEffect(() => {
+    console.log('userLocation changed:', userLocation);
+    if (userLocation && EVENTS.length > 0) {
+      console.log('Recalculating distances for', EVENTS.length, 'events');
+      const eventsWithDistances = recalculateDistances(EVENTS);
+      setEVENTS(eventsWithDistances);
+    }
+  }, [userLocation]);
+
   const loadImages = async () => {
     try {
       // Get list of files in the bucket
@@ -227,7 +267,6 @@ export default function SuggestedEvents() {
        // Optionally set an error state or show a message to the user
     }
   };
-
   
   const interpolateColor = swipeX.interpolate({
     inputRange: [-width, 0, width],
@@ -238,34 +277,19 @@ export default function SuggestedEvents() {
 
   const handleCardPress = (card: EventCard) => {
     setExpandedCard(card);
-    // Reset the animation values
+    // Reset the scale value
     fadeAnim.setValue(0);
-    scaleAnim.setValue(0.8);
-    cardOpacityAnim.setValue(0);
-    cardScaleAnim.setValue(0.8);
-
-    // Start the animations
+    // Start the animation
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 300,
+        duration: 400,
         useNativeDriver: true,
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-      Animated.timing(cardOpacityAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.spring(cardScaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
+        friction: 5,
+        tension: 50,
         useNativeDriver: true,
       })
     ]).start();
@@ -284,17 +308,6 @@ export default function SuggestedEvents() {
         friction: 5,
         tension: 50,
         useNativeDriver: true,
-      }),
-      Animated.timing(cardOpacityAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.spring(cardScaleAnim, {
-        toValue: 0.8,
-        friction: 5,
-        tension: 50,
-        useNativeDriver: true,
       })
     ]).start(() => {
       // Only update state after animation completes
@@ -309,7 +322,9 @@ export default function SuggestedEvents() {
       await dataManager.addEventToSavedEvents(likedEvent.id);
       // Refresh global data so SavedLikes and others update
       await GlobalDataManager.getInstance().refreshAllData();
+
       loadImages();
+
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 0,
@@ -350,26 +365,132 @@ export default function SuggestedEvents() {
   // Function to request location permission and get current location using expo-location
   const requestLocationPermission = async () => {
     try {
-      // Request foreground location permissions
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        console.error('Permission to access location was denied');
-        // Optionally show a message to the user explaining why location is needed
+        console.error('Location permission denied');
         return;
       }
 
-      // Get current location
-      let location = await Location.getCurrentPositionAsync({});
-      setUserLocation({
+      let location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High
+      });
+      
+      console.log('Got user location:', location.coords);
+      
+      const newUserLocation = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-      });
-      console.log('User Location:', location.coords);
+      };
+      
+      setUserLocation(newUserLocation);
 
+      // Recalculate distances for all events with the new location
+      if (EVENTS.length > 0) {
+        const eventsWithDistances = recalculateDistances(EVENTS);
+        setEVENTS(eventsWithDistances);
+      }
     } catch (err) {
       console.error('Error getting user location:', err);
     }
   };
+
+
+  // Function to fetch route from Google Directions API
+  const fetchRoute = async (origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) => {
+    try {
+      setIsLoadingRoute(true);
+      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+      
+      if (!apiKey) {
+        console.error('Google Maps API key is missing');
+        return;
+      }
+
+      console.log('Origin:', origin);
+      console.log('Destination:', destination);
+      
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=${apiKey}&mode=driving`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.routes && data.routes.length > 0) {
+        const points = data.routes[0].overview_polyline.points;
+        const coords = decodePolyline(points);
+        setRouteCoordinates(coords);
+      } else {
+        console.error('Directions API error:', data.status, data.error_message);
+        // Fallback to straight line
+        setRouteCoordinates([
+          { latitude: origin.latitude, longitude: origin.longitude },
+          { latitude: destination.latitude, longitude: destination.longitude }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      // Fallback to straight line
+      setRouteCoordinates([
+        { latitude: origin.latitude, longitude: origin.longitude },
+        { latitude: destination.latitude, longitude: destination.longitude }
+      ]);
+    } finally {
+      setIsLoadingRoute(false);
+    }
+  };
+
+  // Function to decode Google's polyline format
+  const decodePolyline = (encoded: string): RouteCoordinates[] => {
+    const poly: RouteCoordinates[] = [];
+    let index = 0;
+    let len = encoded.length;
+    let lat = 0;
+    let lng = 0;
+
+    while (index < len) {
+      let shift = 0;
+      let result = 0;
+
+      do {
+        let b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (result >= 0x20);
+
+      let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+
+      do {
+        let b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (result >= 0x20);
+
+      let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      poly.push({
+        latitude: lat / 1E5,
+        longitude: lng / 1E5
+      });
+    }
+
+    return poly;
+  };
+
+  // Update route when expanded card changes
+  useEffect(() => {
+    if (expandedCard && userLocation && expandedCard.latitude && expandedCard.longitude) {
+      fetchRoute(
+        { latitude: userLocation.latitude, longitude: userLocation.longitude },
+        { latitude: expandedCard.latitude, longitude: expandedCard.longitude }
+      );
+    }
+  }, [expandedCard, userLocation]);
+
+
 
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
@@ -541,6 +662,7 @@ export default function SuggestedEvents() {
     }
   }, [loading, isFetchingActivities]);
 
+
   const handleSwipedLeft = async (cardIndex: number) => {
     const rejectedEvent = EVENTS[cardIndex];
 
@@ -567,6 +689,7 @@ export default function SuggestedEvents() {
   };
 
   if (loading && !isFetchingActivities) {
+
     const spin = rotateAnim.interpolate({
       inputRange: [0, 1],
       outputRange: ['0deg', '360deg'],
@@ -1020,6 +1143,26 @@ export default function SuggestedEvents() {
                 )}
               </View>
             </ScrollView>
+              disableBottomSwipe
+              pointerEvents="box-none"
+              useViewOverflow={false}
+            />
+          </View>
+
+          <Animated.View style={[styles.actionButtons]}>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.nopeButton]}
+              onPress={() => swiperRef.current?.swipeLeft()}
+            >
+              <Ionicons name="close" size={32} color="red" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.likeButton]}
+              onPress={() => swiperRef.current?.swipeRight()}
+            >
+              <Ionicons name="checkmark" size={32} color="green" />
+            </TouchableOpacity>
+
           </Animated.View>
         </Animated.View>
       )}
@@ -1077,15 +1220,7 @@ export default function SuggestedEvents() {
               ]).start(() => setExpandedSavedActivity(null));
             }}
           >
-            <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.backButtonGradient}
-            >
-              <Ionicons name="arrow-back" size={24} color="white" />
-            </LinearGradient>
+            <Text style={styles.backButtonText}>{'←'}</Text>
           </TouchableOpacity>
           <Animated.View 
             style={[
@@ -1287,7 +1422,21 @@ export default function SuggestedEvents() {
                 )}
               </View>
             </ScrollView>
-          </Animated.View>
+            <Animated.View style={[styles.expandedActionButtons, { opacity: fadeAnim }]}>
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.nopeButton]}
+                onPress={() => swiperRef.current?.swipeLeft()}
+              >
+                <Ionicons name="close" size={32} color="red" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.likeButton]}
+                onPress={() => swiperRef.current?.swipeRight()}
+              >
+                <Ionicons name="checkmark" size={32} color="green" />
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
         </Animated.View>
       )}
     </SafeAreaView>
@@ -1420,12 +1569,12 @@ const styles = StyleSheet.create({
   expandedContent: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 100, // Add padding to account for the action buttons
+    paddingBottom: 100,
   },
   expandedTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   infoRow: {
     flexDirection: 'row',
@@ -1516,54 +1665,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  backButtonGradient: {
-    padding: 12,
-    borderRadius: 20,
-  },
-  expandedHeader: {
-    marginTop: 20,
-    marginBottom: 30,
-  },
-  infoSection: {
-    marginBottom: 30,
-  },
-  infoIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  infoTextContainer: {
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: 14,
-    opacity: 0.7,
-    marginBottom: 4,
-  },
-  infoValue: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  descriptionSection: {
-    marginBottom: 30,
-  },
-  descriptionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  descriptionText: {
-    fontSize: 16,
-    lineHeight: 24,
-  },
   mapContainer: {
+    marginTop: 20,
     height: 300,
-    borderRadius: 20,
+    borderRadius: 8,
     overflow: 'hidden',
-    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    position: 'relative',
   },
   map: {
     width: '100%',
