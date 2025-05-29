@@ -12,6 +12,7 @@ import {
   Platform,
   Animated,
   Modal,
+  Switch,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +23,7 @@ import Slider from '@react-native-community/slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import GlobalDataManager from '@/lib/GlobalDataManager';
 import { UserProfile } from '@/lib/GlobalDataManager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 
 const { width, height } = Dimensions.get('window');
@@ -84,6 +86,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const [isAnimating, setIsAnimating] = useState(false);
+  const [filterByDistance, setFilterByDistance] = useState(true);
 
   const dataManager = GlobalDataManager.getInstance();
 
@@ -120,6 +123,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
         days = prefs.preferred_days.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
       }
       setSelectedDayPreferences(days.length > 0 ? days : DAYS_OF_WEEK);
+      // Load filter by distance preference
+      const filterByDistanceStr = await dataManager.getIsFilterByDistance();
+      //AsyncStorage.getItem('filterByDistance');
+      setFilterByDistance(filterByDistanceStr);
     } catch (error) {
       console.error('Error in fetchUserPreferences:', error);
     }
@@ -224,6 +231,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     userProfile['travel-distance'] = travelDistance;
     userProfile.preferred_days = daysToSave;
 
+    // Save filter by distance preference
+    await dataManager.setIsFilterByDistance(filterByDistance);
+    //await AsyncStorage.setItem('filterByDistance', filterByDistance.toString());
+
     await dataManager.setUserProfile(userProfile);
 
     onClose();
@@ -232,22 +243,17 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   };
 
    const handleReset = async () => {
-    const emptyFilters = {
-      eventTypes: [],
-      timePreferences: { start: defaultStart, end: defaultEnd },
-      locationPreferences: [],
-      travelDistance: 8,
-      dayPreferences: [],
-    };
-    
     // Reset local state
     setSelectedEventTypes([]);
     setSelectedDayPreferences([]);
-    setSelectedTimePreferences({ start: defaultStart, end: defaultEnd });
-    setSelectedLocationPreferences([]);
     setStartTime(21 * 60);
     setEndTime(3 * 60);
     setTravelDistance(8);
+    setManualLocation('');
+    
+    // Reset filter by distance preference
+    await dataManager.setIsFilterByDistance(false);
+    setFilterByDistance(false);
   };
 
   const isDark = colorScheme === 'dark';
@@ -515,47 +521,60 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
             </View>
 
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                Location
-              </Text>
-              {locationPermission === false ? (
-                <View style={styles.locationInputContainer}>
-                  <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Enter your location
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.locationInput,
-                      { 
-                        backgroundColor: Colors[colorScheme ?? 'light'].card,
-                        color: Colors[colorScheme ?? 'light'].text,
-                        borderColor: Colors[colorScheme ?? 'light'].card
-                      }
-                    ]}
-                    placeholder="e.g., New York, NY"
-                    placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
-                    value={manualLocation}
-                    onChangeText={setManualLocation}
-                    returnKeyType="done"
-                  />
-                </View>
-              ) : (
-                <View style={styles.locationContainer}>
-                  <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.locationGradient}
-                  >
-                    <View style={styles.locationContent}>
-                      <Ionicons name="location" size={24} color="white" />
-                      <View style={styles.locationTextContainer}>
-                        <Text style={styles.locationTitle}>Using your current location</Text>
-                      </View>
+              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
+              <View style={styles.locationToggleContainer}>
+                <Text style={[styles.locationToggleLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Filter by travel distance
+                </Text>
+                <Switch
+                  value={filterByDistance}
+                  onValueChange={setFilterByDistance}
+                  trackColor={{ false: '#767577', true: '#FF1493' }}
+                  thumbColor={filterByDistance ? '#fff' : '#f4f3f4'}
+                />
+              </View>
+              {filterByDistance && (
+                <>
+                  {locationPermission === false ? (
+                    <View style={styles.locationInputContainer}>
+                      <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Enter your location
+                      </Text>
+                      <TextInput
+                        style={[
+                          styles.locationInput,
+                          { 
+                            backgroundColor: Colors[colorScheme ?? 'light'].card,
+                            color: Colors[colorScheme ?? 'light'].text,
+                            borderColor: Colors[colorScheme ?? 'light'].card
+                          }
+                        ]}
+                        placeholder="e.g., New York, NY"
+                        placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                        value={manualLocation}
+                        onChangeText={setManualLocation}
+                        returnKeyType="done"
+                      />
                     </View>
-                  </LinearGradient>
-                </View>
+                  ) : (
+                    <View style={styles.locationContainer}>
+                      <LinearGradient
+                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.3, 0.7, 1]}
+                        style={styles.locationGradient}
+                      >
+                        <View style={styles.locationContent}>
+                          <Ionicons name="location" size={24} color="white" />
+                          <View style={styles.locationTextContainer}>
+                            <Text style={styles.locationTitle}>Using your current location</Text>
+                          </View>
+                        </View>
+                      </LinearGradient>
+                    </View>
+                  )}
+                </>
               )}
             </View>
 
@@ -928,5 +947,15 @@ const styles = StyleSheet.create({
   dayCircleButtonText: {
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  locationToggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  locationToggleLabel: {
+    fontSize: 16,
+    fontWeight: '500',
   },
 }); 

@@ -90,11 +90,8 @@ export default function SuggestedEvents() {
   const dataManager = GlobalDataManager.getInstance();
 
   const fetchTokenAndCallBackend = async () => {
-
     const currentUserEmail = dataManager.getCurrentUser()?.email ?? null;
-
     const userLocation = await Location.getCurrentPositionAsync();
-
     const userLatitude = userLocation.coords.latitude;
     const userLongitude = userLocation.coords.longitude;
 
@@ -104,15 +101,13 @@ export default function SuggestedEvents() {
     }
 
     try {
-
       const rejectedEvents = await dataManager.getRejectedEvents();
-
-      // Send only the ids of the rejected events
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
+      const filterByDistance = await dataManager.getIsFilterByDistance();
 
       console.log('rejectedEventIds in fetchTokenAndCallBackend', rejectedEventIds);
 
-      const response = await fetch('http://100.67.80.143:5000/recommend', {
+      const response = await fetch('http://192.168.68.123:5000/recommend', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -123,8 +118,9 @@ export default function SuggestedEvents() {
           user_latitude: userLatitude,
           user_longitude: userLongitude,
           rejected_events: rejectedEventIds,
+          filter_by_distance: filterByDistance,
         }),
-      })
+      });
 
       if (!response.ok) {
         const errorText = await response.text();

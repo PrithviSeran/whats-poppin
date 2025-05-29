@@ -80,15 +80,17 @@ def recommend():
     print("request.json:", request.json)
 
     target_user = request.json.get("email")
-    user_latitude = request.json.get("user_latitude") # Get user latitude from request
-    user_longitude = request.json.get("user_longitude") # Get user longitude from request
+    user_latitude = request.json.get("user_latitude")
+    user_longitude = request.json.get("user_longitude")
+    filter_by_distance = request.json.get("filter_by_distance", True)  # Default to True for backward compatibility
 
     print("target_user:", target_user)
-    print("user_location:", user_latitude, user_longitude) # Log user location
+    print("user_location:", user_latitude, user_longitude)
+    print("filter_by_distance:", filter_by_distance)
 
     if not target_user:
         print("No target user email provided.")
-        return jsonify({"recommended_events": []}), 400 # Bad Request
+        return jsonify({"recommended_events": []}), 400
 
     # 1. Fetch the target user's preferences
     user_result = Client.table("all_users").select("preferences, travel-distance, saved_events, rejected_events, start-time, end-time").eq("email", target_user).maybe_single().execute()
@@ -213,13 +215,11 @@ def recommend():
             else:
                 print(f"Event {event_id} ({event_name}): No location data")
     """
-    # Apply distance filtering if user location is available
+    # Apply distance filtering if user location is available and filter_by_distance is True
     all_events_filtered = []
-    # Use user's travel distance preference instead of hardcoded value
     distance_threshold_km = user_travel_distance
-    
 
-    if user_latitude is not None and user_longitude is not None:
+    if filter_by_distance and user_latitude is not None and user_longitude is not None:
         for event in all_events_raw:
             event_latitude = event.get("latitude")
             event_longitude = event.get("longitude")
@@ -238,12 +238,26 @@ def recommend():
                     all_events_filtered.append(event)
             else:
                 # Optionally include events without location data, or filter them out
-                # For now, let's include events without location data (cannot calculate distance)
                 event["distance"] = None
                 all_events_filtered.append(event)
     else:
-        # If user location is not available, use all events filtered by preferences
+        # If not filtering by distance, use all events filtered by preferences
         all_events_filtered = all_events_raw
+        # Still add distance field if location data is available
+        if user_latitude is not None and user_longitude is not None:
+            for event in all_events_filtered:
+                event_latitude = event.get("latitude")
+                event_longitude = event.get("longitude")
+                if event_latitude is not None and event_longitude is not None:
+                    distance = calculate_distance(
+                        user_latitude,
+                        user_longitude,
+                        event_latitude,
+                        event_longitude
+                    )
+                    event["distance"] = distance
+                else:
+                    event["distance"] = None
 
     print("all_events_filtered after distance filter:", len(all_events_filtered))
 

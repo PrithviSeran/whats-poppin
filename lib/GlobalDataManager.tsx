@@ -329,6 +329,15 @@ class GlobalDataManager extends EventEmitter {
     }
   }
 
+  async setIsFilterByDistance(filterByDistance: boolean) {
+    await AsyncStorage.setItem('filterByDistance', filterByDistance.toString());
+  }
+
+  async getIsFilterByDistance(): Promise<boolean> {
+    const filterByDistanceStr = await AsyncStorage.getItem('filterByDistance');
+    return filterByDistanceStr ? filterByDistanceStr === 'true' : false;
+  }
+
   async getRejectedEvents(): Promise<EventCard[]> {
     const rejectedEventsJson = await AsyncStorage.getItem('rejectedEvents');
     return rejectedEventsJson ? JSON.parse(rejectedEventsJson) : [];
