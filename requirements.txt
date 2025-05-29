@@ -4,4 +4,4 @@ numpy==1.23.5
 scipy==1.15.3
 supabase==2.15.2
 torch==2.2.1
-setuptools==80.7.1
+distutils
