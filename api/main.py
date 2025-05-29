@@ -1,14 +1,9 @@
 from flask import Flask, request, jsonify
 from beacon_torch import BeaconAI
 from supabase import create_client, Client
-import numpy as np
 import random
-import os
-import jwt
-import requests
-from jwt import PyJWKClient
 from flask_cors import CORS
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from beacon_torch import BeaconAI
 import math
 
