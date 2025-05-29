@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from collections import defaultdict
 from scipy.sparse import coo_matrix
 
 class MatrixFactorizationModel(nn.Module):

@@ -1,11 +1,14 @@
 from flask import Flask, request, jsonify
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from beacon_torch import BeaconAI
 from supabase import create_client, Client
 import random
 from flask_cors import CORS
 from datetime import datetime, timedelta
-from beacon_torch import BeaconAI
 import math
+
 
 app = Flask(__name__)
 CORS(app)
@@ -511,4 +514,5 @@ def parse_days(days):
         return []
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run()
+    #app.run(host='0.0.0.0', port=5000, debug=True)

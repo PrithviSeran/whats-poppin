@@ -107,7 +107,7 @@ export default function SuggestedEvents() {
 
       console.log('rejectedEventIds in fetchTokenAndCallBackend', rejectedEventIds);
 
-      const response = await fetch('http://192.168.68.123:5000/recommend', {
+      const response = await fetch('https://whats-poppin-delta.vercel.app/api/recommend', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
