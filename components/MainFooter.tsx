@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { CommonActions } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
@@ -43,6 +44,15 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
     }).start();
   }, [activeTab]);
 
+  const navigateToTab = (routeName: keyof RootStackParamList) => {
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: routeName }],
+      })
+    );
+  };
+
   return (
     <LinearGradient
       colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
@@ -55,7 +65,7 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
         style={styles.tab} 
         onPress={() => {
           if (activeTab !== 'home') {
-            navigation.navigate('suggested-events');
+            navigateToTab('suggested-events');
           }
         }}
       >
@@ -73,7 +83,7 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
         style={styles.tab} 
         onPress={() => {
           if (activeTab !== 'discover') {
-            navigation.navigate('discover');
+            navigateToTab('discover');
           }
         }}
       >
@@ -91,7 +101,7 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
         style={styles.tab} 
         onPress={() => {
           if (activeTab !== 'me') {
-            navigation.navigate('me');
+            navigateToTab('me');
           }
         }}
       >
@@ -180,7 +190,6 @@ const styles = StyleSheet.create({
   },
   activeTabCircle: {
     backgroundColor: 'rgba(255,255,255,0.18)',
-
     padding: 12,
     marginBottom: -8,
     alignItems: 'center',
