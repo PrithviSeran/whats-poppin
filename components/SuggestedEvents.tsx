@@ -107,18 +107,25 @@ export default function SuggestedEvents() {
 
       console.log('rejectedEventIds in fetchTokenAndCallBackend', rejectedEventIds);
 
-      const response = await fetch('https://whats-poppin-delta.vercel.app/api/recommend', {
+      /*const params = new URLSearchParams({
+          email: currentUserEmail,
+          latitude: userLatitude?.toString() || '',
+          longitude: userLongitude?.toString() || '',
+          filter_distance: filterByDistance.toString(),
+          rejected_events: Array.isArray(rejectedEventIds) ? rejectedEventIds.join(',') : rejectedEventIds
+      });*/
+
+      const response = await fetch('https://iamtheprince-whats-poppin.hf.space/recommend', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
         },
         body: JSON.stringify({
           email: currentUserEmail,
-          user_latitude: userLatitude,
-          user_longitude: userLongitude,
+          latitude: userLatitude,
+          longitude: userLongitude,
           rejected_events: rejectedEventIds,
-          filter_by_distance: filterByDistance,
+          filter_distance: filterByDistance
         }),
       });
 
@@ -134,11 +141,13 @@ export default function SuggestedEvents() {
 
       const eventsData = await response.json();
 
+      console.log('eventsData', eventsData);
+
       // Reset the Swiper state
       setCardIndex(0);
       setEVENTS([]); // Clear current events
       setTimeout(() => {
-        setEVENTS(eventsData.recommended_events); // Set new events after a brief delay
+        setEVENTS(eventsData.events); // Set new events after a brief delay
         setLoading(false);
         setIsFetchingActivities(false); // Reset fetching activities state
       }, 100);

@@ -316,9 +316,10 @@ def recommend():
         reservation_required = "yes" if reservation and reservation.lower() in ["yes", "y", "true", "1"] else "no"
         event_feature_tuples.append((eid, [event_types, time_tag, age_restriction, cost_range, reservation_required]))
 
-    recommended_events = request.json.get("recommended_events", [])
+    # recommended_events = request.json.get("recommended_events", [])
     # Remove events from the filtered list that were already recommended in this session
-    event_ids_for_recommendation = remove_elements(event_ids_filtered, recommended_events)
+    # event_ids_for_recommendation = remove_elements(event_ids_filtered, recommended_events)
+    event_ids_for_recommendation = event_ids_filtered
     if not event_ids_for_recommendation:
         print("No new events available after filtering out previously recommended.")
         return jsonify({"recommended_events": []})
