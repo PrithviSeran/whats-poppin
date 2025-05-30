@@ -397,41 +397,42 @@ export default function Discover() {
     });
   };
 
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-      <View style={styles.searchContainer}>
-        <LinearGradient
-          colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          locations={[0, 0.3, 0.7, 1]}
-          style={styles.searchGradient}
-        >
-          <View style={styles.searchInputContainer}>
-            <Ionicons name="search" size={20} color="#000" />
-            <TextInput
-              style={[styles.searchInput, { color: '#000' }]}
-              placeholder="Search events..."
-              placeholderTextColor="#666"
-              value={searchQuery}
-              onChangeText={handleSearch}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => {
-                setSearchQuery('');
-                fetchEvents();
-              }}>
-                <Ionicons name="close-circle" size={20} color="#000" />
-              </TouchableOpacity>
-            )}
-          </View>
-        </LinearGradient>
-      </View>
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors[colorScheme].tint} />
+        </View>
+      );
+    }
 
-      <ScrollView 
-        style={styles.eventsGrid}
+    if (error) {
+      return (
+        <View style={styles.errorContainer}>
+          <Text style={[styles.errorText, { color: Colors[colorScheme].text }]}>{error}</Text>
+        </View>
+      );
+    }
+
+    if (searchQuery && events.length === 0) {
+      return (
+        <View style={styles.noResultsContainer}>
+          <Ionicons name="search-outline" size={48} color={Colors[colorScheme].text} />
+          <Text style={[styles.noResultsText, { color: Colors[colorScheme].text }]}>
+            No events found for "{searchQuery}"
+          </Text>
+          <Text style={[styles.noResultsSubtext, { color: Colors[colorScheme].text }]}>
+            Try different keywords or browse all events
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
         onScroll={handleScroll}
-        scrollEventThrottle={16} // More frequent updates for smoother scrolling
+        scrollEventThrottle={16}
       >
         <View style={styles.gridContainer}>
           {events.map((event, index) => (
@@ -490,6 +491,41 @@ export default function Discover() {
           </View>
         )}
       </ScrollView>
+    );
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+      <View style={styles.searchContainer}>
+        <LinearGradient
+          colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          locations={[0, 0.3, 0.7, 1]}
+          style={styles.searchGradient}
+        >
+          <View style={styles.searchInputContainer}>
+            <Ionicons name="search" size={20} color="#000" />
+            <TextInput
+              style={[styles.searchInput, { color: '#000' }]}
+              placeholder="Search events..."
+              placeholderTextColor="#666"
+              value={searchQuery}
+              onChangeText={handleSearch}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => {
+                setSearchQuery('');
+                fetchEvents();
+              }}>
+                <Ionicons name="close-circle" size={20} color="#000" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </LinearGradient>
+      </View>
+
+      {renderContent()}
 
       {modalVisible && selectedEvent && (
             <Animated.View 
@@ -669,5 +705,44 @@ const styles = StyleSheet.create({
   loadingMoreText: {
     marginLeft: 10,
     fontSize: 14,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  noResultsContainer: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    padding: 20,
+    marginTop: 100,
+  },
+  noResultsText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  noResultsSubtext: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
 }); 

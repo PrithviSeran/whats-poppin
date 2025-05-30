@@ -890,7 +890,7 @@ export default function SuggestedEvents() {
               </View>
 
               <View style={styles.infoSection}>
-              <View style={styles.infoRow}>
+                <View style={styles.infoRow}>
                   <LinearGradient
                     colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
                     start={{ x: 0, y: 0 }}
@@ -901,7 +901,7 @@ export default function SuggestedEvents() {
                     <Ionicons name="calendar-outline" size={20} color="white" />
                   </LinearGradient>
                   <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 4 }]}>Date & Occurrence</Text>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 4 }]}>Days of the Week</Text>
                     {expandedCard.occurrence === 'Weekly' && Array.isArray(expandedCard.days_of_the_week) && expandedCard.days_of_the_week.length > 0 ? (
                       <View style={styles.dayButtonContainer}>
                         {DAYS_OF_WEEK.map((day) => (
@@ -946,7 +946,7 @@ export default function SuggestedEvents() {
                     <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
                       {expandedCard.location}
                     </Text>
-              </View>
+                  </View>
                 </View>
 
                 {typeof expandedCard.distance === 'number' && (
@@ -968,6 +968,60 @@ export default function SuggestedEvents() {
                     </View>
                   </View>
                 )}
+
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="cash-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Cost</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      ${expandedCard.cost}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="people-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Age Restriction</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {expandedCard.age_restriction}+
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="calendar-number-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Reservation</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {expandedCard.reservation === 'yes' ? 'Required' : 'Not Required'}
+                    </Text>
+                  </View>
+                </View>
               </View>
 
               <View style={styles.descriptionSection}>
@@ -1237,6 +1291,60 @@ export default function SuggestedEvents() {
                     </View>
                   </View>
                 )}
+
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="cash-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Cost</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      ${expandedSavedActivity.cost}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="people-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Age Restriction</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {expandedSavedActivity.age_restriction}+
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="calendar-number-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Reservation</Text>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {expandedSavedActivity.reservation === 'yes' ? 'Required' : 'Not Required'}
+                    </Text>
+                  </View>
+                </View>
               </View>
 
               <View style={styles.descriptionSection}>
