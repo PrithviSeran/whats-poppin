@@ -320,6 +320,7 @@ def recommend():
     # Remove events from the filtered list that were already recommended in this session
     # event_ids_for_recommendation = remove_elements(event_ids_filtered, recommended_events)
     event_ids_for_recommendation = event_ids_filtered
+    
     if not event_ids_for_recommendation:
         print("No new events available after filtering out previously recommended.")
         return jsonify({"recommended_events": []})
@@ -348,8 +349,6 @@ def recommend():
     top_5_event_objs = [event for event in all_events_filtered if event.get("id") in top_5_recommended_events]
     return jsonify({"recommended_events": top_5_event_objs})
 
-
-    
 
 
 def get_age_group(age):

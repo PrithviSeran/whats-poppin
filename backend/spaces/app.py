@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime
 from typing import List, Optional, Union
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -393,10 +393,14 @@ class EventRecommendationSystem:
         r = 6371  # Radius of earth in kilometers
         return c * r
     
-    def recommend_events(self, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None):
+    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None):
         """Main recommendation function"""
         try:
             print(f"Starting recommendation process for email: {email}")
+
+            user = self.Client.auth.get_user(token)
+            if user.user.email != email:
+                raise HTTPException(status_code=401, detail="Token doesn't match requested email")
             
             # Parse rejected events
             if isinstance(rejected_events, str):
@@ -567,15 +571,23 @@ async def root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-@app.post("/recommend", response_model=RecommendationResponse)
-async def get_recommendations(request: RecommendationRequest):
+@app.post("/recommend")
+async def get_recommendations(request_data: RecommendationRequest, request: Request):
     """Get event recommendations for a user"""
+
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return {"error": "No valid token provided"}
+
+    token = auth_header.split(' ')[1]
+
     result = recommender.recommend_events(
-        email=request.email,
-        latitude=request.latitude,
-        longitude=request.longitude,
-        filter_distance=request.filter_distance,
-        rejected_events=request.rejected_events
+        token=token,
+        email=request_data.email,
+        latitude=request_data.latitude,
+        longitude=request_data.longitude,
+        filter_distance=request_data.filter_distance,
+        rejected_events=request_data.rejected_events
     )
     
     return RecommendationResponse(**result)

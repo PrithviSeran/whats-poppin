@@ -104,6 +104,7 @@ export default function SuggestedEvents() {
       const rejectedEvents = await dataManager.getRejectedEvents();
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
       const filterByDistance = await dataManager.getIsFilterByDistance();
+      const session = await dataManager.getSession();
 
       console.log('rejectedEventIds in fetchTokenAndCallBackend', rejectedEventIds);
 
@@ -119,6 +120,7 @@ export default function SuggestedEvents() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
         },
         body: JSON.stringify({
           email: currentUserEmail,

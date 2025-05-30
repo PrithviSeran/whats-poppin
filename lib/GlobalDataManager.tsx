@@ -360,6 +360,21 @@ class GlobalDataManager extends EventEmitter {
       throw error;
     }
   }
+
+  // Add this method to the GlobalDataManager class
+  async getSession() {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error('Error getting session:', error);
+        return null;
+      }
+      return session;
+    } catch (error) {
+      console.error('Error in getSession:', error);
+      return null;
+    }
+  }
 }
 
 export default GlobalDataManager; 
