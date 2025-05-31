@@ -583,15 +583,18 @@ export default function SuggestedEvents() {
       outputRange: [0.8, 1.2],
     });
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+    <SafeAreaView style={[
+      styles.container,
+      { backgroundColor: colorScheme === 'dark' ? '#181818' : '#F2F2F2' }
+    ]}>
         {/* Top Buttons (Saved Events and Filters) */}
       <View style={styles.topButtons}>
         <TouchableOpacity 
           style={styles.topButton}
-            onPress={openSavedActivities}
+          onPress={openSavedActivities}
         >
           <LinearGradient
-            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             locations={[0, 0.3, 0.7, 1]}
@@ -605,7 +608,7 @@ export default function SuggestedEvents() {
           onPress={() => setIsFilterVisible(true)}
         >
           <LinearGradient
-            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             locations={[0, 0.3, 0.7, 1]}
@@ -638,14 +641,17 @@ export default function SuggestedEvents() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+    <SafeAreaView style={[
+      styles.container,
+      { backgroundColor: colorScheme === 'dark' ? '#181818' : '#F2F2F2' }
+    ]}>
       <View style={styles.topButtons}>
         <TouchableOpacity 
           style={styles.topButton}
           onPress={openSavedActivities}
         >
           <LinearGradient
-            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             locations={[0, 0.3, 0.7, 1]}
@@ -659,7 +665,7 @@ export default function SuggestedEvents() {
           onPress={() => setIsFilterVisible(true)}
         >
           <LinearGradient
-            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             locations={[0, 0.3, 0.7, 1]}
@@ -1450,11 +1456,15 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   image: {
-    width: '100%',
+    width: '92%',
     height: '80%',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     resizeMode: 'cover',
+    marginTop: 20,
+    alignSelf: 'center',
   },
   title: {
     fontSize: 24,

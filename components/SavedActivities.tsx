@@ -123,7 +123,7 @@ export default function SavedActivities({
           accessibilityRole="button"
         >
           <LinearGradient
-            colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             locations={[0, 0.3, 0.7, 1]}
@@ -145,14 +145,7 @@ export default function SavedActivities({
         ) : (
           <ScrollView style={styles.savedLikesScroll} contentContainerStyle={{ paddingBottom: 40 }}>
             {savedActivitiesEvents.map((event, idx) => (
-              <LinearGradient
-                key={event.id ? `event-${event.id}` : `event-${event.name}-${idx}`}
-                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
-                style={styles.savedLikesCardGradientBorder}
-              >
+              <React.Fragment key={event.id ? `event-${event.id}` : `event-${event.name}-${idx}`}>
                 <TouchableOpacity 
                   style={[
                     styles.savedLikesCard,
@@ -170,16 +163,10 @@ export default function SavedActivities({
                     savedActivityOpacityAnim.setValue(0);
                   }}
                 >
-                  <Image
-                    source={event.image ? { uri: event.image } : require('../assets/images/balloons.png')}
-                    style={styles.savedLikesCardImage}
-                    resizeMode="cover"
-                    accessibilityLabel={event.name || 'Event image'}
-                  />
                   <View style={styles.savedLikesCardTextColumn}>
                     <Text style={[
                       styles.savedLikesCardTitle,
-                      { color: Colors[colorScheme ?? 'light'].tint }
+                      { color: '#000' }
                     ]} numberOfLines={1}>
                       {event.name || 'Untitled Event'}
                     </Text>
@@ -187,25 +174,28 @@ export default function SavedActivities({
                       <View style={styles.savedLikesCardInfoRow}>
                         {event.occurrence !== 'Weekly' && (
                           <>
-                            <Ionicons name="calendar-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-                            <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}> 
+                            <Ionicons name="calendar-outline" size={18} color="#000" />
+                            <Text style={[styles.savedLikesCardInfoText, { color: '#000', marginLeft: 6 }]}> 
                               {new Date(event.start_date).toLocaleDateString()}
                             </Text>
                           </>
                         )}
+                        {typeof event.distance === 'number' && (
+                          <>
+                            <Ionicons name="walk-outline" size={18} color="#000" style={{ marginLeft: 12 }} />
+                            <Text style={[styles.savedLikesCardInfoText, { color: '#000', marginLeft: 6 }]}> 
+                              {event.distance.toFixed(2)} km
+                            </Text>
+                          </>
+                        )}
                       </View>
-                      {typeof event.distance === 'number' && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                          <Ionicons name="walk-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-                          <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}> 
-                            {event.distance.toFixed(2)} km
-                          </Text>
-                        </View>
-                      )}
                     </View>
                   </View>
                 </TouchableOpacity>
-              </LinearGradient>
+                {idx < savedActivitiesEvents.length - 1 && (
+                  <View style={styles.cardDivider} />
+                )}
+              </React.Fragment>
             ))}
           </ScrollView>
         )}
@@ -273,35 +263,29 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 10, // Reduced from 20 to give more space for cards
   },
-  savedLikesCardGradientBorder: {
-    borderRadius: 22,
-    padding: 2.5,
-    marginBottom: 18,
+  cardDivider: {
+    height: 1,
+    backgroundColor: '#F45B5B',
+    marginHorizontal: 8,
+    borderRadius: 1,
   },
   savedLikesCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 20,
-    height: 100,
+    height: 70,
     overflow: 'hidden',
-    padding: 8,
+    padding: 12,
     width: '100%',
-  },
-  savedLikesCardImage: {
-    width: 100,
-    height: 84,
-    borderRadius: 16,
-    resizeMode: 'cover',
+    borderRadius: 6,
   },
   savedLikesCardTextColumn: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     justifyContent: 'center',
+    paddingTop: 2,
   },
   savedLikesCardInfoContainer: {
-    gap: 4,
+    gap: 2,
   },
   savedLikesCardInfoRow: {
     flexDirection: 'row',
@@ -314,7 +298,7 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   savedLikesCardTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 6,
   },

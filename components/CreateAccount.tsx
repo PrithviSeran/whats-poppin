@@ -17,8 +17,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import 'react-native-url-polyfill/auto';
-import { Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
 import MaskedView from '@react-native-masked-view/masked-view';
 
 type RootStackParamList = {
@@ -38,7 +36,6 @@ const CreateAccount = () => {
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const [session, setSession] = useState<Session | null>(null);
 
   const validateName = (text: string) => {
     if (text.trim().length < 2) {
