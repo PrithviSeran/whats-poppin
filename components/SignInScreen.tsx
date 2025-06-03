@@ -88,7 +88,7 @@ const SignInScreen = () => {
         <View style={styles.textContainer}>
           <AnimatedGradientText
             phrases={CATCH_PHRASES}
-            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD'] as const}
+            colors={['#9E95BD', '#9E95BD', '#FF0005', '#9E95BD'] as const}
           />
         </View>
 
