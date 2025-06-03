@@ -117,8 +117,27 @@ class GlobalDataManager extends EventEmitter {
 
       if (error) throw error;
       if (profile) {
-        await AsyncStorage.setItem('userProfile', JSON.stringify(profile));
-        console.log('User profile stored successfully');
+        // Create folder path using user's email
+        const userFolder = user.email?.replace(/[^a-zA-Z0-9]/g, '_') || user.id;
+
+        // Get the public URLs for both images
+        const { data: { publicUrl: profileUrl } } = supabase.storage
+          .from('user-images')
+          .getPublicUrl(`${userFolder}/profile.jpg`);
+
+        const { data: { publicUrl: bannerUrl } } = supabase.storage
+          .from('user-images')
+          .getPublicUrl(`${userFolder}/banner.jpg`);
+
+        // Add image URLs to profile object
+        const profileWithImages = {
+          ...profile,
+          profileImage: profileUrl,
+          bannerImage: bannerUrl
+        };
+
+        await AsyncStorage.setItem('userProfile', JSON.stringify(profileWithImages));
+        console.log('User profile stored successfully with image URLs');
       }
     } catch (error) {
       console.error('Error fetching and storing user profile:', error);

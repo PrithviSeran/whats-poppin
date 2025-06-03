@@ -9,19 +9,8 @@ import MainFooter from './MainFooter';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import GlobalDataManager, { UserProfile } from '@/lib/GlobalDataManager';
 
-interface UserProfile {
-  id: number;
-  created_at: string;
-  name: string;
-  email: string;
-  birthday: string;
-  gender: string;
-  saved_events?: string[]; // or string, depending on your usage
-  preferences?: string[];  // or string, depending on your usage
-  profileImage?: string;
-  bannerImage?: string;
-}
 
 type RootStackParamList = {
   '(tabs)': {
@@ -48,56 +37,22 @@ export default function Profile() {
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
+  const dataManager = GlobalDataManager.getInstance();
+
   const fetchUserProfile = async () => {
     try {
       console.log('Fetching user profile...');
       // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await dataManager.getUserProfile();
       if (!user) {
         console.log('No user found');
         return;
       }
 
-      console.log('Fetching profile for user:', user.email);
-      // Query the all_users table for this user's profile
-      const { data, error } = await supabase
-        .from('all_users')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
 
-      if (error) {
-        console.error('Error fetching user profile:', error);
-        return;
-      }
-
-      if (!data) {
-        console.log('No user profile found for email:', user.email);
-        return;
-      }
-
-      // Create folder path using user's email
-      const userFolder = user.email?.replace(/[^a-zA-Z0-9]/g, '_') || user.id;
-
-      // Get the public URLs for both images
-      const { data: { publicUrl: profileUrl } } = supabase.storage
-        .from('user-images')
-        .getPublicUrl(`${userFolder}/profile.jpg`);
-
-      const { data: { publicUrl: bannerUrl } } = supabase.storage
-        .from('user-images')
-        .getPublicUrl(`${userFolder}/banner.jpg`);
-
-      console.log('Profile image URL:', profileUrl);
-      console.log('Banner image URL:', bannerUrl);
-      
-      // Set both image URLs
-      data.profileImage = profileUrl;
-      data.bannerImage = bannerUrl;
-
-      console.log('Profile fetched successfully:', data);
-      setProfile(data);
-      setEditedProfile(data);
+      console.log('Profile fetched successfully:', user);
+      setProfile(user);
+      setEditedProfile(user);
     } catch (error) {
       console.error('Error in fetchUserProfile:', error);
     }
