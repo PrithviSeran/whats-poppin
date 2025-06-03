@@ -95,14 +95,14 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
     <View style={styles.container}>
       {/* Large circular gradient background */}
       <LinearGradient
-        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4']}
+        colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
         style={styles.gradientCircle}
         start={{ x: 0.1, y: 0.1 }}
         end={{ x: 0.9, y: 0.9 }}
       />
       {/* Smaller circle for depth */}
       <LinearGradient
-        colors={['#B388EB', '#FF69B4', '#FF6B6B']}
+        colors={['#9E95BD', '#9E95BD', '#9E95BD']}
         style={styles.gradientCircleSmall}
         start={{ x: 0.7, y: 0.2 }}
         end={{ x: 0.3, y: 0.8 }}

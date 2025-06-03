@@ -116,11 +116,17 @@ export default function Profile() {
     fetchUserProfile();
   }, []);
 
-  // Refresh data when screen comes into focus
+  // Refresh data when screen comes into focus or when params change
   useFocusEffect(
     React.useCallback(() => {
-      fetchUserProfile();
-    }, [])
+      if (params?.params?.updatedProfile) {
+        console.log('Updating profile with new data:', params.params.updatedProfile);
+        setProfile(params.params.updatedProfile);
+        setEditedProfile(params.params.updatedProfile);
+      } else {
+        fetchUserProfile();
+      }
+    }, [params?.params?.updatedProfile])
   );
 
   // Start the animations when component mounts
@@ -474,7 +480,7 @@ export default function Profile() {
           
           <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
             <LinearGradient
-              colors={['#FF6B6B', '#FF1493']}
+              colors={['#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.signOutGradient}

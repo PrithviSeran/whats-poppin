@@ -28,7 +28,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png');
+const LOGO_IMAGE = require('../assets/images/logo.png');
 
 const CATCH_PHRASES = [
   "Any Plans Tonight?",
@@ -78,33 +78,19 @@ const SignInScreen = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.centerContent}>
         <View style={styles.headerContainer}>
-          <View style={styles.headerRow}>
-            <Image
-              source={BALLOON_IMAGE}
-              style={styles.balloons}
-              resizeMode="contain"
-            />
-            <MaskedView
-              maskElement={
-                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
-              }
-            >
-              <LinearGradient
-                colors={['#FFFFFF', '#FFFFFF', '#FFFFFF', '#FFFFFF']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
-              >
-                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
-              </LinearGradient>
-            </MaskedView>
-          </View>
+          <Image
+            source={LOGO_IMAGE}
+            style={styles.logo}
+            resizeMode="contain"
+          />
         </View>
 
-        <AnimatedGradientText
-          phrases={CATCH_PHRASES}
-          colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF69B4'] as const}
-        />
+        <View style={styles.textContainer}>
+          <AnimatedGradientText
+            phrases={CATCH_PHRASES}
+            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD'] as const}
+          />
+        </View>
 
         <View style={styles.buttonGroup}>
           <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
@@ -112,7 +98,7 @@ const SignInScreen = () => {
           </Text>
           <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
             <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
@@ -123,7 +109,7 @@ const SignInScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('create-account')}>
             <LinearGradient
-              colors={['#FF9A9E', '#FF69B4', '#9D4EDD', '#FF9A9E']}
+              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
@@ -157,24 +143,14 @@ const styles = StyleSheet.create({
     marginTop: 20,
     alignItems: 'center',
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  logo: {
+    width: width * 0.9,
+    height: width * 0.5,
   },
-  balloons: {
-    width: width * 0.22, // bigger balloon
-    height: width * 0.22,
-    marginRight: -6, // slight overlap to keep it snug
-  },
-  title: {
-    fontSize: 32, // bigger text
-    fontWeight: 'bold',
-    color: '#F45B5B',
-    textAlign: 'left',
-    textShadowColor: 'rgba(0,0,0,0.18)',
-    textShadowOffset: { width: 4, height: 4 },
-    textShadowRadius: 6,
-    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
+  textContainer: {
+    marginTop: 20,
+    marginBottom: 20,
+    width: '100%',
   },
   buttonGroup: {
     width: '100%',
