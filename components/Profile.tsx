@@ -36,12 +36,6 @@ type RootStackParamList = {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-type RouteParams = {
-  params?: {
-    updatedProfile?: UserProfile;
-  };
-};
-
 
 export default function Profile() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -49,8 +43,6 @@ export default function Profile() {
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
-  const route = useRoute();
-  const params = route.params as RouteParams;
   
   // Add animation values
   const pulseAnim = useRef(new Animated.Value(0)).current;
@@ -373,7 +365,7 @@ export default function Profile() {
               styles.loadingCircle,
               {
                 transform: [{ scale }, { rotate: spin }],
-                borderColor: '#FF1493',
+                borderColor: '#F45B5B',
               },
             ]}
           >
@@ -401,7 +393,7 @@ export default function Profile() {
           />
         )}
         <LinearGradient
-          colors={['rgba(255,107,107,0.5)', 'rgba(255,20,147,0.5)', 'rgba(179,136,235,0.5)', 'rgba(255,107,107,0.5)']}
+          colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           locations={[0, 0.3, 0.7, 1]}
@@ -687,7 +679,7 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 3,
-    borderColor: '#FF1493',
+    borderColor: '#F45B5B',
     justifyContent: 'center',
     alignItems: 'center',
   },

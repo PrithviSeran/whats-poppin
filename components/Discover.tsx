@@ -464,7 +464,7 @@ export default function Discover() {
                   <Ionicons 
                     name={event.isLiked ? "heart" : "heart-outline"} 
                     size={24} 
-                    color={event.isLiked ? "#FF6B6B" : "#fff"} 
+                    color={event.isLiked ? "#F45B5B" : "#fff"} 
                   />
                 </TouchableOpacity>
                 <View style={styles.cardContent}>
@@ -484,7 +484,7 @@ export default function Discover() {
         </View>
         {isLoadingMore && (
           <View style={styles.loadingMoreContainer}>
-            <ActivityIndicator size="small" color="#FF1493" />
+            <ActivityIndicator size="small" color="#F45B5B" />
             <Text style={[styles.loadingMoreText, { color: Colors[colorScheme ?? 'light'].text }]}>
               Loading more events...
             </Text>
@@ -498,7 +498,7 @@ export default function Discover() {
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.searchContainer}>
         <LinearGradient
-          colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+          colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           locations={[0, 0.3, 0.7, 1]}
@@ -549,7 +549,7 @@ export default function Discover() {
             }}
                 onPress={closeModal}
               >
-            <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+            <Text style={{ fontSize: 28, color: '#F45B5B' }}>{'←'}</Text>
               </TouchableOpacity>
           <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
             <ScrollView style={styles.expandedContent}>
