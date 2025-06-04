@@ -26,10 +26,15 @@ AGE_RESTRICTIONS = ['18+', '21+', '16+', '13+']
 COST_RANGES = ['$', '$$', '$$$', '$$$$']
 RESERVATION_REQUIRED = ['yes', 'no']
 EVENT_TYPES = [
-    'Live Concert', 'Rooftop Party', 'Comedy Night', 'Bar Hopping', 'Live Music', 'Dancing', 'Karaoke',
-    'Chill Lounge', 'Comedy Show', 'Game Night', 'Food Crawl', 'Sports Bar', 'Trivia Night',
-    'Outdoor Patio', 'Late Night Eats', 'Themed Party', 'Open Mic', 'Wine Tasting', 'Hookah',
-        'Board Games', 'Silent Disco'
+    'Food & Drink',
+    'Outdoor / Nature',
+    'Leisure & Social',
+    'Games & Entertainment',
+    'Arts & Culture',
+    'Nightlife & Parties',
+    'Wellness & Low-Energy',
+    'Experiences & Activities',
+    'Travel & Discovery'
 ]
 
 # Initialize FastAPI app
@@ -171,8 +176,10 @@ class EventRecommendationSystem:
             query = self.Client.table("all_events").select("*")
             
             if user_preferences:
-                # Filter by event types matching user preferences
-                query = query.in_('event_type', list(user_preferences))
+                # Filter by events that have any overlap with user preferences
+                # Convert to proper PostgreSQL array format
+                preferences_array = '{' + ','.join(f'"{pref}"' for pref in user_preferences) + '}'
+                query = query.filter('event_type', 'ov', preferences_array)
             
             result = query.execute()
             return result.data

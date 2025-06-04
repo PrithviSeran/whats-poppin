@@ -284,7 +284,8 @@ class GlobalDataManager extends EventEmitter {
       await AsyncStorage.setItem('userProfile', JSON.stringify(profile));
       // Update Supabase
       if (profile.email) {
-        const { id, created_at, ...updateData } = profile;
+        // Remove profileImage and bannerImage before updating Supabase
+        const { id, created_at, profileImage, bannerImage, ...updateData } = profile as any;
         const { error } = await supabase
           .from('all_users')
           .update(updateData)
