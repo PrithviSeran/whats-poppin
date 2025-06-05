@@ -544,11 +544,18 @@ class EventRecommendationSystem:
                     # Find the full event object from all_events_filtered
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
+                        # Get the public URL for the event's image
+                        try:
+                            image_url = self.Client.storage.from_("event-images").get_public_url(f"{eid}.jpg")
+                            event_obj["image"] = image_url
+                        except Exception as e:
+                            print(f"Error getting image URL for event {eid}: {e}")
+                            event_obj["image"] = None
                         recommended_events.append(event_obj)
 
                 return {
                     "summary": f"Found {len(recommended_events)} recommended events for {email}",
-                    "events": recommended_events,  # Now returning full event objects
+                    "events": recommended_events,  # Now returning full event objects with image URLs
                     "total_found": len(event_ids_filtered)
                 }
             except Exception as e:
