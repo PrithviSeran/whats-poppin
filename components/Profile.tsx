@@ -9,19 +9,8 @@ import MainFooter from './MainFooter';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import GlobalDataManager, { UserProfile } from '@/lib/GlobalDataManager';
 
-interface UserProfile {
-  id: number;
-  created_at: string;
-  name: string;
-  email: string;
-  birthday: string;
-  gender: string;
-  saved_events?: string[]; // or string, depending on your usage
-  preferences?: string[];  // or string, depending on your usage
-  profileImage?: string;
-  bannerImage?: string;
-}
 
 type RootStackParamList = {
   '(tabs)': {
@@ -36,12 +25,6 @@ type RootStackParamList = {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-type RouteParams = {
-  params?: {
-    updatedProfile?: UserProfile;
-  };
-};
-
 
 export default function Profile() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -49,63 +32,27 @@ export default function Profile() {
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
-  const route = useRoute();
-  const params = route.params as RouteParams;
   
   // Add animation values
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
+  const dataManager = GlobalDataManager.getInstance();
+
   const fetchUserProfile = async () => {
     try {
       console.log('Fetching user profile...');
       // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await dataManager.getUserProfile();
       if (!user) {
         console.log('No user found');
         return;
       }
 
-      console.log('Fetching profile for user:', user.email);
-      // Query the all_users table for this user's profile
-      const { data, error } = await supabase
-        .from('all_users')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
 
-      if (error) {
-        console.error('Error fetching user profile:', error);
-        return;
-      }
-
-      if (!data) {
-        console.log('No user profile found for email:', user.email);
-        return;
-      }
-
-      // Create folder path using user's email
-      const userFolder = user.email?.replace(/[^a-zA-Z0-9]/g, '_') || user.id;
-
-      // Get the public URLs for both images
-      const { data: { publicUrl: profileUrl } } = supabase.storage
-        .from('user-images')
-        .getPublicUrl(`${userFolder}/profile.jpg`);
-
-      const { data: { publicUrl: bannerUrl } } = supabase.storage
-        .from('user-images')
-        .getPublicUrl(`${userFolder}/banner.jpg`);
-
-      console.log('Profile image URL:', profileUrl);
-      console.log('Banner image URL:', bannerUrl);
-      
-      // Set both image URLs
-      data.profileImage = profileUrl;
-      data.bannerImage = bannerUrl;
-
-      console.log('Profile fetched successfully:', data);
-      setProfile(data);
-      setEditedProfile(data);
+      console.log('Profile fetched successfully:', user);
+      setProfile(user);
+      setEditedProfile(user);
     } catch (error) {
       console.error('Error in fetchUserProfile:', error);
     }
@@ -379,7 +326,7 @@ export default function Profile() {
               styles.loadingCircle,
               {
                 transform: [{ scale }, { rotate: spin }],
-                borderColor: '#FF1493',
+                borderColor: '#F45B5B',
               },
             ]}
           >
@@ -407,7 +354,7 @@ export default function Profile() {
           />
         )}
         <LinearGradient
-          colors={['rgba(255,107,107,0.5)', 'rgba(255,20,147,0.5)', 'rgba(179,136,235,0.5)', 'rgba(255,107,107,0.5)']}
+          colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           locations={[0, 0.3, 0.7, 1]}
@@ -693,7 +640,7 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 3,
-    borderColor: '#FF1493',
+    borderColor: '#F45B5B',
     justifyContent: 'center',
     alignItems: 'center',
   },

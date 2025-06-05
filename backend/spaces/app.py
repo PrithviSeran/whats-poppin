@@ -26,10 +26,15 @@ AGE_RESTRICTIONS = ['18+', '21+', '16+', '13+']
 COST_RANGES = ['$', '$$', '$$$', '$$$$']
 RESERVATION_REQUIRED = ['yes', 'no']
 EVENT_TYPES = [
-    'Live Concert', 'Rooftop Party', 'Comedy Night', 'Bar Hopping', 'Live Music', 'Dancing', 'Karaoke',
-    'Chill Lounge', 'Comedy Show', 'Game Night', 'Food Crawl', 'Sports Bar', 'Trivia Night',
-    'Outdoor Patio', 'Late Night Eats', 'Themed Party', 'Open Mic', 'Wine Tasting', 'Hookah',
-        'Board Games', 'Silent Disco'
+    'Food & Drink',
+    'Outdoor / Nature',
+    'Leisure & Social',
+    'Games & Entertainment',
+    'Arts & Culture',
+    'Nightlife & Parties',
+    'Wellness & Low-Energy',
+    'Experiences & Activities',
+    'Travel & Discovery'
 ]
 
 # Initialize FastAPI app
@@ -171,8 +176,10 @@ class EventRecommendationSystem:
             query = self.Client.table("all_events").select("*")
             
             if user_preferences:
-                # Filter by event types matching user preferences
-                query = query.in_('event_type', list(user_preferences))
+                # Filter by events that have any overlap with user preferences
+                # Convert to proper PostgreSQL array format
+                preferences_array = '{' + ','.join(f'"{pref}"' for pref in user_preferences) + '}'
+                query = query.filter('event_type', 'ov', preferences_array)
             
             result = query.execute()
             return result.data
@@ -537,11 +544,18 @@ class EventRecommendationSystem:
                     # Find the full event object from all_events_filtered
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
+                        # Get the public URL for the event's image
+                        try:
+                            image_url = self.Client.storage.from_("event-images").get_public_url(f"{eid}.jpg")
+                            event_obj["image"] = image_url
+                        except Exception as e:
+                            print(f"Error getting image URL for event {eid}: {e}")
+                            event_obj["image"] = None
                         recommended_events.append(event_obj)
 
                 return {
                     "summary": f"Found {len(recommended_events)} recommended events for {email}",
-                    "events": recommended_events,  # Now returning full event objects
+                    "events": recommended_events,  # Now returning full event objects with image URLs
                     "total_found": len(event_ids_filtered)
                 }
             except Exception as e:

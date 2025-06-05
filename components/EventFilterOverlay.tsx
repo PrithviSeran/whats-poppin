@@ -36,27 +36,15 @@ interface EventFilterOverlayProps {
 }
 
 const EVENT_TYPES = [
-  'Live Concert',
-  'Rooftop Party',
-  'Comedy Night',
-  'Bar Hopping',
-  'Live Music',
-  'Dancing',
-  'Karaoke',
-  'Chill Lounge',
-  'Comedy Show',
-  'Game Night',
-  'Food Crawl',
-  'Sports Bar',
-  'Trivia Night',
-  'Outdoor Patio',
-  'Late Night Eats',
-  'Themed Party',
-  'Open Mic',
-  'Wine Tasting',
-  'Hookah',
-  'Board Games',
-  'Silent Disco',
+  'Food & Drink',
+  'Outdoor / Nature',
+  'Leisure & Social',
+  'Games & Entertainment',
+  'Arts & Culture',
+  'Nightlife & Parties',
+  'Wellness & Low-Energy',
+  'Experiences & Activities',
+  'Travel & Discovery'
 ];
 
 const defaultStart = '21:00';
@@ -169,24 +157,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     }
   }, [visible]);
 
-  /*
-  const checkLocationPermission = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationPermission(status === 'granted');
-      
-      if (status === 'granted') {
-        // Get current location when permission is granted
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High
-        });
-      }
-    } catch (error) {
-      console.error('Error checking location permission:', error);
-      Alert.alert('Error', 'Failed to check location permission');
-    }
-  };*/
-
+  
   const toggleEventType = (type: string) => {
     setSelectedEventTypes(prev =>
       prev.includes(type)
@@ -326,10 +297,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                       selectedEventTypes.includes(type) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
                       {
                         backgroundColor: selectedEventTypes.includes(type)
-                          ? (isDark ? '#F45B5B' : '#F45B5B')
+                          ? '#F45B5B'
                           : (isDark ? '#222' : '#f5f5f5'),
                         borderColor: selectedEventTypes.includes(type)
-                          ? (isDark ? '#FF3366' : '#FF3366')
+                          ? '#F45B5B'
                           : (isDark ? '#333' : '#eee'),
                       }
                     ]}
@@ -398,7 +369,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
                       Start Range
                     </Text>
-                    <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>
+                    <Text style={[styles.timeButtonTime, { color: '#F45B5B' }]}>
                       {formatTime(startTime)}
                     </Text>
                   </TouchableOpacity>
@@ -410,7 +381,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
                       End Range
                     </Text>
-                    <Text style={[styles.timeButtonTime, { color: '#FF1493' }]}>
+                    <Text style={[styles.timeButtonTime, { color: '#F45B5B' }]}>
                       {formatTime(endTime)}
                   </Text>
                   </TouchableOpacity>
@@ -529,7 +500,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                 <Switch
                   value={filterByDistance}
                   onValueChange={setFilterByDistance}
-                  trackColor={{ false: '#767577', true: '#FF1493' }}
+                  trackColor={{ false: '#767577', true: '#F45B5B' }}
                   thumbColor={filterByDistance ? '#fff' : '#f4f3f4'}
                 />
               </View>
@@ -591,9 +562,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                   step={1}
                   value={travelDistance}
                   onValueChange={setTravelDistance}
-                  minimumTrackTintColor="#FF1493"
+                  minimumTrackTintColor="#F45B5B"
                   maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
-                  thumbTintColor="#FF1493"
+                  thumbTintColor="#F45B5B"
                 />
                 <View style={styles.distanceMarkers}>
                   <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
