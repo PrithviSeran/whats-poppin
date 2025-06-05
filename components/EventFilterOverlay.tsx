@@ -327,7 +327,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Day Preference</Text>
               <LinearGradient
-                colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
+                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 locations={[0, 0.3, 0.7, 1]}
@@ -425,7 +425,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                           onPress={() => setShowStartTimePicker(false)}
                         >
                           <LinearGradient
-                            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
+                            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                             start={{ x: 0, y: 0 }}
                             end={{ x: 1, y: 1 }}
                             locations={[0, 0.3, 0.7, 1]}
@@ -476,7 +476,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                         onPress={() => setShowEndTimePicker(false)}
                       >
                         <LinearGradient
-                          colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
+                          colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 1 }}
                           locations={[0, 0.3, 0.7, 1]}
@@ -530,7 +530,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                   ) : (
                     <View style={styles.locationContainer}>
                       <LinearGradient
-                        colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
+                        colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         locations={[0, 0.3, 0.7, 1]}
@@ -587,7 +587,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
               onPress={handleApply}
             >
               <LinearGradient
-                colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
+                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 locations={[0, 0.3, 0.7, 1]}

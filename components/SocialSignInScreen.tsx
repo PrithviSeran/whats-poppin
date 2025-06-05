@@ -219,7 +219,7 @@ const SocialSignInScreen = () => {
                 disabled={!isEmailValid || isLoading}
               >
                 <LinearGradient
-                  colors={isEmailValid && !isLoading ? ['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B'] : ['#ccc', '#ccc']}
+                  colors={isEmailValid && !isLoading ? ['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD'] : ['#ccc', '#ccc']}
                   start={{x: 0, y: 0}}
                   end={{x: 1, y: 1}}
                   locations={[0, 0.3, 0.7, 1]}

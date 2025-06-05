@@ -134,7 +134,7 @@ export default function UserPreferences({ route }: { route: any }) {
             maskElement={<Text style={[styles.headerTitle, { opacity: 1 }]}>{`What's Poppin?`}</Text>}
           >
             <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
@@ -189,7 +189,7 @@ export default function UserPreferences({ route }: { route: any }) {
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Day Preference</Text>
             <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
@@ -274,7 +274,7 @@ export default function UserPreferences({ route }: { route: any }) {
                       onPress={() => setShowStartTimePicker(false)}
                     >
                       <LinearGradient
-                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         locations={[0, 0.3, 0.7, 1]}
@@ -321,7 +321,7 @@ export default function UserPreferences({ route }: { route: any }) {
                       onPress={() => setShowEndTimePicker(false)}
                     >
                       <LinearGradient
-                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         locations={[0, 0.3, 0.7, 1]}
@@ -366,7 +366,7 @@ export default function UserPreferences({ route }: { route: any }) {
             {locationPermission === true && (
               <View style={styles.locationContainer}>
                 <LinearGradient
-                  colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                  colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   locations={[0, 0.3, 0.7, 1]}
@@ -431,7 +431,7 @@ export default function UserPreferences({ route }: { route: any }) {
           <View style={styles.buttonGroup}>
             <TouchableOpacity onPress={handleNext}>
               <LinearGradient
-                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 locations={[0, 0.3, 0.7, 1]}

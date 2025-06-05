@@ -57,7 +57,7 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
         }}
         onPress={() => navigation.goBack()}
       >
-        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+        <Text style={{ fontSize: 28, color: '#FF0005' }}>{'←'}</Text>
       </TouchableOpacity>
 
       <View style={styles.centerContent}>
@@ -74,7 +74,7 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
               }
             >
               <LinearGradient
-                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 locations={[0, 0.3, 0.7, 1]}
@@ -93,9 +93,9 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
                 styles.genderButton,
                 selectedGender === 'Male' && styles.genderButtonSelected,
                 {
-                  borderColor: '#FF8C00',
+                  borderColor: '#FF0005',
                   backgroundColor: selectedGender === 'Male'
-                    ? '#FF8C00'
+                    ? '#FF0005'
                     : Colors[colorScheme ?? 'light'].background,
                 },
               ]}
@@ -104,7 +104,7 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
               <Text style={[
                 styles.genderButtonText,
                 selectedGender === 'Male' && styles.genderButtonTextSelected,
-                { color: selectedGender === 'Male' ? 'white' : '#FF8C00' },
+                { color: selectedGender === 'Male' ? 'white' : '#FF0005' },
               ]}>Male</Text>
             </TouchableOpacity>
 
@@ -113,9 +113,9 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
                 styles.genderButton,
                 selectedGender === 'Female' && styles.genderButtonSelected,
                 {
-                  borderColor: '#FF8C00',
+                  borderColor: '#FF0005',
                   backgroundColor: selectedGender === 'Female'
-                    ? '#FF8C00'
+                    ? '#FF0005'
                     : Colors[colorScheme ?? 'light'].background,
                 },
               ]}
@@ -124,7 +124,7 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
               <Text style={[
                 styles.genderButtonText,
                 selectedGender === 'Female' && styles.genderButtonTextSelected,
-                { color: selectedGender === 'Female' ? 'white' : '#FF8C00' },
+                { color: selectedGender === 'Female' ? 'white' : '#FF0005' },
               ]}>Female</Text>
             </TouchableOpacity>
           </View>
@@ -133,7 +133,7 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
         <View style={styles.buttonGroup}>
           <TouchableOpacity onPress={handleNext} disabled={!selectedGender}>
             <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
@@ -204,14 +204,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 32,
     marginHorizontal: 10,
-    shadowColor: '#FF8C00',
+    shadowColor: '#FF0005',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
   genderButtonSelected: {
-    backgroundColor: '#FF8C00',
+    backgroundColor: '#FF0005',
     shadowOpacity: 0.5,
     shadowRadius: 12,
     elevation: 6,

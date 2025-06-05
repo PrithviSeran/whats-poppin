@@ -111,7 +111,7 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
               }
             >
               <LinearGradient
-                colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 locations={[0, 0.3, 0.7, 1]}
@@ -206,7 +206,7 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
             }
           >
             <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}

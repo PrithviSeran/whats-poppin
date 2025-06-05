@@ -116,9 +116,9 @@ export default function SuggestedEvents() {
       });*/
 
       const response = await fetch('https://iamtheprince-whats-poppin.hf.space/recommend', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`
         },
         body: JSON.stringify({
@@ -152,12 +152,12 @@ export default function SuggestedEvents() {
         setLoading(false);
         setIsFetchingActivities(false); // Reset fetching activities state
       }, 100);
-    } catch (error) {
-      console.error('Error fetching recommendations:', error);
-      setLoading(false);
+      } catch (error) {
+        console.error('Error fetching recommendations:', error);
+        setLoading(false);
       setIsFetchingActivities(false); // Reset fetching activities state
-    }
-  };
+      }
+    };
 
   useEffect(() => {
     //fetchUserEvents(); // Consider if this should be here or after filters are loaded
@@ -538,42 +538,42 @@ export default function SuggestedEvents() {
       inputRange: [0, 1],
       outputRange: [0.8, 1.2],
     });
-  return (
+    return (
     <SafeAreaView style={[
       styles.container,
       { backgroundColor: colorScheme === 'dark' ? '#181818' : '#F2F2F2' }
     ]}>
         {/* Top Buttons (Saved Events and Filters) */}
-      <View style={styles.topButtons}>
-        <TouchableOpacity 
-          style={styles.topButton}
+        <View style={styles.topButtons}>
+          <TouchableOpacity 
+            style={styles.topButton}
           onPress={openSavedActivities}
-        >
-          <LinearGradient
-            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            locations={[0, 0.3, 0.7, 1]}
-            style={styles.gradientButton}
           >
-            <Ionicons name="heart" size={24} color="white" />
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.topButton}
-          onPress={() => setIsFilterVisible(true)}
-        >
-          <LinearGradient
-            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            locations={[0, 0.3, 0.7, 1]}
-            style={styles.gradientButton}
+            <LinearGradient
+            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.gradientButton}
+            >
+              <Ionicons name="heart" size={24} color="white" />
+            </LinearGradient>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.topButton}
+            onPress={() => setIsFilterVisible(true)}
           >
-            <Ionicons name="filter" size={24} color="white" />
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+            <LinearGradient
+            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.gradientButton}
+            >
+              <Ionicons name="filter" size={24} color="white" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
         {/* Loading Spinner and Text */}
         <View style={styles.loadingContainer}>
           <Animated.View
@@ -607,7 +607,7 @@ export default function SuggestedEvents() {
           onPress={openSavedActivities}
         >
           <LinearGradient
-            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
+            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             locations={[0, 0.3, 0.7, 1]}
@@ -621,7 +621,7 @@ export default function SuggestedEvents() {
           onPress={() => setIsFilterVisible(true)}
         >
           <LinearGradient
-            colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
+            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             locations={[0, 0.3, 0.7, 1]}
@@ -633,29 +633,29 @@ export default function SuggestedEvents() {
       </View>
 
       {(loading || isFetchingActivities) ? (
-        <View style={styles.loadingContainer}>
-          <Animated.View
-            style={[
-              styles.loadingCircle,
-              {
-                transform: [{ scale: pulseAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.8, 1.2],
-                })}, { rotate: rotateAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['0deg', '360deg'],
-                })}],
-                borderColor: '#FF1493',
-              },
-            ]}
-          >
-            <View style={styles.innerCircle} />
-          </Animated.View>
+              <View style={styles.loadingContainer}>
+                <Animated.View
+                  style={[
+                    styles.loadingCircle,
+                    {
+                      transform: [{ scale: pulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1.2],
+                      })}, { rotate: rotateAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0deg', '360deg'],
+                      })}],
+                      borderColor: '#FF1493',
+                    },
+                  ]}
+                >
+                  <View style={styles.innerCircle} />
+                </Animated.View>
           <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>
             {isFetchingActivities ? 'Fetching activities...' : 'Loading events...'}
           </Text>
-        </View>
-      ) : (
+              </View>
+            ) : (
         <Animated.View 
           style={[
             styles.contentContainer,
@@ -701,79 +701,79 @@ export default function SuggestedEvents() {
                                 <Ionicons name="walk-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
                                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}>
                                   {card.distance.toFixed(2)} km
-                                </Text>
+                          </Text>
                               </View>
-                            )}
-                        </Animated.View>
-                      </TouchableOpacity>
-                    );
-                  }}
+                        )}
+                      </Animated.View>
+                    </TouchableOpacity>
+                  );
+                }}
                   onSwipedLeft={(cardIndex) => handleSwipedLeft(cardIndex)}
-                  onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-                    onSwipedAll={handleSwipedAll}
-                  onSwiping={(x) => swipeX.setValue(x)}
-                  backgroundColor="transparent"
-                  stackSize={3}
-                  stackSeparation={15}
-                  overlayLabels={{
-                    left: {
-                      style: { 
-                        label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
-                        wrapper: { 
-                          flexDirection: 'column', 
-                          alignItems: 'flex-end', 
-                          justifyContent: 'flex-start', 
-                          marginTop: 30, 
-                          marginLeft: -30 
-                        } 
-                      }
-                    },
-                    right: {
-                      style: { 
-                        label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
-                        wrapper: { 
-                          flexDirection: 'column', 
-                          alignItems: 'flex-start', 
-                          justifyContent: 'flex-start', 
-                          marginTop: 30, 
-                          marginLeft: 30 
-                        } 
-                      }
+                onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
+                onSwipedAll={handleSwipedAll}
+                onSwiping={(x) => swipeX.setValue(x)}
+                backgroundColor="transparent"
+                stackSize={3}
+                stackSeparation={15}
+                overlayLabels={{
+                  left: {
+                    style: { 
+                      label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
+                      wrapper: { 
+                        flexDirection: 'column', 
+                        alignItems: 'flex-end', 
+                        justifyContent: 'flex-start', 
+                        marginTop: 30, 
+                        marginLeft: -30 
+                      } 
                     }
-                  }}
-                  disableTopSwipe
-                  disableBottomSwipe
-                  pointerEvents="box-none"
-                  useViewOverflow={false}
-                />
-              </View>
+                  },
+                  right: {
+                    style: { 
+                      label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
+                      wrapper: { 
+                        flexDirection: 'column', 
+                        alignItems: 'flex-start', 
+                        justifyContent: 'flex-start', 
+                        marginTop: 30, 
+                        marginLeft: 30 
+                      } 
+                    }
+                  }
+                }}
+                disableTopSwipe
+                disableBottomSwipe
+                pointerEvents="box-none"
+                useViewOverflow={false}
+              />
+          </View>
 
               <Animated.View style={styles.actionButtons}>
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.nopeButton]}
-                  onPress={() => swiperRef.current?.swipeLeft()}
-                >
-                  <Ionicons name="close" size={32} color="red" />
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.likeButton]}
-                  onPress={() => swiperRef.current?.swipeRight()}
-                >
-                  <Ionicons name="checkmark" size={32} color="green" />
-                </TouchableOpacity>
-              </Animated.View>
-            </>
-          ) : (
-            <View style={styles.noEventsContainer}>
-              <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                No Events Found
-              </Text>
-              <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
-                <Text style={styles.adjustFiltersText}>
-                  Try adjusting your filters
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.nopeButton]}
+              onPress={() => swiperRef.current?.swipeLeft()}
+            >
+              <Ionicons name="close" size={32} color="red" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.likeButton]}
+              onPress={() => swiperRef.current?.swipeRight()}
+            >
+              <Ionicons name="checkmark" size={32} color="green" />
+            </TouchableOpacity>
+          </Animated.View>
+        </>
+      ) : (
+        <View style={styles.noEventsContainer}>
+          <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+            No Events Found
+          </Text>
+          <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
+            <Text style={styles.adjustFiltersText}>
+              Try adjusting your filters
+            </Text>
+          </TouchableOpacity>
+        </View>
           )}
         </Animated.View>
       )}
@@ -807,7 +807,7 @@ export default function SuggestedEvents() {
             onPress={handleBackPress}
           >
             <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
@@ -839,7 +839,7 @@ export default function SuggestedEvents() {
               ) : (
                 <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
                   <Ionicons name="image-outline" size={40} color="#666" />
-                </View>
+              </View>
               )}
 
               <View style={styles.expandedHeader}>
@@ -854,7 +854,7 @@ export default function SuggestedEvents() {
               <View style={styles.infoSection}>
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
@@ -881,11 +881,11 @@ export default function SuggestedEvents() {
                               ]}
                             >
                               {day.slice(0, 1)}
-                            </Text>
+                  </Text>
                           </View>
                         ))}
-                      </View>
-                    ) : (
+                </View>
+              ) : (
                       <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold', marginTop: 2 }]}> 
                         {new Date(expandedCard.start_date).toLocaleDateString()} {expandedCard.occurrence !== 'Weekly' && `at ${expandedCard.start_time}`}
                       </Text>
@@ -895,7 +895,7 @@ export default function SuggestedEvents() {
 
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
@@ -907,14 +907,14 @@ export default function SuggestedEvents() {
                     <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
                     <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
                       {expandedCard.location}
-                    </Text>
-                  </View>
+                  </Text>
+                </View>
                 </View>
 
                 {typeof expandedCard.distance === 'number' && (
                   <View style={styles.infoRow}>
                     <LinearGradient
-                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       locations={[0, 0.3, 0.7, 1]}
@@ -928,12 +928,12 @@ export default function SuggestedEvents() {
                         {expandedCard.distance.toFixed(2)} km away
                       </Text>
                     </View>
-                  </View>
-                )}
+                </View>
+              )}
 
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
@@ -951,7 +951,7 @@ export default function SuggestedEvents() {
 
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
@@ -969,7 +969,7 @@ export default function SuggestedEvents() {
 
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
@@ -1077,7 +1077,7 @@ export default function SuggestedEvents() {
             }
           ]}
         >
-          <TouchableOpacity
+              <TouchableOpacity 
             style={styles.backButton}
             onPress={() => {
               Animated.parallel([
@@ -1101,7 +1101,7 @@ export default function SuggestedEvents() {
             }}
           >
             <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}
@@ -1109,7 +1109,7 @@ export default function SuggestedEvents() {
             >
               <Ionicons name="arrow-back" size={24} color="white" />
             </LinearGradient>
-          </TouchableOpacity>
+              </TouchableOpacity>
           <Animated.View 
             style={[
               styles.expandedCard,
@@ -1132,7 +1132,7 @@ export default function SuggestedEvents() {
               ) : (
                 <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}> 
                   <Ionicons name="image-outline" size={40} color="#666" />
-                </View>
+          </View>
               )}
               <View style={styles.expandedHeader}>
                 <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
@@ -1146,7 +1146,7 @@ export default function SuggestedEvents() {
                 {expandedSavedActivity.occurrence === 'Weekly' && Array.isArray(expandedSavedActivity.days_of_the_week) && expandedSavedActivity.days_of_the_week.length > 0 ? (
                   <View style={styles.infoRow}>
                     <LinearGradient
-                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       locations={[0, 0.3, 0.7, 1]}
@@ -1182,7 +1182,7 @@ export default function SuggestedEvents() {
                   <>
                     <View style={styles.infoRow}>
                       <LinearGradient
-                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         locations={[0, 0.3, 0.7, 1]}
@@ -1199,7 +1199,7 @@ export default function SuggestedEvents() {
                     </View>
                     <View style={styles.infoRow}>
                       <LinearGradient
-                        colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                        colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         locations={[0, 0.3, 0.7, 1]}
@@ -1219,7 +1219,7 @@ export default function SuggestedEvents() {
 
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
@@ -1237,7 +1237,7 @@ export default function SuggestedEvents() {
                 {typeof expandedSavedActivity.distance === 'number' && (
                   <View style={styles.infoRow}>
                     <LinearGradient
-                      colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       locations={[0, 0.3, 0.7, 1]}
@@ -1256,7 +1256,7 @@ export default function SuggestedEvents() {
 
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
@@ -1274,7 +1274,7 @@ export default function SuggestedEvents() {
 
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
@@ -1292,7 +1292,7 @@ export default function SuggestedEvents() {
 
                 <View style={styles.infoRow}>
                   <LinearGradient
-                    colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.3, 0.7, 1]}
