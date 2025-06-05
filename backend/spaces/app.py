@@ -235,35 +235,40 @@ class EventRecommendationSystem:
         raise ValueError(f"Unknown time format: {tstr}")
     
     def filter_by_time(self, events, start_time, end_time):
-        """Filter events by time - implement your logic"""
+        """Filter events based on time preferences"""
         def parse_time_str(tstr):
-            if tstr is None:
+            if not tstr:
                 return None
-            for fmt in ("%H:%M:%S", "%H:%M"):
-                try:
-                    return datetime.strptime(tstr, fmt).time()
-                except Exception:
-                    continue
-            return None
+            try:
+                return datetime.strptime(tstr, '%H:%M:%S').time()
+            except (ValueError, TypeError):
+                return None
 
         def is_time_in_range(start, end, t):
+            if t is None:
+                return False
             if start <= end:
                 return start <= t <= end
-            else:  # Overnight
+            else:  # Handles cases where time range crosses midnight
                 return t >= start or t <= end
 
-        if start_time and end_time:
-            user_start = parse_time_str(str(start_time))
-            user_end = parse_time_str(str(end_time))
-            if user_start and user_end:
-                filtered_by_time = []
-                for event in events:
-                    event_start = parse_time_str(str(event.get("start_time")))
-                    if event_start and is_time_in_range(user_start, user_end, event_start):
-                        filtered_by_time.append(event)
-                events = filtered_by_time
-
-        return events
+        filtered_events = []
+        for event in events:
+            event_start = parse_time_str(event.get('start_time'))
+            event_end = parse_time_str(event.get('end_time'))
+            
+            # If both event times are None, let it through
+            if event_start is None and event_end is None:
+                filtered_events.append(event)
+                continue
+                
+            # If we have valid event times, check if they overlap with user's preferred time
+            if event_start is not None and event_end is not None:
+                if is_time_in_range(start_time, end_time, event_start) or \
+                   is_time_in_range(start_time, end_time, event_end):
+                    filtered_events.append(event)
+            
+        return filtered_events
     
     def filter_by_occurrence(self, events, preferred_days):
         """Filter events by occurrence days - implement your logic"""
@@ -469,9 +474,9 @@ class EventRecommendationSystem:
 
             # 3. Apply filters
             try:
-                if user_start_time and user_end_time:
-                    all_events_raw = self.filter_by_time(all_events_raw, user_start_time, user_end_time)
-                    print(f"Events after time filter: {len(all_events_raw)}")
+                # Only apply time filter if both start_time and end_time are not None
+                all_events_raw = self.filter_by_time(all_events_raw, user_start_time, user_end_time)
+
                 
                 user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
                 all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
