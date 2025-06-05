@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Dimensions, Image, SafeAreaView, Animated, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Image, SafeAreaView, Animated, TouchableOpacity, ScrollView } from 'react-native';
 import Swiper from 'react-native-deck-swiper';
 import MainFooter from './MainFooter';
 import { Ionicons } from '@expo/vector-icons';
@@ -68,7 +68,6 @@ export default function SuggestedEvents() {
   const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFetchingActivities, setIsFetchingActivities] = useState(false);
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [EVENTS, setEVENTS] = useState<EventCard[]>([]);
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
@@ -161,11 +160,6 @@ export default function SuggestedEvents() {
   };
 
   useEffect(() => {
-
-
-    loadImages();
-    //loadSavedFilters();
-    console.log('here???');
     //fetchUserEvents(); // Consider if this should be here or after filters are loaded
     fetchTokenAndCallBackend();
     requestLocationPermission(); // Request and get user location
@@ -197,43 +191,6 @@ export default function SuggestedEvents() {
     }
   }, [loading]);
 
-  const loadImages = async () => {
-    try {
-      // Get list of files in the bucket
-      const { data: files, error: listError } = await supabase.storage
-        .from('event-images')
-        .list();
-
-      if (listError) {
-        console.error('Error listing files:', listError);
-        // Optionally set an error state or show a message to the user
-        return;
-      }
-
-      if (files && files.length > 0) {
-        // Get public URLs for each file
-        const urls = files.map(file => {
-          const { data: { publicUrl } } = supabase.storage
-            .from('event-images')
-            .getPublicUrl(file.name);
-          return publicUrl;
-        }).filter(url => url !== null); // Filter out any null URLs
-
-        if (urls.length > 0) {
-           console.log('Successfully loaded image URLs:', urls);
-           setImageUrls(urls);
-        } else {
-           console.warn('No public URLs could be generated for files found in the bucket.');
-        }
-
-      } else {
-        console.log('No files found in the event-images bucket.');
-      }
-    } catch (error) {
-      console.error('Error loading images:', error);
-       // Optionally set an error state or show a message to the user
-    }
-  };
 
   
   const interpolateColor = swipeX.interpolate({
@@ -316,7 +273,7 @@ export default function SuggestedEvents() {
       await dataManager.addEventToSavedEvents(likedEvent.id);
       // Refresh global data so SavedLikes and others update
       await GlobalDataManager.getInstance().refreshAllData();
-      loadImages();
+
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 0,
@@ -332,7 +289,6 @@ export default function SuggestedEvents() {
       ]).start(() => {
         setExpandedCard(null);
       });
-      console.log('EVENTS', EVENTS[0].name);
     } catch (error) {
       console.error('Error saving liked event:', error);
     }
@@ -706,7 +662,7 @@ export default function SuggestedEvents() {
             { opacity: contentFadeAnim }
           ]}
         >
-          {EVENTS.length > 0 && imageUrls.length > 0 ? (
+          {EVENTS.length > 0 ? (
             <>
               <View style={styles.swiperContainer}>
                 <Swiper
@@ -716,7 +672,7 @@ export default function SuggestedEvents() {
                   renderCard={(card: EventCard, index: number) => {
                     const isTopCard = index === cardIndex;
                       // Use the first image URL for all cards if available
-                      const eventImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
+                      const eventImageUrl = card.image;
 
                     return (
                       <TouchableOpacity 
@@ -875,9 +831,9 @@ export default function SuggestedEvents() {
               style={styles.expandedContent}
               showsVerticalScrollIndicator={false}
             >
-              {imageUrls.length > 0 ? (
+              {expandedCard.image ? (
                 <Image 
-                  source={{ uri: imageUrls[0] }} 
+                  source={{ uri: expandedCard.image }} 
                   style={styles.imageExpanded}
                 />
               ) : (

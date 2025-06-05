@@ -36,27 +36,15 @@ interface EventFilterOverlayProps {
 }
 
 const EVENT_TYPES = [
-  'Live Concert',
-  'Rooftop Party',
-  'Comedy Night',
-  'Bar Hopping',
-  'Live Music',
-  'Dancing',
-  'Karaoke',
-  'Chill Lounge',
-  'Comedy Show',
-  'Game Night',
-  'Food Crawl',
-  'Sports Bar',
-  'Trivia Night',
-  'Outdoor Patio',
-  'Late Night Eats',
-  'Themed Party',
-  'Open Mic',
-  'Wine Tasting',
-  'Hookah',
-  'Board Games',
-  'Silent Disco',
+  'Food & Drink',
+  'Outdoor / Nature',
+  'Leisure & Social',
+  'Games & Entertainment',
+  'Arts & Culture',
+  'Nightlife & Parties',
+  'Wellness & Low-Energy',
+  'Experiences & Activities',
+  'Travel & Discovery'
 ];
 
 const defaultStart = '21:00';
@@ -169,24 +157,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     }
   }, [visible]);
 
-  /*
-  const checkLocationPermission = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationPermission(status === 'granted');
-      
-      if (status === 'granted') {
-        // Get current location when permission is granted
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High
-        });
-      }
-    } catch (error) {
-      console.error('Error checking location permission:', error);
-      Alert.alert('Error', 'Failed to check location permission');
-    }
-  };*/
-
+  
   const toggleEventType = (type: string) => {
     setSelectedEventTypes(prev =>
       prev.includes(type)
