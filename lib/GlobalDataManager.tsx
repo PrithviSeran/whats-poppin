@@ -456,6 +456,60 @@ class GlobalDataManager extends EventEmitter {
       throw error;
     }
   }
+
+  // Remove an event from the saved_events field in AsyncStorage and Supabase
+  async removeEventFromSavedEvents(eventId: number) {
+    try {
+      const user = this.currentUser;
+      if (!user || !user.email) return;
+
+      // Get current saved events from Supabase
+      const { data: userData, error } = await supabase
+        .from('all_users')
+        .select('saved_events')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      // Parse current saved events
+      let savedEventIds: number[] = [];
+      if (userData?.saved_events) {
+        if (Array.isArray(userData.saved_events)) {
+          savedEventIds = userData.saved_events;
+        } else if (typeof userData.saved_events === 'string' && userData.saved_events) {
+          savedEventIds = userData.saved_events
+            .replace(/[{}"']+/g, '')
+            .split(',')
+            .map((s: string) => parseInt(s.trim(), 10))
+            .filter(Boolean);
+        }
+      }
+
+      // Remove event ID if present
+      savedEventIds = savedEventIds.filter(id => id !== eventId);
+
+      // Update Supabase
+      await supabase
+        .from('all_users')
+        .update({ saved_events: savedEventIds })
+        .eq('email', user.email);
+
+      // Get current saved events from AsyncStorage
+      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+      const currentSavedEvents = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+
+      // Remove event from AsyncStorage
+      const updatedSavedEvents = currentSavedEvents.filter((event: EventCard) => event.id !== eventId);
+      await AsyncStorage.setItem('savedEvents', JSON.stringify(updatedSavedEvents));
+
+      // Emit an event to notify listeners
+      this.emit('savedEventsUpdated', updatedSavedEvents);
+    } catch (error) {
+      console.error('Error removing event from saved events:', error);
+      throw error;
+    }
+  }
 }
 
 export default GlobalDataManager; 

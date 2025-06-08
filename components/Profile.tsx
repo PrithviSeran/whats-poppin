@@ -62,6 +62,13 @@ export default function Profile() {
     fetchUserProfile();
   }, []);
 
+  // Add useFocusEffect to refresh data when returning to the screen
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchUserProfile();
+    }, [])
+  );
+
   // Start the animations when component mounts
   useEffect(() => {
     Animated.loop(
@@ -240,6 +247,9 @@ export default function Profile() {
         setEditedProfile(updatedProfile);
         setIsEditMode(false);
 
+        // Refresh GlobalDataManager to update cached data
+        await dataManager.refreshAllData();
+
         Alert.alert('Success', 'Profile images updated successfully!');
       } catch (error) {
         console.error('Error saving images:', error);
@@ -340,7 +350,7 @@ export default function Profile() {
           />
         )}
         <LinearGradient
-          colors={['#F45B5B', '#F45B5B', '#F45B5B', '#F45B5B']}
+          colors={['rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           locations={[0, 0.3, 0.7, 1]}

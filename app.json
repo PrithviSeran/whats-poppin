@@ -26,7 +26,10 @@
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        }
+        },
+        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show nearby events and your position on the map.",
+        "NSLocationAlwaysUsageDescription": "This app needs access to your location to show nearby events and your position on the map.",
+        "UIBackgroundModes": ["location", "fetch"]
       }
     },
     "android": {
@@ -42,7 +45,9 @@
       },
       "permissions": [
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ]
     },
     "web": {

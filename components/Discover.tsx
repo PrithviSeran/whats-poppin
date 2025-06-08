@@ -8,47 +8,48 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
-import GlobalDataManager from '@/lib/GlobalDataManager';
+import GlobalDataManager, { EventCard } from '@/lib/GlobalDataManager';
+import EventDetailModal from './EventDetailModal';
+import * as Location from 'expo-location';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
+const ITEMS_PER_PAGE = 10;
 
-interface Event {
-  id: number;
-  name: string;
-  image: string | null;
-  start_date: string;
-  location: string;
-  description: string;
+// Extend EventCard to include isLiked
+interface ExtendedEventCard extends EventCard {
   isLiked?: boolean;
 }
 
 export default function Discover() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [cardLayout, setCardLayout] = useState<LayoutRectangle | null>(null);
-  const [hiddenCardId, setHiddenCardId] = useState<number | null>(null);
-  const [events, setEvents] = useState<Event[]>([]);
-  const [suggestedEvents, setSuggestedEvents] = useState<Event[]>([]);
-  const [allEvents, setAllEvents] = useState<Event[]>([]);
+  const [events, setEvents] = useState<ExtendedEventCard[]>([]);
+  const [allEvents, setAllEvents] = useState<ExtendedEventCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const ITEMS_PER_PAGE = 10;
-  const scaleAnim = React.useRef(new Animated.Value(0)).current;
-  const translateXAnim = React.useRef(new Animated.Value(0)).current;
-  const translateYAnim = React.useRef(new Animated.Value(0)).current;
-  const fadeAnim = React.useRef(new Animated.Value(0)).current;
-  const cardOpacity = React.useRef(new Animated.Value(1)).current;
+  const [searchQuery, setSearchQuery] = useState('');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<ExtendedEventCard | null>(null);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [loadedEventIds, setLoadedEventIds] = useState<Set<number>>(new Set());
+  const [cardLayout, setCardLayout] = useState<LayoutRectangle | null>(null);
+  const [hiddenCardId, setHiddenCardId] = useState<number | null>(null);
+
+  // Animation refs
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const translateXAnim = useRef(new Animated.Value(0)).current;
+  const translateYAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const cardOpacity = useRef(new Animated.Value(1)).current;
+
   const colorScheme = useColorScheme();
+  const dataManager = GlobalDataManager.getInstance();
 
   useEffect(() => {
     let isMounted = true;
-    const dataManager = GlobalDataManager.getInstance();
 
     const initializeData = async () => {
       if (!hasInitialLoad && isMounted) {
@@ -59,18 +60,53 @@ export default function Discover() {
             await dataManager.initialize();
           }
 
-          const events = await dataManager.getEvents();
-          const savedEvents = await dataManager.getSavedEvents();
-          
+          // Get user location
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('latitude, longitude')
+              .eq('id', userData.user.id)
+              .single();
+            
+            if (profile?.latitude && profile?.longitude) {
+              setUserLocation({
+                latitude: profile.latitude,
+                longitude: profile.longitude
+              });
+            }
+          }
+
+          // Fetch events directly from database
+          const { data: events, error } = await supabase
+            .from('all_events')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+          if (error) throw error;
+
           if (!isMounted) return;
 
-          const eventsWithLikes = events.map(event => ({
-            ...event,
-            isLiked: savedEvents.includes(event.name)
-          }));
+          // Get saved events to mark which ones are liked
+          const savedEvents = await dataManager.getSavedEvents();
+          const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
+
+          const eventsWithLikes = events.map(event => {
+            // Construct the image URL using the event ID
+            const imageUrl = event.id ? 
+              `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}.jpg` : 
+              null;
+
+            return {
+              ...event,
+              image: imageUrl,
+              isLiked: savedEventIds.has(event.id)
+            } as ExtendedEventCard;
+          });
 
           setAllEvents(eventsWithLikes);
-          setEvents(eventsWithLikes);
+          setEvents(eventsWithLikes.slice(0, ITEMS_PER_PAGE));
+          setLoadedEventIds(new Set(eventsWithLikes.slice(0, ITEMS_PER_PAGE).map(e => e.id)));
           setHasInitialLoad(true);
         } catch (error) {
           console.error('Error initializing data:', error);
@@ -117,13 +153,13 @@ export default function Discover() {
       // Only sync liked status when returning to the tab
       const syncLikedStatus = async () => {
         const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-        let savedEvents: Event[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-        const savedEventNames = new Set(savedEvents.map((event: Event) => event.name));
+        let savedEvents: ExtendedEventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+        const savedEventNames = new Set(savedEvents.map((event: ExtendedEventCard) => event.name));
         setEvents(prevEvents =>
           prevEvents.map(event => ({
             ...event,
             isLiked: savedEventNames.has(event.name)
-          }))
+          } as ExtendedEventCard))
         );
       };
       syncLikedStatus();
@@ -132,76 +168,73 @@ export default function Discover() {
 
   const loadLikedEvents = async () => {
     try {
-      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-      if (savedEventsJson) {
-        const savedEvents = JSON.parse(savedEventsJson);
-        const savedEventIds = new Set(savedEvents.map((event: Event) => event.id));
-        setEvents(prevEvents => 
-          prevEvents.map(event => ({
-            ...event,
-            isLiked: savedEventIds.has(event.id)
-          }))
-        );
-      }
+      const savedEvents = await dataManager.getSavedEvents();
+      const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
+      setEvents(prevEvents => 
+        prevEvents.map(event => ({
+          ...event,
+          isLiked: savedEventIds.has(event.id)
+        } as ExtendedEventCard))
+      );
     } catch (error) {
       console.error('Error loading liked events:', error);
     }
   };
 
-  const loadSuggestedEvents = async () => {
-    try {
-      const suggestedEventsJson = await AsyncStorage.getItem('suggestedEvents');
-      if (suggestedEventsJson) {
-        const parsedEvents = JSON.parse(suggestedEventsJson) as Event[];
-        setSuggestedEvents(parsedEvents);
-      }
-    } catch (error) {
-      console.error('Error loading suggested events:', error);
-    }
-  };
-
   const fetchEvents = async (pageNum: number = 1) => {
-    if (pageNum === 1) {
-      setLoading(true);
-    } else {
-      setIsLoadingMore(true);
-    }
-    
-    setError(null);
     try {
-      const { data, error } = await supabase
+      setIsLoadingMore(true);
+      const { data: eventsData, error } = await supabase
         .from('all_events')
         .select('*')
-        .range((pageNum - 1) * ITEMS_PER_PAGE, pageNum * ITEMS_PER_PAGE - 1)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range((pageNum - 1) * ITEMS_PER_PAGE, pageNum * ITEMS_PER_PAGE - 1);
 
       if (error) throw error;
 
-      const mapped = (data || []).map((event: any) => ({
-        id: event.id,
-        name: event.name,
-        image: event.image,
-        start_date: event.start_date,
-        location: event.location,
-        description: event.description,
-        isLiked: false,
-      }));
+      // Get saved events to mark them as liked
+      const savedEvents = await dataManager.getSavedEvents();
+      const savedEventIds = new Set(savedEvents.map(event => event.id));
 
-      if (pageNum === 1) {
-        setAllEvents(mapped);
-        setEvents(mapped);
-      } else {
-        // When loading more, append new events
-        setAllEvents(prev => [...prev, ...mapped]);
-        setEvents(prev => [...prev, ...mapped]);
+      // Filter out already loaded events and map the remaining ones
+      const newEvents = eventsData
+        .filter(event => !loadedEventIds.has(event.id))
+        .map(event => {
+          const imageUrl = event.id ? 
+            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}.jpg` : 
+            null;
+
+          return {
+            ...event,
+            image: imageUrl,
+            isLiked: savedEventIds.has(event.id),
+            occurrence: event.occurrence || 'one-time' // Add default occurrence
+          } as ExtendedEventCard;
+        });
+
+      if (newEvents.length === 0) {
+        setHasMore(false);
+        setIsLoadingMore(false);
+        return;
       }
 
-      setHasMore(mapped.length === ITEMS_PER_PAGE);
+      // Update loaded event IDs
+      const newLoadedIds = new Set([...loadedEventIds, ...newEvents.map(e => e.id)]);
+      setLoadedEventIds(newLoadedIds);
+
+      if (pageNum === 1) {
+        setEvents(newEvents);
+      } else {
+        setEvents(prev => [...prev, ...newEvents]);
+      }
       setPage(pageNum);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load events');
-    } finally {
       setLoading(false);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching events:', err);
+      setError('Failed to load events. Please try again.');
+      setLoading(false);
+    } finally {
       setIsLoadingMore(false);
     }
   };
@@ -243,48 +276,20 @@ export default function Discover() {
     }
   };
 
-  const toggleLike = async (event: Event) => {
+  const toggleLike = async (event: ExtendedEventCard) => {
     try {
-      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-      let savedEvents: Event[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-
+      const dataManager = GlobalDataManager.getInstance();
+      
       if (event.isLiked) {
         // Remove from saved events
-        savedEvents = savedEvents.filter(e => e.id !== event.id);
+        await dataManager.removeEventFromSavedEvents(event.id);
       } else {
         // Add to saved events
-        savedEvents.push(event);
-        // Update saved_events in Supabase (append event name)
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user && user.email) {
-          // Fetch current saved_events from Supabase
-          const { data: userRow, error: userError } = await supabase
-            .from('all_users')
-            .select('saved_events')
-            .eq('email', user.email)
-            .maybeSingle();
-          if (!userError && userRow) {
-            let savedEventsArr: string[] = [];
-            if (Array.isArray(userRow.saved_events)) {
-              savedEventsArr = userRow.saved_events;
-            } else if (typeof userRow.saved_events === 'string' && userRow.saved_events.length > 0) {
-              savedEventsArr = userRow.saved_events.replace(/[{}"]+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
-            }
-            // Only append if not already present
-            if (!savedEventsArr.includes(event.name)) {
-              savedEventsArr.push(event.name);
-              // Convert to Postgres array string
-              const pgArray = '{' + savedEventsArr.map(e => '"' + e.replace(/"/g, '') + '"').join(',') + '}';
-              await supabase
-                .from('all_users')
-                .update({ saved_events: pgArray })
-                .eq('email', user.email);
-            }
-          }
-        }
+        await dataManager.addEventToSavedEvents(event.id);
       }
-
-      await AsyncStorage.setItem('savedEvents', JSON.stringify(savedEvents));
+      
+      // Refresh global data so SavedLikes and others update
+      await dataManager.refreshAllData();
       
       // Update the events state
       setEvents(prevEvents => 
@@ -297,7 +302,7 @@ export default function Discover() {
     }
   };
 
-  const openModal = (event: Event, layout: LayoutRectangle) => {
+  const openModal = (event: ExtendedEventCard, layout: LayoutRectangle) => {
     setSelectedEvent(event);
     setCardLayout(layout);
     setHiddenCardId(event.id);
@@ -397,6 +402,43 @@ export default function Discover() {
     });
   };
 
+  const handleEventPress = (event: ExtendedEventCard, layout: LayoutRectangle) => {
+    setSelectedEvent(event);
+    setCardLayout(layout);
+    setModalVisible(true);
+  };
+
+  const handleCloseModal = () => {
+    setModalVisible(false);
+    // Don't clear the selected event immediately to allow for smooth animation
+    setTimeout(() => {
+      setSelectedEvent(null);
+    }, 300); // Match the animation duration
+  };
+
+  // Add location permission request
+  useEffect(() => {
+    const requestLocationPermission = async () => {
+      try {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.error('Permission to access location was denied');
+          return;
+        }
+
+        let location = await Location.getCurrentPositionAsync({});
+        setUserLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+      } catch (err) {
+        console.error('Error getting user location:', err);
+      }
+    };
+
+    requestLocationPermission();
+  }, []);
+
   const renderContent = () => {
     if (loading) {
       return (
@@ -442,21 +484,32 @@ export default function Discover() {
                 opacity: event.id === hiddenCardId ? cardOpacity : 1,
               }}
             >
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[
                   styles.card,
                   { backgroundColor: Colors[colorScheme ?? 'light'].card }
                 ]}
-                onPress={(e) => {
-                  e.target.measure((x, y, width, height, pageX, pageY) => {
-                    openModal(event, { x: pageX, y: pageY, width, height });
-                  });
+                onLayout={(event) => {
+                  const layout = event.nativeEvent.layout;
+                  setCardLayout(layout);
                 }}
+                onPress={() => handleEventPress(event, cardLayout!)}
               >
-                <Image 
-                  source={event.image ? { uri: event.image } : require('../assets/images/balloons.png')}
-                  style={styles.cardImage}
-                />
+                {event.image ? (
+                  <Image 
+                    source={{ uri: event.image }}
+                    style={styles.cardImage}
+                    onError={(e) => {
+                      console.error('Image failed to load:', e.nativeEvent.error);
+                      // Set a default image or show placeholder
+                      event.image = null;
+                    }}
+                  />
+                ) : (
+                  <View style={[styles.cardImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                    <Ionicons name="image-outline" size={40} color="#666" />
+                  </View>
+                )}
                 <TouchableOpacity 
                   style={styles.likeButton}
                   onPress={() => toggleLike(event)}
@@ -527,50 +580,13 @@ export default function Discover() {
 
       {renderContent()}
 
-      {modalVisible && selectedEvent && (
-            <Animated.View 
-              style={[
-            styles.expandedOverlay,
-                { 
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-                }
-              ]}
-            >
-              <TouchableOpacity 
-            style={{
-              position: 'absolute',
-              top: 50,
-              left: 20,
-              zIndex: 10,
-              backgroundColor: 'rgba(0,0,0,0.1)',
-              borderRadius: 20,
-              padding: 8,
-            }}
-                onPress={closeModal}
-              >
-            <Text style={{ fontSize: 28, color: '#F45B5B' }}>{'←'}</Text>
-              </TouchableOpacity>
-          <View style={[styles.expandedCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-            <ScrollView style={styles.expandedContent}>
-              <Image
-                source={selectedEvent.image ? { uri: selectedEvent.image } : require('../assets/images/balloons.png')}
-                style={styles.imageExpanded}
-              />
-              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.name}</Text>
-              <View style={styles.infoRow}>
-                      <Ionicons name="calendar-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.start_date}</Text>
-                    </View>
-              <View style={styles.infoRow}>
-                      <Ionicons name="location-outline" size={20} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.location}</Text>
-                    </View>
-              <Text style={[styles.description, { color: Colors[colorScheme ?? 'light'].text }]}>{selectedEvent.description}</Text>
-            </ScrollView>
-                  </View>
-        </Animated.View>
-      )}
+      <EventDetailModal
+        event={selectedEvent}
+        visible={modalVisible}
+        onClose={handleCloseModal}
+        userLocation={userLocation}
+        cardPosition={cardLayout}
+      />
 
       <MainFooter activeTab="discover" />
     </SafeAreaView>

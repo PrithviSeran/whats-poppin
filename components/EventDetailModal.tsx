@@ -423,6 +423,10 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     latitudeDelta: Math.abs(userLocation.latitude - event.latitude) * 1.5 + 0.01,
                     longitudeDelta: Math.abs(userLocation.longitude - event.longitude) * 1.5 + 0.01,
                   }}
+                  showsUserLocation={true}
+                  showsMyLocationButton={true}
+                  showsCompass={true}
+                  showsScale={true}
                 >
                   <Marker 
                     coordinate={userLocation}
@@ -435,7 +439,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     </View>
                   </Marker>
 
-                  <Marker 
+                  <Marker
                     coordinate={{
                       latitude: event.latitude,
                       longitude: event.longitude
@@ -448,7 +452,6 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                       </View>
                     </View>
                   </Marker>
-
                 </MapView>
               ) : (
                 <View style={[styles.map, styles.mapPlaceholder]}>
