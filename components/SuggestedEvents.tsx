@@ -88,6 +88,7 @@ export default function SuggestedEvents() {
   const savedActivityOpacityAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const [isAnimating, setIsAnimating] = useState(false);
+  const loadingFadeAnim = useRef(new Animated.Value(0)).current;
 
   const dataManager = GlobalDataManager.getInstance();
 
@@ -103,10 +104,22 @@ export default function SuggestedEvents() {
     }
 
     try {
+      // Get both rejected and liked (saved) events to exclude from recommendations
       const rejectedEvents = await dataManager.getRejectedEvents();
+      const savedEvents = await dataManager.getSavedEvents();
+      
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
+      const savedEventIds = savedEvents.map((e: any) => e.id);
+      
+      // Combine rejected and saved events to exclude from recommendations
+      const excludedEventIds = [...rejectedEventIds, ...savedEventIds];
+      
       const filterByDistance = await dataManager.getIsFilterByDistance();
       const session = await dataManager.getSession();
+      
+      console.log('Rejected events:', rejectedEventIds);
+      console.log('Saved events:', savedEventIds);
+      console.log('Total excluded events:', excludedEventIds);
 
 
       /*const params = new URLSearchParams({
@@ -127,7 +140,7 @@ export default function SuggestedEvents() {
           email: currentUserEmail,
           latitude: userLatitude,
           longitude: userLongitude,
-          rejected_events: rejectedEventIds,
+          rejected_events: excludedEventIds,
           filter_distance: filterByDistance
         }),
       });
@@ -166,7 +179,15 @@ export default function SuggestedEvents() {
   }, []);
 
   useEffect(() => {
-    if (loading) {
+    if (loading || isFetchingActivities) {
+      // Start the fade-in animation for loading screen
+      Animated.timing(loadingFadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+
+      // Start the pulse and rotate animations
       Animated.loop(
         Animated.parallel([
           Animated.sequence([
@@ -188,8 +209,15 @@ export default function SuggestedEvents() {
           }),
         ])
       ).start();
+    } else {
+      // Fade out the loading screen when not loading
+      Animated.timing(loadingFadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
     }
-  }, [loading]);
+  }, [loading, isFetchingActivities]);
 
 
   
@@ -210,33 +238,6 @@ export default function SuggestedEvents() {
       cardRef.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
         setCardPosition({ x: pageX, y: pageY, width, height });
         setExpandedCard(card);
-        
-        // Trigger fade and scale animations
-        fadeAnim.setValue(0);
-        scaleAnim.setValue(0.8);
-        contentFadeAnim.setValue(0);
-        
-        Animated.parallel([
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.spring(scaleAnim, {
-            toValue: 1,
-            friction: 8,
-            tension: 40,
-            useNativeDriver: true,
-          })
-        ]).start();
-        
-        setTimeout(() => {
-          Animated.timing(contentFadeAnim, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
-        }, 100);
       });
     } else {
       // Fallback if measurement fails
@@ -246,36 +247,10 @@ export default function SuggestedEvents() {
   };
 
   const handleBackPress = () => {
-    // Animate out
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 0.8,
-        friction: 5,
-        tension: 50,
-        useNativeDriver: true,
-      }),
-      Animated.timing(cardOpacityAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.spring(cardScaleAnim, {
-        toValue: 0.8,
-        friction: 5,
-        tension: 50,
-        useNativeDriver: true,
-      })
-    ]).start(() => {
-      // Only update state after animation completes
-      setExpandedCard(null);
-      // Show swiper again when modal closes
-      setSwiperVisible(true);
-    });
+    // Only update state - modal handles its own animations
+    setExpandedCard(null);
+    // Show swiper again when modal closes
+    setSwiperVisible(true);
   };
 
   const handleSwipeRight = async (cardIndex: number) => {
@@ -350,14 +325,29 @@ export default function SuggestedEvents() {
 
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
-    const rejectedEvents = await dataManager.getRejectedEvents();
-    const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
     console.log('All cards have been swiped');
-    setLoading(true);
-    setIsFetchingActivities(true); // Set fetching activities state
-    fetchTokenAndCallBackend();
-    await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
-    setCardIndex(0);
+    
+    try {
+      // First, update all rejected events in Supabase to ensure we have the latest data
+      const rejectedEvents = await dataManager.getRejectedEvents();
+      const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
+      console.log('About to update rejected events in Supabase:', rejectedEventIds);
+      await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
+      console.log('Rejected events updated in Supabase, now calling backend');
+      
+      // Set loading states
+      setLoading(true);
+      setIsFetchingActivities(true);
+      
+      // Now call backend with updated data
+      await fetchTokenAndCallBackend();
+      
+      setCardIndex(0);
+    } catch (error) {
+      console.error('Error in handleSwipedAll:', error);
+      setLoading(false);
+      setIsFetchingActivities(false);
+    }
   };
 
 
@@ -415,26 +405,30 @@ export default function SuggestedEvents() {
     }
   };
 
-  // Update the animation effect
+  // Simplified animation state management - SavedActivities handles its own animations
   useEffect(() => {
     if (isSavedLikesVisible) {
-      setIsAnimating(true);
+      console.log('SavedActivities opened');
     } else {
-      // Add a small delay before setting isAnimating to false
-      const timer = setTimeout(() => {
-        setIsAnimating(false);
-      }, 300); // Match the animation duration
-      return () => clearTimeout(timer);
+      console.log('SavedActivities closed');
     }
   }, [isSavedLikesVisible]);
 
   // Update the close button handler
   const handleCloseSavedActivities = () => {
+    console.log('Closing Saved Activities');
     setIsSavedLikesVisible(false);
   };
 
   // Open overlay and fetch saved activities
   const openSavedActivities = () => {
+    // Prevent opening if already visible
+    if (isSavedLikesVisible) {
+      console.log('SavedActivities button blocked: already visible');
+      return;
+    }
+    
+    console.log('Opening Saved Activities');
     setIsSavedLikesVisible(true);
   };
 
@@ -537,8 +531,13 @@ export default function SuggestedEvents() {
         {/* Top Buttons (Saved Events and Filters) */}
       <View style={styles.topButtons}>
         <TouchableOpacity 
-          style={styles.topButton}
-            onPress={openSavedActivities}
+          style={[
+            styles.topButton,
+            isSavedLikesVisible && { opacity: 0.5 }
+          ]}
+          onPress={openSavedActivities}
+          activeOpacity={0.7}
+          disabled={isSavedLikesVisible}
         >
           <LinearGradient
             colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -594,8 +593,13 @@ export default function SuggestedEvents() {
     ]}>
       <View style={styles.topButtons}>
         <TouchableOpacity 
-          style={styles.topButton}
+          style={[
+            styles.topButton,
+            isSavedLikesVisible && { opacity: 0.5 }
+          ]}
           onPress={openSavedActivities}
+          activeOpacity={0.7}
+          disabled={isSavedLikesVisible}
         >
           <LinearGradient
             colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -624,7 +628,12 @@ export default function SuggestedEvents() {
       </View>
 
       {(loading || isFetchingActivities) ? (
-        <View style={styles.loadingContainer}>
+        <Animated.View 
+          style={[
+            styles.loadingContainer,
+            { opacity: loadingFadeAnim }
+          ]}
+        >
           <Animated.View
             style={[
               styles.loadingCircle,
@@ -645,7 +654,7 @@ export default function SuggestedEvents() {
           <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>
             {isFetchingActivities ? 'Fetching activities...' : 'Loading events...'}
           </Text>
-        </View>
+        </Animated.View>
       ) : (
         <Animated.View 
           style={[
@@ -813,7 +822,7 @@ export default function SuggestedEvents() {
 
       {/* Saved Activities Overlay (fully integrated) */}
       <SavedActivities
-        visible={isSavedLikesVisible || isAnimating}
+        visible={isSavedLikesVisible}
         onClose={handleCloseSavedActivities}
         userLocation={userLocation}
       />

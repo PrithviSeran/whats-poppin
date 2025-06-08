@@ -3,6 +3,12 @@ import { supabase } from './supabase';
 import { EventEmitter } from 'events';
 import { Interface } from 'readline';
 
+// Distance calculation cache interface
+interface CachedDistance {
+  distance: number;
+  timestamp: number;
+}
+
 export interface EventCard {
   id: number;
   created_at: string;
@@ -41,6 +47,8 @@ export interface UserProfile {
   rejected_events?: string[] | string;
   preferred_days?: string[] | string;
   saved_events?: number[];
+  profileImage?: string;
+  bannerImage?: string;
 }
 
 class GlobalDataManager extends EventEmitter {
@@ -49,6 +57,11 @@ class GlobalDataManager extends EventEmitter {
   private isInitializing: boolean = false;
   private dataUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
   private currentUser: any = null; // Field for the current logged in user
+  
+  // Distance calculation cache constants
+  private readonly DISTANCE_CACHE_KEY = 'distanceCache';
+  private readonly CACHE_EXPIRY_HOURS = 1;
+  private sessionCache = new Map<string, number>(); // In-memory cache for frequently accessed distances
 
   private constructor() {
     super();
@@ -181,8 +194,22 @@ class GlobalDataManager extends EventEmitter {
         .select('*')
         .in('id', savedEventIds);
       if (eventsError) throw eventsError;
-      await AsyncStorage.setItem('savedEvents', JSON.stringify(events || []));
-      console.log('Saved events (full objects) stored successfully');
+      
+      // Add image URLs to events (similar to how the recommendation API does it)
+      const eventsWithImages = (events || []).map(event => {
+        try {
+          const { data: { publicUrl } } = supabase.storage
+            .from('event-images')
+            .getPublicUrl(`${event.id}.jpg`);
+          return { ...event, image: publicUrl };
+        } catch (e) {
+          console.log(`No image found for event ${event.id}`);
+          return { ...event, image: null };
+        }
+      });
+      
+      await AsyncStorage.setItem('savedEvents', JSON.stringify(eventsWithImages));
+      console.log('Saved events (full objects with images) stored successfully');
     } catch (error) {
       console.error('Error fetching and storing saved events:', error);
       throw error;
@@ -273,8 +300,17 @@ class GlobalDataManager extends EventEmitter {
   }
 
   // Setter for current user
-  setCurrentUser(user: any) {
+  async setCurrentUser(user: any) {
+    const previousUser = this.currentUser;
     this.currentUser = user;
+    
+    // If user changed (and both users exist), clear cached data for the previous user
+    if (previousUser && user && previousUser.email && user.email && previousUser.email !== user.email) {
+      console.log(`User changed from ${previousUser.email} to ${user.email}, clearing cached data`);
+      await this.clearAllUserData();
+      // Note: we set currentUser again because clearAllUserData sets it to null
+      this.currentUser = user;
+    }
   }
 
   // Setter for user profile: updates AsyncStorage and Supabase
@@ -346,15 +382,27 @@ class GlobalDataManager extends EventEmitter {
 
         if (eventError) throw eventError;
 
+        // Add image URL to the event
+        let eventWithImage = event;
+        try {
+          const { data: { publicUrl } } = supabase.storage
+            .from('event-images')
+            .getPublicUrl(`${event.id}.jpg`);
+          eventWithImage = { ...event, image: publicUrl };
+        } catch (e) {
+          console.log(`No image found for event ${event.id}`);
+          eventWithImage = { ...event, image: null };
+        }
+
         // Get current saved events from AsyncStorage
         const savedEventsJson = await AsyncStorage.getItem('savedEvents');
         const currentSavedEvents = savedEventsJson ? JSON.parse(savedEventsJson) : [];
 
         // Add new event to AsyncStorage
-        await AsyncStorage.setItem('savedEvents', JSON.stringify([...currentSavedEvents, event]));
+        await AsyncStorage.setItem('savedEvents', JSON.stringify([...currentSavedEvents, eventWithImage]));
 
         // Emit an event to notify listeners
-        this.emit('savedEventsUpdated', [...currentSavedEvents, event]);
+        this.emit('savedEventsUpdated', [...currentSavedEvents, eventWithImage]);
       }
     } catch (error) {
       console.error('Error adding event to saved events:', error);
@@ -454,6 +502,195 @@ class GlobalDataManager extends EventEmitter {
     } catch (error) {
       console.error('Error clearing saved events:', error);
       throw error;
+    }
+  }
+
+  // Clear all user-specific cached data when user changes
+  async clearAllUserData() {
+    try {
+      console.log('Clearing all user-specific cached data...');
+      
+      // Clear all user-specific AsyncStorage data
+      await Promise.all([
+        AsyncStorage.removeItem('userProfile'),
+        AsyncStorage.removeItem('savedEvents'),
+        AsyncStorage.removeItem('rejectedEvents'),
+        AsyncStorage.removeItem('filterByDistance'),
+        AsyncStorage.removeItem('allEvents'), // Also clear events to get fresh data
+        this.clearDistanceCache() // Clear distance calculations cache
+      ]);
+      
+      // Clear session cache
+      this.sessionCache.clear();
+      
+      // Reset initialization state to force fresh data fetch
+      this.isInitialized = false;
+      this.isInitializing = false;
+      
+      // Clear current user
+      this.currentUser = null;
+      
+      // Remove any pending timeouts
+      if (this.dataUpdateTimeout) {
+        clearTimeout(this.dataUpdateTimeout);
+        this.dataUpdateTimeout = null;
+      }
+      
+      console.log('All user-specific cached data cleared successfully');
+    } catch (error) {
+      console.error('Error clearing user data:', error);
+      throw error;
+    }
+  }
+
+  // ========== DISTANCE CALCULATION METHODS ==========
+
+  // Check if cache entry is still valid (within 1 hour)
+  private isCacheValid(timestamp: number): boolean {
+    return Date.now() - timestamp < this.CACHE_EXPIRY_HOURS * 60 * 60 * 1000;
+  }
+
+  // Get cached distance from AsyncStorage
+  private async getCachedDistance(cacheKey: string): Promise<number | null> {
+    try {
+      // Check session cache first (fastest)
+      const sessionResult = this.sessionCache.get(cacheKey);
+      if (sessionResult !== undefined) {
+        return sessionResult;
+      }
+
+      // Check AsyncStorage
+      const cacheJson = await AsyncStorage.getItem(this.DISTANCE_CACHE_KEY);
+      if (cacheJson) {
+        const cache = JSON.parse(cacheJson);
+        const entry = cache[cacheKey] as CachedDistance;
+        
+        if (entry && this.isCacheValid(entry.timestamp)) {
+          // Store in session cache for faster access
+          this.sessionCache.set(cacheKey, entry.distance);
+          return entry.distance;
+        }
+      }
+    } catch (error) {
+      console.warn('Error reading distance cache:', error);
+    }
+    return null;
+  }
+
+  // Store distance in cache
+  private async setCachedDistance(cacheKey: string, distance: number): Promise<void> {
+    try {
+      // Store in session cache immediately
+      this.sessionCache.set(cacheKey, distance);
+
+      // Store in AsyncStorage
+      const cacheJson = await AsyncStorage.getItem(this.DISTANCE_CACHE_KEY);
+      const cache = cacheJson ? JSON.parse(cacheJson) : {};
+      
+      cache[cacheKey] = {
+        distance,
+        timestamp: Date.now()
+      };
+
+      // Keep only last 500 entries to prevent storage bloat
+      const entries = Object.entries(cache);
+      if (entries.length > 500) {
+        const sorted = entries.sort(([,a], [,b]) => (b as CachedDistance).timestamp - (a as CachedDistance).timestamp);
+        const limited = Object.fromEntries(sorted.slice(0, 500));
+        await AsyncStorage.setItem(this.DISTANCE_CACHE_KEY, JSON.stringify(limited));
+      } else {
+        await AsyncStorage.setItem(this.DISTANCE_CACHE_KEY, JSON.stringify(cache));
+      }
+    } catch (error) {
+      console.warn('Error storing distance cache:', error);
+    }
+  }
+
+  // Optimized Haversine formula with caching
+  async calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): Promise<number> {
+    // Create cache key (round to 4 decimal places for reasonable precision)
+    const cacheKey = `${lat1.toFixed(4)},${lon1.toFixed(4)},${lat2.toFixed(4)},${lon2.toFixed(4)}`;
+    
+    // Check cache first
+    const cached = await this.getCachedDistance(cacheKey);
+    if (cached !== null) {
+      return cached;
+    }
+
+    // Calculate distance using Haversine formula
+    const R = 6371; // Radius of Earth in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) *
+      Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    
+    // Cache the result
+    await this.setCachedDistance(cacheKey, distance);
+    
+    return distance;
+  }
+
+  // Synchronous version for when caching isn't needed
+  calculateDistanceSync(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Radius of Earth in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) *
+      Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  // Batch distance calculation for multiple events (sync version for performance)
+  calculateDistancesForEvents(
+    userLat: number, 
+    userLon: number, 
+    events: Array<{latitude?: number; longitude?: number}>
+  ): number[] {
+    return events.map(event => {
+      if (event.latitude != null && event.longitude != null) {
+        return this.calculateDistanceSync(userLat, userLon, event.latitude, event.longitude);
+      }
+      return 0;
+    });
+  }
+
+  // Clear cache when needed (e.g., when user location changes significantly)
+  async clearDistanceCache(): Promise<void> {
+    try {
+      this.sessionCache.clear();
+      await AsyncStorage.removeItem(this.DISTANCE_CACHE_KEY);
+    } catch (error) {
+      console.warn('Error clearing distance cache:', error);
+    }
+  }
+
+  // Clean up expired cache entries
+  async cleanupDistanceCache(): Promise<void> {
+    try {
+      const cacheJson = await AsyncStorage.getItem(this.DISTANCE_CACHE_KEY);
+      if (cacheJson) {
+        const cache = JSON.parse(cacheJson);
+        const validEntries: Record<string, CachedDistance> = {};
+        
+        for (const [key, entry] of Object.entries(cache)) {
+          if (this.isCacheValid((entry as CachedDistance).timestamp)) {
+            validEntries[key] = entry as CachedDistance;
+          }
+        }
+        
+        await AsyncStorage.setItem(this.DISTANCE_CACHE_KEY, JSON.stringify(validEntries));
+      }
+    } catch (error) {
+      console.warn('Error cleaning up distance cache:', error);
     }
   }
 }
