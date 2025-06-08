@@ -239,10 +239,10 @@ class EventRecommendationSystem:
         def parse_time_str(tstr):
             if not tstr:
                 return None
-            try:
+                try:
                 return datetime.strptime(tstr, '%H:%M:%S').time()
             except (ValueError, TypeError):
-                return None
+            return None
 
         def is_time_in_range(start, end, t):
             if t is None:
@@ -253,7 +253,7 @@ class EventRecommendationSystem:
                 return t >= start or t <= end
 
         filtered_events = []
-        for event in events:
+                for event in events:
             event_start = parse_time_str(event.get('start_time'))
             event_end = parse_time_str(event.get('end_time'))
             
@@ -432,22 +432,22 @@ class EventRecommendationSystem:
             
             # 1. Fetch the target user's preferences
             try:
-                user_data = self.get_user_data(email)
+            user_data = self.get_user_data(email)
                 print(f"User data fetched: {user_data is not None}")
             except Exception as e:
                 print(f"Error fetching user data: {str(e)}")
                 raise HTTPException(status_code=404, detail=f"User {email} not found")
-
+            
             if not user_data:
                 raise HTTPException(status_code=404, detail=f"User {email} not found")
 
             # Parse user data
             try:
-                user_preferences = self.parse_preferences(user_data.get("preferences", []))
-                user_travel_distance = user_data.get("travel-distance", 50)
-                saved_events = user_data.get("saved_events", [])
-                user_start_time = user_data.get("start-time")
-                user_end_time = user_data.get("end-time")
+            user_preferences = self.parse_preferences(user_data.get("preferences", []))
+            user_travel_distance = user_data.get("travel-distance", 50)
+            saved_events = user_data.get("saved_events", [])
+            user_start_time = user_data.get("start-time")
+            user_end_time = user_data.get("end-time")
                 print(f"User preferences parsed: {user_preferences}")
             except Exception as e:
                 print(f"Error parsing user data: {str(e)}")
@@ -459,7 +459,7 @@ class EventRecommendationSystem:
 
             # 2. Query all_events from Supabase
             try:
-                all_events_raw = self.get_events_data(user_preferences if user_preferences else None)
+            all_events_raw = self.get_events_data(user_preferences if user_preferences else None)
                 print(f"Events fetched: {len(all_events_raw)}")
             except Exception as e:
                 print(f"Error fetching events: {str(e)}")
@@ -477,15 +477,15 @@ class EventRecommendationSystem:
                 # Only apply time filter if both start_time and end_time are not None
                 all_events_raw = self.filter_by_time(all_events_raw, user_start_time, user_end_time)
 
-                
-                user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
-                all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
+            
+            user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
+            all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
                 print(f"Events after occurrence filter: {len(all_events_raw)}")
-                
-                all_events_filtered = self.apply_distance_filter(
-                    all_events_raw, latitude, longitude, 
-                    filter_distance, user_travel_distance
-                )
+            
+            all_events_filtered = self.apply_distance_filter(
+                all_events_raw, latitude, longitude, 
+                filter_distance, user_travel_distance
+            )
                 print(f"Events after distance filter: {len(all_events_filtered)}")
             except Exception as e:
                 print(f"Error applying filters: {str(e)}")
@@ -500,8 +500,8 @@ class EventRecommendationSystem:
 
             # Remove saved and rejected events
             try:
-                exclude_ids = set(saved_events) | set(rejected_events)
-                final_events = [e for e in all_events_filtered if e["id"] not in exclude_ids]
+            exclude_ids = set(saved_events) | set(rejected_events)
+            final_events = [e for e in all_events_filtered if e["id"] not in exclude_ids]
                 event_ids_filtered = [event["id"] for event in final_events]
                 print(f"Events after removing saved/rejected: {len(event_ids_filtered)}")
             except Exception as e:
@@ -517,35 +517,35 @@ class EventRecommendationSystem:
 
             # 4. ML Recommendation logic
             try:
-                all_users_result = self.Client.table("all_users").select("*").execute()
-                all_users = all_users_result.data
+            all_users_result = self.Client.table("all_users").select("*").execute()
+            all_users = all_users_result.data
                 print(f"Users fetched: {len(all_users)}")
-
-                user_emails = [user.get("email") for user in all_users if user.get("email")]
+        
+            user_emails = [user.get("email") for user in all_users if user.get("email")]
                 interactions = self.build_interactions(all_users)
                 print(f"Interactions built: {len(interactions)}")
 
-                user_feature_tuples = self.build_user_features(all_users)
+            user_feature_tuples = self.build_user_features(all_users)
                 print(f"User features built: {len(user_feature_tuples)}")
-                
+
                 event_feature_tuples = self.build_event_features(all_events_filtered)
                 print(f"Event features built: {len(event_feature_tuples)}")
 
-                rec = BeaconAI()
+            rec = BeaconAI()
                 rec.fit_data(user_emails, event_ids_filtered, user_feature_tuples, event_feature_tuples, interactions)
-                rec.train_model()
+            rec.train_model()
                 print("Model trained successfully")
 
-                top_5_recommended_events = []
-                recommendations = rec.recommend_for_user(
-                    email,
-                    top_n=5,
-                )
+            top_5_recommended_events = []
+            recommendations = rec.recommend_for_user(
+                email,
+                top_n=5,
+            )
                 print(f"Recommendations generated: {len(recommendations)}")
 
                 # Get the full event objects for the recommended events
                 recommended_events = []
-                for eid, score in recommendations:
+            for eid, score in recommendations:
                     # Find the full event object from all_events_filtered
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
@@ -557,8 +557,8 @@ class EventRecommendationSystem:
                             print(f"Error getting image URL for event {eid}: {e}")
                             event_obj["image"] = None
                         recommended_events.append(event_obj)
-
-                return {
+            
+            return {
                     "summary": f"Found {len(recommended_events)} recommended events for {email}",
                     "events": recommended_events,  # Now returning full event objects with image URLs
                     "total_found": len(event_ids_filtered)

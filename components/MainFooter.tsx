@@ -55,10 +55,10 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
 
   return (
     <LinearGradient
-      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+      colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      locations={[0, 0.3, 0.7, 1]}
+      locations={[0, 0.25, 0.5, 0.75, 1]}
       style={styles.footer}
     >
       <TouchableOpacity 

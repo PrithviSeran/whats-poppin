@@ -19,6 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.iamtheprince.whats-poppin",
+      "buildNumber": "1",
       "config": {
         "googleMapsApiKey": "YOUR_IOS_API_KEY_HERE"
       },

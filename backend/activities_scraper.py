@@ -367,6 +367,9 @@ class TorontoActivityScraper:
         """Transform Eventbrite data to match Supabase schema"""
         start_time = event.get('start', {}).get('local', '')
         end_time = event.get('end', {}).get('local', '')
+
+        print("start_time eventbrite: ", start_time)
+        print("end_time eventbrite: ", end_time)
         
         # Parse datetime strings
         start_dt = None

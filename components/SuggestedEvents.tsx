@@ -14,6 +14,7 @@ import * as Location from 'expo-location';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import GlobalDataManager from '@/lib/GlobalDataManager';
 import SavedActivities from './SavedActivities';
+import EventDetailModal from './EventDetailModal';
 import { EventCard } from '../lib/GlobalDataManager';
 
 const { width, height } = Dimensions.get('window');
@@ -57,7 +58,9 @@ interface RouteCoordinates {
 export default function SuggestedEvents() {
   const [cardIndex, setCardIndex] = useState(0);
   const [expandedCard, setExpandedCard] = useState<EventCard | null>(null);
+  const [cardPosition, setCardPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [isFilterVisible, setIsFilterVisible] = useState(false);
+  const [swiperVisible, setSwiperVisible] = useState(true);
 
   const swipeX = useRef(new Animated.Value(0)).current;
   const swiperRef = useRef<Swiper<EventCard>>(null);
@@ -105,7 +108,6 @@ export default function SuggestedEvents() {
       const filterByDistance = await dataManager.getIsFilterByDistance();
       const session = await dataManager.getSession();
 
-      console.log('rejectedEventIds in fetchTokenAndCallBackend', rejectedEventIds);
 
       /*const params = new URLSearchParams({
           email: currentUserEmail,
@@ -116,9 +118,9 @@ export default function SuggestedEvents() {
       });*/
 
       const response = await fetch('https://iamtheprince-whats-poppin.hf.space/recommend', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`
         },
         body: JSON.stringify({
@@ -142,8 +144,6 @@ export default function SuggestedEvents() {
 
       const eventsData = await response.json();
 
-      console.log('eventsData', eventsData);
-
       // Reset the Swiper state
       setCardIndex(0);
       setEVENTS([]); // Clear current events
@@ -152,12 +152,12 @@ export default function SuggestedEvents() {
         setLoading(false);
         setIsFetchingActivities(false); // Reset fetching activities state
       }, 100);
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
-        setLoading(false);
+    } catch (error) {
+      console.error('Error fetching recommendations:', error);
+      setLoading(false);
       setIsFetchingActivities(false); // Reset fetching activities state
-      }
-    };
+    }
+  };
 
   useEffect(() => {
     //fetchUserEvents(); // Consider if this should be here or after filters are loaded
@@ -201,38 +201,48 @@ export default function SuggestedEvents() {
   });
 
   const handleCardPress = (card: EventCard) => {
-    setExpandedCard(card);
-    // Reset the animation values
-    fadeAnim.setValue(0);
-    scaleAnim.setValue(0.8);
-    cardOpacityAnim.setValue(0);
-    cardScaleAnim.setValue(0.8);
-
-    // Start the animations
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-      Animated.timing(cardOpacityAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.spring(cardScaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      })
-    ]).start();
+    // Hide swiper immediately when card is pressed
+    setSwiperVisible(false);
+    
+    // Measure the card position before expanding
+    const cardRef = cardRefs.current[cardIndex];
+    if (cardRef && cardRef.measure) {
+      cardRef.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+        setCardPosition({ x: pageX, y: pageY, width, height });
+        setExpandedCard(card);
+        
+        // Trigger fade and scale animations
+        fadeAnim.setValue(0);
+        scaleAnim.setValue(0.8);
+        contentFadeAnim.setValue(0);
+        
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            friction: 8,
+            tension: 40,
+            useNativeDriver: true,
+          })
+        ]).start();
+        
+        setTimeout(() => {
+          Animated.timing(contentFadeAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }).start();
+        }, 100);
+      });
+    } else {
+      // Fallback if measurement fails
+      setExpandedCard(card);
+      setCardPosition(null);
+    }
   };
 
   const handleBackPress = () => {
@@ -263,6 +273,8 @@ export default function SuggestedEvents() {
     ]).start(() => {
       // Only update state after animation completes
       setExpandedCard(null);
+      // Show swiper again when modal closes
+      setSwiperVisible(true);
     });
   };
 
@@ -273,6 +285,9 @@ export default function SuggestedEvents() {
       await dataManager.addEventToSavedEvents(likedEvent.id);
       // Refresh global data so SavedLikes and others update
       await GlobalDataManager.getInstance().refreshAllData();
+
+      const savedEvents = await dataManager.getSavedEvents();
+      console.log('savedEvents', savedEvents);
 
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -327,7 +342,6 @@ export default function SuggestedEvents() {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       });
-      console.log('User Location:', location.coords);
 
     } catch (err) {
       console.error('Error getting user location:', err);
@@ -401,51 +415,27 @@ export default function SuggestedEvents() {
     }
   };
 
-  // Open overlay and fetch saved activities
-  const openSavedActivities = () => {
-    setIsSavedLikesVisible(true);
-    fetchSavedActivities();
-  };
-
   // Update the animation effect
   useEffect(() => {
     if (isSavedLikesVisible) {
       setIsAnimating(true);
-      Animated.parallel([
-        Animated.timing(savedActivitiesFadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideAnim, {
-          toValue: 1,
-          friction: 8,
-          tension: 40,
-          useNativeDriver: true,
-        })
-      ]).start();
     } else {
-      Animated.parallel([
-        Animated.timing(savedActivitiesFadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          friction: 8,
-          tension: 40,
-          useNativeDriver: true,
-        })
-      ]).start(() => {
+      // Add a small delay before setting isAnimating to false
+      const timer = setTimeout(() => {
         setIsAnimating(false);
-      });
+      }, 300); // Match the animation duration
+      return () => clearTimeout(timer);
     }
   }, [isSavedLikesVisible]);
 
   // Update the close button handler
   const handleCloseSavedActivities = () => {
     setIsSavedLikesVisible(false);
+  };
+
+  // Open overlay and fetch saved activities
+  const openSavedActivities = () => {
+    setIsSavedLikesVisible(true);
   };
 
   // Add this effect for the saved activity expanded card animation
@@ -507,8 +497,6 @@ export default function SuggestedEvents() {
   const handleSwipedLeft = async (cardIndex: number) => {
     const rejectedEvent = EVENTS[cardIndex];
 
-    console.log('rejectedEvent', rejectedEvent);
-
     await dataManager.updateRejectedEvents(rejectedEvent);
 
     setCardIndex((i) => i + 1);
@@ -529,6 +517,9 @@ export default function SuggestedEvents() {
     });
   };
 
+  // Add refs for measuring card positions
+  const cardRefs = useRef<{ [key: number]: any }>({});
+
   if (loading && !isFetchingActivities) {
     const spin = rotateAnim.interpolate({
       inputRange: [0, 1],
@@ -538,42 +529,42 @@ export default function SuggestedEvents() {
       inputRange: [0, 1],
       outputRange: [0.8, 1.2],
     });
-    return (
+  return (
     <SafeAreaView style={[
       styles.container,
       { backgroundColor: colorScheme === 'dark' ? '#181818' : '#F2F2F2' }
     ]}>
         {/* Top Buttons (Saved Events and Filters) */}
-        <View style={styles.topButtons}>
-          <TouchableOpacity 
-            style={styles.topButton}
-          onPress={openSavedActivities}
-          >
-            <LinearGradient
+      <View style={styles.topButtons}>
+        <TouchableOpacity 
+          style={styles.topButton}
+            onPress={openSavedActivities}
+        >
+          <LinearGradient
             colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.gradientButton}
-            >
-              <Ionicons name="heart" size={24} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.topButton}
-            onPress={() => setIsFilterVisible(true)}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            locations={[0, 0.3, 0.7, 1]}
+            style={styles.gradientButton}
           >
-            <LinearGradient
+            <Ionicons name="heart" size={24} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.topButton}
+          onPress={() => setIsFilterVisible(true)}
+        >
+          <LinearGradient
             colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.gradientButton}
-            >
-              <Ionicons name="filter" size={24} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            locations={[0, 0.3, 0.7, 1]}
+            style={styles.gradientButton}
+          >
+            <Ionicons name="filter" size={24} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
         {/* Loading Spinner and Text */}
         <View style={styles.loadingContainer}>
           <Animated.View
@@ -633,29 +624,29 @@ export default function SuggestedEvents() {
       </View>
 
       {(loading || isFetchingActivities) ? (
-              <View style={styles.loadingContainer}>
-                <Animated.View
-                  style={[
-                    styles.loadingCircle,
-                    {
-                      transform: [{ scale: pulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.8, 1.2],
-                      })}, { rotate: rotateAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ['0deg', '360deg'],
-                      })}],
-                      borderColor: '#FF1493',
-                    },
-                  ]}
-                >
-                  <View style={styles.innerCircle} />
-                </Animated.View>
+        <View style={styles.loadingContainer}>
+          <Animated.View
+            style={[
+              styles.loadingCircle,
+              {
+                transform: [{ scale: pulseAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.8, 1.2],
+                })}, { rotate: rotateAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0deg', '360deg'],
+                })}],
+                borderColor: '#FF1493',
+              },
+            ]}
+          >
+            <View style={styles.innerCircle} />
+          </Animated.View>
           <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>
             {isFetchingActivities ? 'Fetching activities...' : 'Loading events...'}
           </Text>
-              </View>
-            ) : (
+        </View>
+      ) : (
         <Animated.View 
           style={[
             styles.contentContainer,
@@ -664,7 +655,7 @@ export default function SuggestedEvents() {
         >
           {EVENTS.length > 0 ? (
             <>
-              <View style={styles.swiperContainer}>
+              <View style={[styles.swiperContainer, { opacity: swiperVisible ? 1 : 0 }]}>
                 <Swiper
                   ref={swiperRef}
                   cards={EVENTS}
@@ -676,6 +667,7 @@ export default function SuggestedEvents() {
 
                     return (
                       <TouchableOpacity 
+                        ref={(ref) => { cardRefs.current[index] = ref; }}
                         onPress={() => handleCardPress(card)}
                         activeOpacity={1}
                       >
@@ -701,79 +693,98 @@ export default function SuggestedEvents() {
                                 <Ionicons name="walk-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
                                 <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}>
                                   {card.distance.toFixed(2)} km
-                          </Text>
+                                </Text>
                               </View>
-                        )}
-                      </Animated.View>
-                    </TouchableOpacity>
-                  );
-                }}
+                            )}
+                        </Animated.View>
+                      </TouchableOpacity>
+                    );
+                  }}
                   onSwipedLeft={(cardIndex) => handleSwipedLeft(cardIndex)}
-                onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-                onSwipedAll={handleSwipedAll}
-                onSwiping={(x) => swipeX.setValue(x)}
-                backgroundColor="transparent"
-                stackSize={3}
-                stackSeparation={15}
-                overlayLabels={{
-                  left: {
-                    style: { 
-                      label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
-                      wrapper: { 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-end', 
-                        justifyContent: 'flex-start', 
-                        marginTop: 30, 
-                        marginLeft: -30 
-                      } 
+                  onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
+                    onSwipedAll={handleSwipedAll}
+                  onSwiping={(x) => swipeX.setValue(x)}
+                  backgroundColor="transparent"
+                  stackSize={3}
+                  stackSeparation={15}
+                  overlayLabels={{
+                    left: {
+                      style: { 
+                        label: { color: 'red', fontSize: 32, fontWeight: 'bold' }, 
+                        wrapper: { 
+                          flexDirection: 'column', 
+                          alignItems: 'flex-end', 
+                          justifyContent: 'flex-start', 
+                          marginTop: 30, 
+                          marginLeft: -30 
+                        } 
+                      }
+                    },
+                    right: {
+                      style: { 
+                        label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
+                        wrapper: { 
+                          flexDirection: 'column', 
+                          alignItems: 'flex-start', 
+                          justifyContent: 'flex-start', 
+                          marginTop: 30, 
+                          marginLeft: 30 
+                        } 
+                      }
                     }
-                  },
-                  right: {
-                    style: { 
-                      label: { color: 'green', fontSize: 32, fontWeight: 'bold' }, 
-                      wrapper: { 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-start', 
-                        justifyContent: 'flex-start', 
-                        marginTop: 30, 
-                        marginLeft: 30 
-                      } 
-                    }
-                  }
-                }}
-                disableTopSwipe
-                disableBottomSwipe
-                pointerEvents="box-none"
-                useViewOverflow={false}
-              />
-          </View>
+                  }}
+                  disableTopSwipe
+                  disableBottomSwipe
+                  pointerEvents="box-none"
+                  useViewOverflow={false}
+                />
+              </View>
 
               <Animated.View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={[styles.actionButton, styles.nopeButton]}
-              onPress={() => swiperRef.current?.swipeLeft()}
-            >
-              <Ionicons name="close" size={32} color="red" />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.actionButton, styles.likeButton]}
-              onPress={() => swiperRef.current?.swipeRight()}
-            >
-              <Ionicons name="checkmark" size={32} color="green" />
-            </TouchableOpacity>
-          </Animated.View>
-        </>
-      ) : (
-        <View style={styles.noEventsContainer}>
-          <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-            No Events Found
-          </Text>
-          <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
-            <Text style={styles.adjustFiltersText}>
-              Try adjusting your filters
-            </Text>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.nopeButton]}
+                  onPress={() => swiperRef.current?.swipeLeft()}
+                >
+                  <Ionicons name="close" size={32} color="red" />
+                </TouchableOpacity>
+                {/* Reload Button */}
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.reloadButton]}
+                  onPress={() => {
+                    setLoading(true);
+                    fetchTokenAndCallBackend();
+                  }}
+                >
+                  <Ionicons name="reload" size={32} color="#9E95BD" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.likeButton]}
+                  onPress={() => swiperRef.current?.swipeRight()}
+                >
+                  <Ionicons name="checkmark" size={32} color="green" />
+                </TouchableOpacity>
+              </Animated.View>
+            </>
+          ) : (
+            <View style={styles.noEventsContainer}>
+              <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                No Events Found
+              </Text>
+              <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
+            <Text style={[styles.adjustFiltersText, { color: '#9E95BD' }]}>
+                  Try adjusting your filters
+                </Text>
+              </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.reloadButton, { marginTop: 40 }]}
+            onPress={() => {
+              setLoading(true);
+              fetchTokenAndCallBackend();
+            }}
+          >
+            <Ionicons name="reload" size={32} color="#9E95BD" />
           </TouchableOpacity>
-        </View>
+            </View>
           )}
         </Animated.View>
       )}
@@ -792,277 +803,19 @@ export default function SuggestedEvents() {
       />
 
       {/* Expanded Card Overlay */}
-      {expandedCard && (
-        <Animated.View 
-          style={[
-            styles.expandedOverlay,
-            { 
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-            }
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={handleBackPress}
-          >
-            <LinearGradient
-              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.backButtonGradient}
-            >
-              <Ionicons name="arrow-back" size={24} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <Animated.View 
-            style={[
-              styles.expandedCard,
-              { 
-                backgroundColor: Colors[colorScheme ?? 'light'].background,
-                opacity: cardOpacityAnim,
-                transform: [{ scale: cardScaleAnim }],
-              }
-            ]}
-          >
-            <ScrollView 
-              style={styles.expandedContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {expandedCard.image ? (
-                <Image 
-                  source={{ uri: expandedCard.image }} 
-                  style={styles.imageExpanded}
-                />
-              ) : (
-                <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                  <Ionicons name="image-outline" size={40} color="#666" />
-              </View>
-              )}
-
-              <View style={styles.expandedHeader}>
-                <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {expandedCard.name}
-                </Text>
-                <Text style={[styles.organizationText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {expandedCard.organization}
-                </Text>
-              </View>
-
-              <View style={styles.infoSection}>
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="calendar-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 4 }]}>Days of the Week</Text>
-                    {expandedCard.occurrence === 'Weekly' && Array.isArray(expandedCard.days_of_the_week) && expandedCard.days_of_the_week.length > 0 ? (
-                      <View style={styles.dayButtonContainer}>
-                        {DAYS_OF_WEEK.map((day) => (
-                          <View
-                            key={day}
-                            style={[
-                              styles.dayCircleButton,
-                              Array.isArray(expandedCard.days_of_the_week) && expandedCard.days_of_the_week.includes(day) && styles.dayCircleButtonSelected
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.dayCircleButtonText,
-                                { color: Array.isArray(expandedCard.days_of_the_week) && expandedCard.days_of_the_week.includes(day) ? '#F45B5B' : 'white' }
-                              ]}
-                            >
-                              {day.slice(0, 1)}
-                  </Text>
-                          </View>
-                        ))}
-                </View>
-              ) : (
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold', marginTop: 2 }]}> 
-                        {new Date(expandedCard.start_date).toLocaleDateString()} {expandedCard.occurrence !== 'Weekly' && `at ${expandedCard.start_time}`}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="location-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {expandedCard.location}
-                  </Text>
-                </View>
-                </View>
-
-                {typeof expandedCard.distance === 'number' && (
-                  <View style={styles.infoRow}>
-                    <LinearGradient
-                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      locations={[0, 0.3, 0.7, 1]}
-                      style={styles.infoIconContainer}
-                    >
-                      <Ionicons name="walk-outline" size={20} color="white" />
-                    </LinearGradient>
-                    <View style={styles.infoTextContainer}>
-                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Distance</Text>
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {expandedCard.distance.toFixed(2)} km away
-                      </Text>
-                    </View>
-                </View>
-              )}
-
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="cash-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Cost</Text>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      ${expandedCard.cost}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="people-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Age Restriction</Text>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {expandedCard.age_restriction}+
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="calendar-number-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Reservation</Text>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {expandedCard.reservation === 'yes' ? 'Required' : 'Not Required'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.descriptionSection}>
-                <Text style={[styles.descriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  About this event
-                </Text>
-                <Text style={[styles.descriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {expandedCard.description}
-                </Text>
-              </View>
-
-              {/* Google Map */}
-              <View style={styles.mapContainer}>
-                {userLocation && expandedCard.latitude && expandedCard.longitude ? (
-                  <MapView
-                    provider={PROVIDER_GOOGLE}
-                    style={styles.map}
-                    initialRegion={{
-                      latitude: (userLocation.latitude + expandedCard.latitude) / 2,
-                      longitude: (userLocation.longitude + expandedCard.longitude) / 2,
-                      latitudeDelta: Math.abs(userLocation.latitude - expandedCard.latitude) * 1.5 + 0.01,
-                      longitudeDelta: Math.abs(userLocation.longitude - expandedCard.longitude) * 1.5 + 0.01,
-                    }}
-                  >
-                    <Marker 
-                      coordinate={userLocation}
-                      title="Your Location"
-                    >
-                      <View style={styles.userMarkerContainer}>
-                        <View style={styles.userMarker}>
-                          <Ionicons name="person" size={16} color="white" />
-                        </View>
-                      </View>
-                    </Marker>
-
-                    <Marker 
-                      coordinate={{
-                        latitude: expandedCard.latitude,
-                        longitude: expandedCard.longitude
-                      }}
-                      title={expandedCard.name}
-                    >
-                      <View style={styles.eventMarkerContainer}>
-                        <View style={styles.eventMarker}>
-                          <Ionicons name="location" size={16} color="white" />
-                        </View>
-                      </View>
-                    </Marker>
-
-                  </MapView>
-                ) : (
-                  <View style={[styles.map, styles.mapPlaceholder]}>
-                    <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>
-                      {!userLocation ? 'Enable location services to view map' : 'Location data missing for this event'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </ScrollView>
-          </Animated.View>
-        </Animated.View>
-      )}
+      <EventDetailModal
+        visible={!!expandedCard}
+        event={expandedCard}
+        onClose={handleBackPress}
+        userLocation={userLocation}
+        cardPosition={cardPosition}
+      />
 
       {/* Saved Activities Overlay (fully integrated) */}
       <SavedActivities
         visible={isSavedLikesVisible || isAnimating}
         onClose={handleCloseSavedActivities}
         userLocation={userLocation}
-        savedActivitiesEvents={savedActivitiesEvents}
-        setSavedActivitiesEvents={setSavedActivitiesEvents}
-        savedActivitiesLoading={savedActivitiesLoading}
-        pressedCardIdx={pressedCardIdx}
-        setPressedCardIdx={setPressedCardIdx}
-        setExpandedSavedActivity={setExpandedSavedActivity}
-        savedActivityFadeAnim={savedActivityFadeAnim}
-        savedActivityScaleAnim={savedActivityScaleAnim}
-        savedActivityOpacityAnim={savedActivityOpacityAnim}
-        slideAnim={slideAnim}
-        savedActivitiesFadeAnim={savedActivitiesFadeAnim}
       />
 
       {/* Add the expanded saved activity overlay */}
@@ -1077,7 +830,7 @@ export default function SuggestedEvents() {
             }
           ]}
         >
-              <TouchableOpacity 
+          <TouchableOpacity
             style={styles.backButton}
             onPress={() => {
               Animated.parallel([
@@ -1109,7 +862,7 @@ export default function SuggestedEvents() {
             >
               <Ionicons name="arrow-back" size={24} color="white" />
             </LinearGradient>
-              </TouchableOpacity>
+          </TouchableOpacity>
           <Animated.View 
             style={[
               styles.expandedCard,
@@ -1132,7 +885,7 @@ export default function SuggestedEvents() {
               ) : (
                 <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}> 
                   <Ionicons name="image-outline" size={40} color="#666" />
-          </View>
+                </View>
               )}
               <View style={styles.expandedHeader}>
                 <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
@@ -1162,13 +915,13 @@ export default function SuggestedEvents() {
                             key={day}
                             style={[
                               styles.dayCircleButton,
-                              Array.isArray(expandedSavedActivity.days_of_the_week) && expandedSavedActivity.days_of_the_week.includes(day) && styles.dayCircleButtonSelected
+                              expandedSavedActivity.days_of_the_week?.includes(day) && styles.dayCircleButtonSelected
                             ]}
                           >
                             <Text
                               style={[
                                 styles.dayCircleButtonText,
-                                { color: Array.isArray(expandedSavedActivity.days_of_the_week) && expandedSavedActivity.days_of_the_week.includes(day) ? '#F45B5B' : 'white' }
+                                { color: expandedSavedActivity.days_of_the_week?.includes(day) ? '#F45B5B' : 'white' }
                               ]}
                             >
                               {day.slice(0, 1)}
@@ -1512,6 +1265,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
+    minHeight: 48, // ensure enough height for icon and day circles
   },
   infoText: {
     fontSize: 16,
@@ -1615,6 +1369,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 15,
+    alignSelf: 'center', // ensure icon is centered vertically
   },
   infoTextContainer: {
     flex: 1,
@@ -1826,14 +1581,16 @@ const styles = StyleSheet.create({
   dayButtonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    alignItems: 'center',
     width: '100%',
     marginTop: 4,
     marginBottom: 4,
+    minHeight: 40, // match icon height
   },
   dayCircleButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -1870,5 +1627,9 @@ const styles = StyleSheet.create({
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  reloadButton: {
+    borderColor: '#9E95BD',
+    borderWidth: 2,
   },
 });

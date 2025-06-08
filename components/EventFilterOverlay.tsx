@@ -75,6 +75,8 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const [isAnimating, setIsAnimating] = useState(false);
   const [filterByDistance, setFilterByDistance] = useState(true);
+  const [locationBubbleAnim] = useState(new Animated.Value(filterByDistance ? 1 : 0));
+  const [bubbleHeight, setBubbleHeight] = useState(0);
 
   const dataManager = GlobalDataManager.getInstance();
 
@@ -157,7 +159,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     }
   }, [visible]);
 
-  
+
   const toggleEventType = (type: string) => {
     setSelectedEventTypes(prev =>
       prev.includes(type)
@@ -247,6 +249,15 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     return date;
   };
 
+  const handleToggleLocation = (value: boolean) => {
+    setFilterByDistance(value);
+    Animated.timing(locationBubbleAnim, {
+      toValue: value ? 1 : 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
   if (!visible && !isAnimating) return null;
 
   const translateY = slideAnim.interpolate({
@@ -297,10 +308,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                       selectedEventTypes.includes(type) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
                       {
                         backgroundColor: selectedEventTypes.includes(type)
-                          ? '#F45B5B'
+                          ? '#FF0005'
                           : (isDark ? '#222' : '#f5f5f5'),
                         borderColor: selectedEventTypes.includes(type)
-                          ? '#F45B5B'
+                          ? '#FF0005'
                           : (isDark ? '#333' : '#eee'),
                       }
                     ]}
@@ -327,10 +338,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Day Preference</Text>
               <LinearGradient
-                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
+                locations={[0, 0.25, 0.5, 0.75, 1]}
                 style={styles.dayGradientContainer}
               >
                 <View style={styles.dayButtonContainer}>
@@ -369,7 +380,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
                       Start Range
                     </Text>
-                    <Text style={[styles.timeButtonTime, { color: '#F45B5B' }]}>
+                    <Text style={[styles.timeButtonTime, { color: '#FF0005' }]}>
                       {formatTime(startTime)}
                     </Text>
                   </TouchableOpacity>
@@ -381,7 +392,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     <Text style={[styles.timeButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
                       End Range
                     </Text>
-                    <Text style={[styles.timeButtonTime, { color: '#F45B5B' }]}>
+                    <Text style={[styles.timeButtonTime, { color: '#FF0005' }]}>
                       {formatTime(endTime)}
                   </Text>
                   </TouchableOpacity>
@@ -499,14 +510,13 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                 </Text>
                 <Switch
                   value={filterByDistance}
-                  onValueChange={setFilterByDistance}
-                  trackColor={{ false: '#767577', true: '#F45B5B' }}
-                  thumbColor={filterByDistance ? '#fff' : '#f4f3f4'}
+                  onValueChange={handleToggleLocation}
+                  trackColor={{ false: '#767577', true: '#FF0005' }}
+                  thumbColor={'#fff'}
                 />
               </View>
-              {filterByDistance && (
-                <>
                   {locationPermission === false ? (
+                filterByDistance && (
                     <View style={styles.locationInputContainer}>
                       <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
                         Enter your location
@@ -527,13 +537,28 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                         returnKeyType="done"
                       />
                     </View>
+                )
                   ) : (
                     <View style={styles.locationContainer}>
+                  <Animated.View
+                    style={{
+                      opacity: locationBubbleAnim,
+                      transform: [{
+                        scale: locationBubbleAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.95, 1]
+                        })
+                      }],
+                      overflow: 'hidden',
+                      height: filterByDistance ? undefined : 0,
+                    }}
+                  >
+                    {filterByDistance && (
                       <LinearGradient
-                        colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                        colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        locations={[0, 0.3, 0.7, 1]}
+                        locations={[0, 0.25, 0.5, 0.75, 1]}
                         style={styles.locationGradient}
                       >
                         <View style={styles.locationContent}>
@@ -543,9 +568,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                           </View>
                         </View>
                       </LinearGradient>
+                    )}
+                  </Animated.View>
                     </View>
-                  )}
-                </>
               )}
             </View>
 
@@ -562,9 +587,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                   step={1}
                   value={travelDistance}
                   onValueChange={setTravelDistance}
-                  minimumTrackTintColor="#F45B5B"
+                  minimumTrackTintColor="#FF0005"
                   maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
-                  thumbTintColor="#F45B5B"
+                  thumbTintColor="#FF0005"
                 />
                 <View style={styles.distanceMarkers}>
                   <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
@@ -587,10 +612,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
               onPress={handleApply}
             >
               <LinearGradient
-                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
+                locations={[0, 0.25, 0.5, 0.75, 1]}
                 style={styles.gradientButton}
               >
                 <Text style={styles.applyButtonText}>Apply Filters</Text>

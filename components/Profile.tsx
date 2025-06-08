@@ -58,23 +58,9 @@ export default function Profile() {
     }
   };
 
-  // Initial fetch
   useEffect(() => {
     fetchUserProfile();
   }, []);
-
-  // Refresh data when screen comes into focus or when params change
-  useFocusEffect(
-    React.useCallback(() => {
-      if (params?.params?.updatedProfile) {
-        console.log('Updating profile with new data:', params.params.updatedProfile);
-        setProfile(params.params.updatedProfile);
-        setEditedProfile(params.params.updatedProfile);
-      } else {
-        fetchUserProfile();
-      }
-    }, [params?.params?.updatedProfile])
-  );
 
   // Start the animations when component mounts
   useEffect(() => {

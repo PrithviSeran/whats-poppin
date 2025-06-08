@@ -242,7 +242,7 @@ class GlobalDataManager extends EventEmitter {
     return profileJson ? JSON.parse(profileJson) : null;
   }
 
-  async getSavedEvents(): Promise<string[]> {
+  async getSavedEvents(): Promise<EventCard[]> {
     const savedEventsJson = await AsyncStorage.getItem('savedEvents');
     return savedEventsJson ? JSON.parse(savedEventsJson) : [];
   }
@@ -301,27 +301,64 @@ class GlobalDataManager extends EventEmitter {
   // Add an event to the saved_events field in AsyncStorage and Supabase
   async addEventToSavedEvents(eventId: number) {
     try {
-      const profileJson = await AsyncStorage.getItem('userProfile');
-      if (!profileJson) throw new Error('User profile not found in AsyncStorage');
-      const profile: UserProfile = JSON.parse(profileJson);
-      if (!profile.saved_events) profile.saved_events = [];
-      if (!profile.saved_events.includes(eventId)) {
-        profile.saved_events.push(eventId);
-        // Update AsyncStorage
-        await AsyncStorage.setItem('userProfile', JSON.stringify(profile));
-        await AsyncStorage.setItem('savedEvents', JSON.stringify(profile.saved_events));
-        // Update Supabase
-        if (profile.email) {
-          const { error } = await supabase
-            .from('all_users')
-            .update({ saved_events: profile.saved_events })
-            .eq('email', profile.email);
-          if (error) throw error;
+      const user = this.currentUser;
+      if (!user || !user.email) return;
+
+      // Get current saved events from Supabase
+      const { data: userData, error } = await supabase
+        .from('all_users')
+        .select('saved_events')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      // Parse current saved events
+      let savedEventIds: number[] = [];
+      if (userData?.saved_events) {
+        if (Array.isArray(userData.saved_events)) {
+          savedEventIds = userData.saved_events;
+        } else if (typeof userData.saved_events === 'string' && userData.saved_events) {
+          savedEventIds = userData.saved_events
+            .replace(/[{}"']+/g, '')
+            .split(',')
+            .map((s: string) => parseInt(s.trim(), 10))
+            .filter(Boolean);
         }
       }
-    } catch (err) {
-      console.error('Error adding event to saved_events:', err);
-      throw err;
+
+      // Add new event ID if not already present
+      if (!savedEventIds.includes(eventId)) {
+        savedEventIds.push(eventId);
+
+        // Update Supabase
+        await supabase
+          .from('all_users')
+          .update({ saved_events: savedEventIds })
+          .eq('email', user.email);
+
+        // Fetch the full event object
+        const { data: event, error: eventError } = await supabase
+          .from('all_events')
+          .select('*')
+          .eq('id', eventId)
+          .single();
+
+        if (eventError) throw eventError;
+
+        // Get current saved events from AsyncStorage
+        const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+        const currentSavedEvents = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+
+        // Add new event to AsyncStorage
+        await AsyncStorage.setItem('savedEvents', JSON.stringify([...currentSavedEvents, event]));
+
+        // Emit an event to notify listeners
+        this.emit('savedEventsUpdated', [...currentSavedEvents, event]);
+      }
+    } catch (error) {
+      console.error('Error adding event to saved events:', error);
+      throw error;
     }
   }
 
@@ -393,6 +430,30 @@ class GlobalDataManager extends EventEmitter {
     } catch (error) {
       console.error('Error in getSession:', error);
       return null;
+    }
+  }
+
+  async clearSavedEvents() {
+    try {
+      const user = this.currentUser;
+      if (!user || !user.email) return;
+
+      // Clear from Supabase first
+      await supabase
+        .from('all_users')
+        .update({ saved_events: [] })
+        .eq('email', user.email);
+
+      // Then clear from AsyncStorage
+      await AsyncStorage.setItem('savedEvents', JSON.stringify([]));
+      
+      // Emit an event to notify listeners
+      this.emit('savedEventsUpdated', []);
+      
+      console.log('Saved events cleared successfully');
+    } catch (error) {
+      console.error('Error clearing saved events:', error);
+      throw error;
     }
   }
 }
