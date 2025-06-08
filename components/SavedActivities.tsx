@@ -161,6 +161,15 @@ const SavedEventCard = React.memo(({
       </RNAnimated.View>
     </View>
   );
+}, (prevProps, nextProps) => {
+  // Custom comparison function to prevent unnecessary re-renders
+  return (
+    prevProps.event.id === nextProps.event.id &&
+    prevProps.index === nextProps.index &&
+    prevProps.colorScheme === nextProps.colorScheme &&
+    prevProps.event.name === nextProps.event.name &&
+    prevProps.event.distance === nextProps.event.distance
+  );
 });
 
 export default function SavedActivities({
@@ -259,92 +268,143 @@ export default function SavedActivities({
     }
   }, [visible, fetchSavedEvents]);
 
-  // Setup PanResponder for each card (only when events change)
-  useEffect(() => {
-    eventsWithDistances.forEach((event) => {
-      if (!cardTranslateX[event.id]) {
-        cardTranslateX[event.id] = new RNAnimated.Value(0);
-      }
-      if (!cardPanResponder[event.id]) {
-        cardPanResponder[event.id] = PanResponder.create({
-          onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 20 && gestureState.dx > 0,
-          onPanResponderMove: (evt, gestureState) => {
-            if (gestureState.dx > 0) {
-              cardTranslateX[event.id].setValue(gestureState.dx);
-            }
-          },
-          onPanResponderRelease: (evt, gestureState) => {
-            if (gestureState.dx > CARD_WIDTH * 0.6) {
-              // Animate out and delete
-              RNAnimated.timing(cardTranslateX[event.id], {
-                toValue: CARD_WIDTH,
-                duration: 200,
-                useNativeDriver: true,
-              }).start(async () => {
-                await handleRemoveSavedEvent(event.id);
-                // Clean up animated value and pan responder for this card
-                delete cardTranslateX[event.id];
-                delete cardPanResponder[event.id];
-              });
-            } else {
-              // Animate back to exactly 0 for perfect alignment
-              RNAnimated.spring(cardTranslateX[event.id], {
-                toValue: 0,
-                useNativeDriver: true,
-                speed: 20,
-                bounciness: 8,
-              }).start(() => {
-                cardTranslateX[event.id].setValue(0); // Ensure it's exactly 0
-              });
-            }
-          },
-        });
-      }
-    });
-  }, [eventsWithDistances.length]); // Only depend on length to avoid excessive re-creation
-
-  // Remove a saved event by id
-  const handleRemoveSavedEvent = useCallback(async (eventId: number) => {
-    // Remove from local state
-    const updatedEvents = savedActivitiesEvents.filter(e => e.id !== eventId);
-    setSavedActivitiesEvents(updatedEvents);
+  // Create pan responder for a specific event (memoized)
+  const createPanResponder = useCallback((eventId: number) => {
+    console.log('Creating pan responder for event ID:', eventId);
     
-    // Remove from AsyncStorage
-    await AsyncStorage.setItem('savedEvents', JSON.stringify(updatedEvents));
-    
-    // Remove from Supabase
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user && user.email) {
-        // Get the current saved_events from user profile
-        const { data: userData } = await supabase
-          .from('all_users')
-          .select('saved_events')
-          .eq('email', user.email)
-          .maybeSingle();
-        let savedEventIds: number[] = [];
-        if (userData?.saved_events) {
-          if (Array.isArray(userData.saved_events)) {
-            savedEventIds = userData.saved_events;
-          } else if (typeof userData.saved_events === 'string' && userData.saved_events) {
-            savedEventIds = userData.saved_events
-              .replace(/[{}"']+/g, '')
-              .split(',')
-              .map((s: string) => parseInt(s.trim(), 10))
-              .filter(Boolean);
-          }
-        }
-        // Remove the eventId
-        const newSavedIds = savedEventIds.filter(id => id !== eventId);
-        await supabase
-          .from('all_users')
-          .update({ saved_events: newSavedIds })
-          .eq('email', user.email);
-      }
-    } catch (error) {
-      console.error('Error removing from Supabase:', error);
+    if (!eventId) {
+      console.error('Cannot create pan responder: eventId is', eventId);
+      return { panHandlers: {} };
     }
-  }, [savedActivitiesEvents]);
+    
+    if (!cardTranslateX[eventId]) {
+      cardTranslateX[eventId] = new RNAnimated.Value(0);
+    }
+    
+    if (cardPanResponder[eventId]) {
+      return cardPanResponder[eventId];
+    }
+
+    cardPanResponder[eventId] = PanResponder.create({
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // More precise gesture detection
+        return Math.abs(gestureState.dx) > 15 && 
+               Math.abs(gestureState.dy) < 30 && 
+               gestureState.dx > 0;
+      },
+      onPanResponderGrant: () => {
+        // Add haptic feedback or visual feedback here if needed
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        // Only allow rightward movement with some resistance
+        const translateValue = Math.max(0, Math.min(gestureState.dx, CARD_WIDTH * 0.8));
+        cardTranslateX[eventId].setValue(translateValue);
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        const releaseVelocity = gestureState.vx;
+        const translateDistance = gestureState.dx;
+        
+        // More responsive threshold based on both distance and velocity
+        const shouldDelete = translateDistance > CARD_WIDTH * 0.4 || 
+                           (translateDistance > CARD_WIDTH * 0.2 && releaseVelocity > 0.5);
+        
+                 if (shouldDelete) {
+           console.log('Triggering delete for event ID:', eventId);
+           // Animate out faster and delete
+           RNAnimated.timing(cardTranslateX[eventId], {
+             toValue: CARD_WIDTH,
+             duration: 150,
+             useNativeDriver: true,
+           }).start(() => {
+             // Use the optimized removal function
+             console.log('Animation complete, calling handleRemoveSavedEventOptimized for event:', eventId);
+             handleRemoveSavedEventOptimized(eventId);
+           });
+        } else {
+          // Snap back with more responsive animation
+          RNAnimated.spring(cardTranslateX[eventId], {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 8,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        // Handle gesture interruption
+        RNAnimated.spring(cardTranslateX[eventId], {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 200,
+          friction: 8,
+        }).start();
+      },
+    });
+
+    return cardPanResponder[eventId];
+  }, [CARD_WIDTH]);
+
+  // Get or create pan responder for an event
+  const getPanHandlers = useCallback((eventId: number) => {
+    return createPanResponder(eventId).panHandlers;
+  }, [createPanResponder]);
+
+  // Optimized removal function using GlobalDataManager
+  const handleRemoveSavedEventOptimized = useCallback(async (eventId: number) => {
+    console.log('Removing event with ID:', eventId);
+    
+    // Validate eventId
+    if (!eventId || typeof eventId !== 'number') {
+      console.error('Invalid eventId provided:', eventId);
+      return;
+    }
+    
+    try {
+      // Store current events to revert if needed
+      setSavedActivitiesEvents(currentEvents => {
+        console.log('Current events before filter:', currentEvents.map(e => ({id: e.id, name: e.name})));
+        
+        const updatedEvents = currentEvents.filter(e => {
+          const shouldKeep = e.id !== eventId;
+          if (!shouldKeep) {
+            console.log('Removing event:', {id: e.id, name: e.name});
+          }
+          return shouldKeep;
+        });
+        
+        console.log('Filtered events:', updatedEvents.length, 'from', currentEvents.length);
+        console.log('Updated events after filter:', updatedEvents.map(e => ({id: e.id, name: e.name})));
+        
+        // Clean up animation references for the removed event
+        if (cardTranslateX[eventId]) {
+          cardTranslateX[eventId].stopAnimation();
+          delete (cardTranslateX as any)[eventId];
+        }
+        if (cardPanResponder[eventId]) {
+          delete (cardPanResponder as any)[eventId];
+        }
+        
+        // Use GlobalDataManager's optimized removal method (async, non-blocking)
+        dataManager.removeEventFromSavedEvents(eventId).catch((error) => {
+          console.error('Error removing event from saved events:', error);
+          // Revert UI state if the removal failed by setting back to original events
+          setSavedActivitiesEvents(currentEvents);
+        });
+        
+        return updatedEvents;
+      });
+      
+    } catch (error) {
+      console.error('Error in handleRemoveSavedEventOptimized:', error);
+      // Don't revert here as we haven't changed state yet
+    }
+  }, [dataManager]); // Remove savedActivitiesEvents dependency to prevent recreation
+
+  // Legacy removal function for backwards compatibility (can be removed later)
+  const handleRemoveSavedEvent = useCallback(async (eventId: number) => {
+    // Redirect to optimized version
+    await handleRemoveSavedEventOptimized(eventId);
+  }, [handleRemoveSavedEventOptimized]);
 
   const handleCardPress = useCallback((event: EventCard, index: number) => {
     // Measure the card position before expanding
@@ -391,14 +451,44 @@ export default function SavedActivities({
     }
   }, [dataManager]);
 
-  // Cleanup animation values on unmount
+  // Cleanup animation values and prevent memory leaks
   useEffect(() => {
     return () => {
       slideAnim.stopAnimation();
       savedActivitiesFadeAnim.stopAnimation();
-      Object.values(cardTranslateX).forEach(anim => anim.stopAnimation());
+      
+      // Clean up all card animations and pan responders
+      Object.keys(cardTranslateX).forEach(eventIdStr => {
+        const eventId = parseInt(eventIdStr, 10);
+        if ((cardTranslateX as any)[eventId]) {
+          (cardTranslateX as any)[eventId].stopAnimation();
+          delete (cardTranslateX as any)[eventId];
+        }
+        if ((cardPanResponder as any)[eventId]) {
+          delete (cardPanResponder as any)[eventId];
+        }
+      });
     };
   }, []);
+
+  // Clean up animation values for events that are no longer in the list
+  useEffect(() => {
+    const currentEventIds = new Set(eventsWithDistances.map(e => e.id));
+    
+    // Remove animations for events that no longer exist
+    Object.keys(cardTranslateX).forEach(eventIdStr => {
+      const eventId = parseInt(eventIdStr, 10);
+              if (!currentEventIds.has(eventId)) {
+          if ((cardTranslateX as any)[eventId]) {
+            (cardTranslateX as any)[eventId].stopAnimation();
+            delete (cardTranslateX as any)[eventId];
+          }
+          if ((cardPanResponder as any)[eventId]) {
+            delete (cardPanResponder as any)[eventId];
+          }
+        }
+    });
+  }, [eventsWithDistances]);
 
   if (!visible) return null;
 
@@ -479,20 +569,33 @@ export default function SavedActivities({
             removeClippedSubviews={true}
             keyboardShouldPersistTaps="handled"
           >
-            {eventsWithDistances.map((event, idx) => (
-              <SavedEventCard
-                key={event.id ? `event-${event.id}` : `event-${event.name}-${idx}`}
-                event={event}
-                index={idx}
-                onPress={() => handleCardPress(event, idx)}
-                onPressIn={() => setPressedCardIdx(idx)}
-                onPressOut={() => setPressedCardIdx(null)}
-                cardRef={(ref) => { cardRefs.current[idx] = ref; }}
-                translateX={cardTranslateX[event.id] || new RNAnimated.Value(0)}
-                panHandlers={cardPanResponder[event.id] ? cardPanResponder[event.id].panHandlers : {}}
-                colorScheme={colorScheme}
-              />
-            ))}
+            {eventsWithDistances.map((event, idx) => {
+              // Debug: Check for valid event ID
+              if (!event.id) {
+                console.warn('Event has no ID:', event.name, 'at index', idx);
+                return null;
+              }
+              
+              // Initialize translateX if not exists
+              if (!cardTranslateX[event.id]) {
+                cardTranslateX[event.id] = new RNAnimated.Value(0);
+              }
+              
+              return (
+                <SavedEventCard
+                  key={event.id ? `event-${event.id}` : `event-${event.name}-${idx}`}
+                  event={event}
+                  index={idx}
+                  onPress={() => handleCardPress(event, idx)}
+                  onPressIn={() => setPressedCardIdx(idx)}
+                  onPressOut={() => setPressedCardIdx(null)}
+                  cardRef={(ref) => { cardRefs.current[idx] = ref; }}
+                  translateX={cardTranslateX[event.id]}
+                  panHandlers={getPanHandlers(event.id)}
+                  colorScheme={colorScheme}
+                />
+              );
+            }).filter(Boolean)}
           </ScrollView>
         )}
       </Animated.View>
