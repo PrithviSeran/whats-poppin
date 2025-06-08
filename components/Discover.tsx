@@ -119,20 +119,47 @@ export default function Discover() {
       }
     };
 
-    // Listen for data updates
-    const handleDataUpdate = () => {
+    // Listen for data updates - only refresh liked status, not entire data
+    const handleDataUpdate = async () => {
       if (isMounted) {
-        setHasInitialLoad(false);
-        initializeData();
+        try {
+          // Only sync the liked status instead of reloading everything
+          const savedEvents = await dataManager.getSavedEvents();
+          const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
+          setEvents(prevEvents =>
+            prevEvents.map(event => ({
+              ...event,
+              isLiked: savedEventIds.has(event.id)
+            } as ExtendedEventCard))
+          );
+        } catch (error) {
+          console.error('Error updating liked status:', error);
+        }
+      }
+    };
+
+    // Listen for saved events updates from other components
+    const handleSavedEventsUpdate = (updatedSavedEvents: ExtendedEventCard[]) => {
+      console.log('Discover: Received savedEventsUpdated event with', updatedSavedEvents.length, 'events');
+      if (isMounted) {
+        const savedEventIds = new Set(updatedSavedEvents.map(event => event.id));
+        setEvents(prevEvents =>
+          prevEvents.map(event => ({
+            ...event,
+            isLiked: savedEventIds.has(event.id)
+          } as ExtendedEventCard))
+        );
       }
     };
 
     dataManager.on('dataInitialized', handleDataUpdate);
+    dataManager.on('savedEventsUpdated', handleSavedEventsUpdate);
     initializeData();
 
     return () => {
       isMounted = false;
       dataManager.removeListener('dataInitialized', handleDataUpdate);
+      dataManager.removeListener('savedEventsUpdated', handleSavedEventsUpdate);
     };
   }, []);
 
@@ -152,18 +179,21 @@ export default function Discover() {
     React.useCallback(() => {
       // Only sync liked status when returning to the tab
       const syncLikedStatus = async () => {
-        const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-        let savedEvents: ExtendedEventCard[] = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-        const savedEventNames = new Set(savedEvents.map((event: ExtendedEventCard) => event.name));
-        setEvents(prevEvents =>
-          prevEvents.map(event => ({
-            ...event,
-            isLiked: savedEventNames.has(event.name)
-          } as ExtendedEventCard))
-        );
+        try {
+          const savedEvents = await dataManager.getSavedEvents();
+          const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
+          setEvents(prevEvents =>
+            prevEvents.map(event => ({
+              ...event,
+              isLiked: savedEventIds.has(event.id)
+            } as ExtendedEventCard))
+          );
+        } catch (error) {
+          console.error('Error syncing liked status:', error);
+        }
       };
       syncLikedStatus();
-    }, [])
+    }, [dataManager])
   );
 
   const loadLikedEvents = async () => {
@@ -277,28 +307,41 @@ export default function Discover() {
   };
 
   const toggleLike = async (event: ExtendedEventCard) => {
+    console.log(`Toggling like for event: ${event.name} (ID: ${event.id}) - Currently liked: ${event.isLiked}`);
+    
     try {
       const dataManager = GlobalDataManager.getInstance();
       
-      if (event.isLiked) {
-        // Remove from saved events
-        await dataManager.removeEventFromSavedEvents(event.id);
-      } else {
-        // Add to saved events
-        await dataManager.addEventToSavedEvents(event.id);
-      }
-      
-      // Refresh global data so SavedLikes and others update
-      await dataManager.refreshAllData();
-      
-      // Update the events state
+      // Optimistically update UI first for better responsiveness
       setEvents(prevEvents => 
         prevEvents.map(e => 
           e.id === event.id ? { ...e, isLiked: !e.isLiked } : e
         )
       );
+      
+      if (event.isLiked) {
+        // Remove from saved events
+        console.log(`Removing event ${event.id} from saved events`);
+        await dataManager.removeEventFromSavedEvents(event.id);
+      } else {
+        // Add to saved events
+        console.log(`Adding event ${event.id} to saved events`);
+        await dataManager.addEventToSavedEvents(event.id);
+      }
+      
+      console.log(`Successfully ${event.isLiked ? 'removed' : 'added'} event ${event.id}`);
+      
+      // No need to refresh all data - the GlobalDataManager already handles 
+      // emitting events to update other components when needed
+      
     } catch (error) {
       console.error('Error toggling like:', error);
+      // Revert the optimistic update if the operation failed
+      setEvents(prevEvents => 
+        prevEvents.map(e => 
+          e.id === event.id ? { ...e, isLiked: !e.isLiked } : e
+        )
+      );
     }
   };
 
