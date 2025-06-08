@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -48,6 +48,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const colorScheme = useColorScheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
+  const [isClosing, setIsClosing] = useState(false);
   
   // Simplified animation values for better performance
   const expandScale = useRef(new Animated.Value(0.3)).current;
@@ -57,7 +58,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const overlayOpacity = useRef(new Animated.Value(0)).current; // Separate overlay opacity
 
   useEffect(() => {
-    if (visible && event) {
+    if (visible && event && !isClosing) {
       // Calculate initial position offset if cardPosition is provided
       let initialX = 0;
       let initialY = 0;
@@ -83,45 +84,49 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       fadeAnim.setValue(1); // Card is immediately visible
       overlayOpacity.setValue(0); // Overlay starts transparent
 
-      // Start expansion animation immediately (no overlay delay)
-      Animated.parallel([
-        Animated.timing(expandScale, {
-          toValue: 1,
-          duration: 400,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateX, {
-          toValue: 0,
-          duration: 400,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: 0,
-          duration: 400,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        // Much later overlay fade-in to keep swiper visible during expansion
-        Animated.timing(overlayOpacity, {
-          toValue: 0.8, // Slightly less opaque
-          duration: 200,
-          delay: 300, // Start overlay much later, after expansion is mostly complete
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        })
-      ]).start(() => {
-        // Content fade in after main animation completes
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 250,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }).start();
+      // First: Show dark background immediately
+      Animated.timing(overlayOpacity, {
+        toValue: 0.8,
+        duration: 120,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => {
+        // Then: Start modal expansion animation
+        Animated.parallel([
+          Animated.timing(expandScale, {
+            toValue: 1,
+            duration: 250,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateX, {
+            toValue: 0,
+            duration: 250,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: 250,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          })
+        ]).start(() => {
+          // Finally: Content fade in after modal animation completes
+          Animated.timing(contentOpacity, {
+            toValue: 1,
+            duration: 150,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }).start();
+        });
       });
-    } else {
-      // Close animation - faster and simpler
+    }
+  }, [visible, event, cardPosition]);
+
+  // Handle closing animation
+  useEffect(() => {
+    if (isClosing) {
       let targetX = 0;
       let targetY = 0;
       let targetScale = 0.3;
@@ -138,48 +143,54 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
         targetScale = Math.max(0.1, Math.min(targetScale, 0.5));
       }
 
-      // Quick content and overlay fade out first
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 0,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.timing(overlayOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        })
-      ]).start(() => {
-        // Then animate back to card position
+      // First: Content fades out
+      Animated.timing(contentOpacity, {
+        toValue: 0,
+        duration: 150,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => {
+        // Then: Modal shrinks back to card position
         Animated.parallel([
           Animated.timing(expandScale, {
             toValue: targetScale,
-            duration: 300,
+            duration: 250,
             easing: Easing.in(Easing.cubic),
             useNativeDriver: true,
           }),
           Animated.timing(translateX, {
             toValue: targetX,
-            duration: 300,
+            duration: 250,
             easing: Easing.in(Easing.cubic),
             useNativeDriver: true,
           }),
           Animated.timing(translateY, {
             toValue: targetY,
-            duration: 300,
+            duration: 250,
             easing: Easing.in(Easing.cubic),
             useNativeDriver: true,
           }),
           Animated.timing(fadeAnim, {
             toValue: 0,
-            duration: 300,
+            duration: 250,
             useNativeDriver: true,
           })
-        ]).start();
+        ]).start(() => {
+          // Finally: Dark background fades out
+          Animated.timing(overlayOpacity, {
+            toValue: 0,
+            duration: 120,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }).start(() => {
+            // Animation complete - now close the modal
+            setIsClosing(false);
+            onClose();
+          });
+        });
       });
     }
-  }, [visible, event, cardPosition]);
+  }, [isClosing, cardPosition, onClose]);
 
   if (!visible || !event) return null;
 
@@ -194,21 +205,6 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           }
         ]}
       />
-
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={onClose}
-      >
-        <LinearGradient
-          colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          locations={[0, 0.3, 0.7, 1]}
-          style={styles.backButtonGradient}
-        >
-          <Ionicons name="arrow-back" size={24} color="white" />
-        </LinearGradient>
-      </TouchableOpacity>
 
       <Animated.View 
         style={[
@@ -232,6 +228,26 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           }
         ]}
       >
+        {/* Back button at top of modal */}
+        <TouchableOpacity
+          style={styles.integratedBackButton}
+          onPress={() => {
+            if (!isClosing) {
+              setIsClosing(true);
+            }
+          }}
+        >
+          <LinearGradient
+            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            locations={[0, 0.3, 0.7, 1]}
+            style={styles.integratedBackButtonGradient}
+          >
+            <Ionicons name="arrow-back" size={20} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
+
         {/* Always render image immediately for smooth scaling */}
         {event.image ? (
           <Image 
@@ -485,29 +501,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.8)',
     zIndex: 201,
   },
-  backButton: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    zIndex: 301,
-    borderRadius: 25,
-    width: 50,
-    height: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  backButtonGradient: {
-    borderRadius: 25,
-    width: 50,
-    height: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   expandedCard: {
     width: width - 40,
     height: height - 120,
@@ -527,6 +521,26 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 250,
     resizeMode: 'cover',
+  },
+  integratedBackButton: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    zIndex: 10,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  integratedBackButtonGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   expandedHeader: {
     padding: 20,

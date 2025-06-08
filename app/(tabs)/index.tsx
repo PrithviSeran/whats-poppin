@@ -37,7 +37,7 @@ export default function HomeScreen() {
         
         if (session) {
           // User just signed in, update the current user in GlobalDataManager
-          dataManager.setCurrentUser(session.user);
+          await dataManager.setCurrentUser(session.user);
           
           // Initialize global data after successful sign in
           await initializeGlobalData();
@@ -45,6 +45,8 @@ export default function HomeScreen() {
           // User signed out, cleanup
           setIsDataInitialized(false);
           setInitializationError(null);
+          // Clear data when user signs out
+          await dataManager.clearAllUserData();
         }
       }
     );
@@ -57,8 +59,11 @@ export default function HomeScreen() {
   useEffect(() => {
     // If user is already signed in on app start, initialize data
     if (session && !isDataInitialized && !isInitializing) {
-      dataManager.setCurrentUser(session.user);
-      initializeGlobalData();
+      const initializeData = async () => {
+        await dataManager.setCurrentUser(session.user);
+        await initializeGlobalData();
+      };
+      initializeData();
     }
   }, [session, isDataInitialized, isInitializing]);
 
