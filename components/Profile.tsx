@@ -41,20 +41,19 @@ export default function Profile() {
 
   const fetchUserProfile = async () => {
     try {
-      console.log('Fetching user profile...');
+      console.log('Profile component: Fetching user profile...');
       // Get the current user
       const user = await dataManager.getUserProfile();
       if (!user) {
-        console.log('No user found');
+        console.log('Profile component: No user found');
         return;
       }
 
-
-      console.log('Profile fetched successfully:', user);
+      console.log('Profile component: Profile fetched successfully for user:', user.email);
       setProfile(user);
       setEditedProfile(user);
     } catch (error) {
-      console.error('Error in fetchUserProfile:', error);
+      console.error('Profile component: Error in fetchUserProfile:', error);
     }
   };
 
@@ -62,7 +61,7 @@ export default function Profile() {
     fetchUserProfile();
   }, []);
 
-  // Add useFocusEffect to refresh data when returning to the screen
+  // Refresh profile data when screen is focused (handles user changes)
   useFocusEffect(
     React.useCallback(() => {
       fetchUserProfile();
