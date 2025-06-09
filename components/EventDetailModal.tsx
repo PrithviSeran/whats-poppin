@@ -9,6 +9,7 @@ import {
   Easing,
   TouchableOpacity,
   ScrollView,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -49,6 +50,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
   const [isClosing, setIsClosing] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   
   // Simplified animation values for better performance
   const expandScale = useRef(new Animated.Value(0.3)).current;
@@ -56,6 +58,41 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const translateY = useRef(new Animated.Value(0)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current; // Separate overlay opacity
+  const imageControlsOpacity = useRef(new Animated.Value(0)).current; // Image controls animation
+
+  // Reset current image index when event changes
+  useEffect(() => {
+    if (event) {
+      setCurrentImageIndex(0);
+    }
+  }, [event]);
+
+  // Get current image URL
+  const getCurrentImageUrl = () => {
+    if (!event?.id) return event?.image || null;
+    
+    // If event has allImages array, use it
+    if (event.allImages && event.allImages.length > 0) {
+      return event.allImages[currentImageIndex] || event.allImages[0];
+    }
+    
+    // Fallback: construct URL using current index
+    return `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${currentImageIndex}.jpg`;
+  };
+
+  const navigateImage = (direction: 'prev' | 'next') => {
+    if (!event) return;
+    
+    const totalImages = event.allImages?.length || 5; // Default to 5 if allImages not available
+    
+    setCurrentImageIndex(prevIndex => {
+      if (direction === 'next') {
+        return (prevIndex + 1) % totalImages;
+      } else {
+        return prevIndex === 0 ? totalImages - 1 : prevIndex - 1;
+      }
+    });
+  };
 
   useEffect(() => {
     if (visible && event && !isClosing) {
@@ -83,6 +120,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       contentOpacity.setValue(0);
       fadeAnim.setValue(1); // Card is immediately visible
       overlayOpacity.setValue(0); // Overlay starts transparent
+      imageControlsOpacity.setValue(0); // Image controls start hidden
 
       // First: Show dark background immediately
       Animated.timing(overlayOpacity, {
@@ -118,7 +156,15 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             duration: 150,
             easing: Easing.out(Easing.quad),
             useNativeDriver: true,
-          }).start();
+          }).start(() => {
+            // Last: Image controls fade in after content is fully visible
+            Animated.timing(imageControlsOpacity, {
+              toValue: 1,
+              duration: 200,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }).start();
+          });
         });
       });
     }
@@ -143,13 +189,21 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
         targetScale = Math.max(0.1, Math.min(targetScale, 0.5));
       }
 
-      // First: Content fades out
-      Animated.timing(contentOpacity, {
-        toValue: 0,
-        duration: 150,
-        easing: Easing.in(Easing.quad),
-        useNativeDriver: true,
-      }).start(() => {
+      // First: Image controls and content fade out simultaneously
+      Animated.parallel([
+        Animated.timing(contentOpacity, {
+          toValue: 0,
+          duration: 150,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(imageControlsOpacity, {
+          toValue: 0,
+          duration: 100,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        })
+      ]).start(() => {
         // Then: Modal shrinks back to card position
         Animated.parallel([
           Animated.timing(expandScale, {
@@ -228,7 +282,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           }
         ]}
       >
-        {/* Back button at top of modal */}
+        {/* Close button at top of modal */}
         <TouchableOpacity
           style={styles.integratedBackButton}
           onPress={() => {
@@ -236,29 +290,80 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               setIsClosing(true);
             }
           }}
+          activeOpacity={0.8}
         >
           <LinearGradient
-            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+            colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.5)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            locations={[0, 0.3, 0.7, 1]}
             style={styles.integratedBackButtonGradient}
           >
-            <Ionicons name="arrow-back" size={20} color="white" />
+            <Ionicons name="close" size={22} color="white" />
           </LinearGradient>
         </TouchableOpacity>
 
         {/* Always render image immediately for smooth scaling */}
-        {event.image ? (
-          <Image 
-            source={{ uri: event.image }} 
-            style={styles.imageExpanded}
-          />
-        ) : (
-          <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-            <Ionicons name="image-outline" size={40} color="#666" />
-          </View>
-        )}
+        <View style={styles.imageContainer}>
+          {getCurrentImageUrl() ? (
+            <Image 
+              source={{ uri: getCurrentImageUrl() }} 
+              style={styles.imageExpanded}
+            />
+          ) : (
+            <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+              <Ionicons name="image-outline" size={40} color="#666" />
+            </View>
+          )}
+          
+          {/* Image Navigation Controls */}
+          {event && ((event.allImages && event.allImages.length > 1) || event.id) && (
+            <>
+              {/* Previous Button */}
+              <Animated.View style={[styles.imageNavButton, styles.imageNavLeft, { opacity: imageControlsOpacity }]}>
+                <TouchableOpacity
+                  style={styles.imageNavTouchable}
+                  onPress={() => navigateImage('prev')}
+                >
+                  <LinearGradient
+                    colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.4)']}
+                    style={styles.imageNavGradient}
+                  >
+                    <Ionicons name="chevron-back" size={24} color="white" />
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+              
+              {/* Next Button */}
+              <Animated.View style={[styles.imageNavButton, styles.imageNavRight, { opacity: imageControlsOpacity }]}>
+                <TouchableOpacity
+                  style={styles.imageNavTouchable}
+                  onPress={() => navigateImage('next')}
+                >
+                  <LinearGradient
+                    colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.4)']}
+                    style={styles.imageNavGradient}
+                  >
+                    <Ionicons name="chevron-forward" size={24} color="white" />
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+              
+              {/* Image Dots Indicator */}
+              <Animated.View style={[styles.imageDotsContainer, { opacity: imageControlsOpacity }]}>
+                {Array.from({ length: event.allImages?.length || 5 }, (_, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.imageDot,
+                      currentImageIndex === index && styles.imageDotActive
+                    ]}
+                    onPress={() => setCurrentImageIndex(index)}
+                  />
+                ))}
+              </Animated.View>
+            </>
+          )}
+        </View>
 
         {/* Content that fades in after main animation */}
         <Animated.View style={{ opacity: contentOpacity, flex: 1 }}>
@@ -276,6 +381,38 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               <Text style={[styles.organizationText, { color: Colors[colorScheme ?? 'light'].text }]}>
                 {event.organization}
               </Text>
+              
+              {/* Link Button */}
+              {event.link && (
+                <TouchableOpacity
+                  style={styles.linkButton}
+                  onPress={() => {
+                    if (event.link) {
+                      Linking.openURL(event.link).catch(err => {
+                        console.error('Failed to open URL:', err);
+                      });
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.25, 0.5, 0.75, 1]}
+                    style={styles.linkButtonGradient}
+                  >
+                    <Ionicons name="link-outline" size={18} color="white" style={styles.linkIcon} />
+                    <Text style={styles.linkButtonText}>
+                      {event.link.includes('yelp.com') ? 'View on Yelp' :
+                       event.link.includes('ticketmaster') ? 'Get Tickets' :
+                       event.link.includes('maps.google.com') ? 'View on Maps' :
+                       'Visit Website'}
+                    </Text>
+                    <Ionicons name="open-outline" size={16} color="white" style={styles.externalIcon} />
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={styles.infoSection}>
@@ -528,20 +665,20 @@ const styles = StyleSheet.create({
   integratedBackButton: {
     position: 'absolute',
     top: 20,
-    left: 20,
+    right: 10,
     zIndex: 10,
-    borderRadius: 20,
+    borderRadius: 22,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   integratedBackButtonGradient: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -670,6 +807,93 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: 'white',
+  },
+  imageContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 250,
+  },
+  imageNavButton: {
+    position: 'absolute',
+    top: '50%',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    transform: [{ translateY: -20 }],
+  },
+  imageNavTouchable: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageNavLeft: {
+    left: 10,
+  },
+  imageNavRight: {
+    right: 10,
+  },
+  imageNavGradient: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageDotsContainer: {
+    position: 'absolute',
+    bottom: 15,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  imageDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 4,
+  },
+  imageDotActive: {
+    backgroundColor: 'white',
+    transform: [{ scale: 1.2 }],
+  },
+  linkButton: {
+    marginTop: 16,
+    borderRadius: 25,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  linkButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  linkIcon: {
+    marginRight: 8,
+  },
+  linkButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  externalIcon: {
+    marginLeft: 8,
+    opacity: 0.8,
   },
 
 }); 

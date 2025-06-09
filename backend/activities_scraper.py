@@ -1,8 +1,8 @@
 import requests
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, time
 from typing import List, Dict, Optional
-import time
+import time as time_module
 import os
 import base64
 import hashlib
@@ -12,7 +12,7 @@ from supabase import create_client, Client
 # Configuration
 GOOGLE_API_KEY = os.getenv('GOOGLE_PLACES_API_KEY')
 YELP_API_KEY = os.getenv('YELP_API_KEY')
-EVENTBRITE_API_KEY = os.getenv('EVENTBRITE_API_KEY')
+TICKET_MASTER_API_KEY = os.getenv('TICKET_MASTER_API')
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_ANON_KEY')
 
@@ -26,7 +26,7 @@ class TorontoActivityScraper:
     def __init__(self):
         self.google_api_key = GOOGLE_API_KEY
         self.yelp_api_key = YELP_API_KEY
-        self.eventbrite_api_key = EVENTBRITE_API_KEY
+        self.ticket_master_api_key = TICKET_MASTER_API_KEY
         
         # Downtown Toronto bounds
         self.toronto_center = {"lat": 43.6532, "lng": -79.3832}
@@ -95,7 +95,7 @@ class TorontoActivityScraper:
             
             if next_page_token:
                 params['pagetoken'] = next_page_token
-                time.sleep(2)  # Required delay for page token
+                time_module.sleep(2)  # Required delay for page token
             
             try:
                 response = requests.get(base_url, params=params)
@@ -118,7 +118,7 @@ class TorontoActivityScraper:
         
         return places[:max_results]
 
-    def get_google_place_photo(self, photo_reference: str, event_id: str = None) -> Optional[str]:
+    def get_google_place_photo(self, photo_reference: str, event_id: int = None, image_index: int = 0) -> Optional[str]:
         """Download photo from Google Places API"""
         if not photo_reference:
             return None
@@ -145,14 +145,14 @@ class TorontoActivityScraper:
             
             # If event_id is provided, upload to storage
             if event_id:
-                return self.upload_to_supabase_storage(response.content, int(event_id))
+                return self.upload_to_supabase_storage(response.content, event_id, image_index)
 
             
         except requests.RequestException as e:
             print(f"Error downloading Google photo: {e}")
             return None
 
-    def download_image_from_url(self, url: str, filename_prefix: str) -> Optional[str]:
+    def download_image_from_url(self, url: str, event_id: int, image_index: int = 0) -> Optional[str]:
         """Download image from any URL"""
         if not url:
             return None
@@ -182,18 +182,17 @@ class TorontoActivityScraper:
                 print(f"Image too large: {len(response.content)} bytes")
                 return None
             
-            return self.upload_to_supabase_storage(response.content, filename_prefix)
+            return self.upload_to_supabase_storage(response.content, event_id, image_index)
             
         except requests.RequestException as e:
             print(f"Error downloading image from {url}: {e}")
             return None
 
-
-    def upload_to_supabase_storage(self, image_data: bytes, event_id: int) -> Optional[str]:
-        """Upload image to Supabase Storage and return public URL"""
+    def upload_to_supabase_storage(self, image_data: bytes, event_id: int, image_index: int = 0) -> Optional[str]:
+        """Upload image to Supabase Storage in event-specific folder and return public URL"""
         try:
-            # Use just the event_id as filename
-            filename = f"{event_id}.jpg"
+            # Create folder structure: event_id/image_index.jpg
+            filename = f"{event_id}/{image_index}.jpg"
             
             # Upload to Supabase Storage
             bucket_name = "event-images"
@@ -213,21 +212,22 @@ class TorontoActivityScraper:
             print(f"Error uploading to Supabase Storage: {e}")
             return None
 
-    def extract_google_photos(self, place_details: Dict) -> List[str]:
-        """Extract photo references from Google Place details"""
+    def extract_google_photos(self, place_details: Dict, event_id: int) -> List[str]:
+        """Extract and download multiple photos from Google Place details"""
         photos = place_details.get('photos', [])
         photo_urls = []
         
-        # Get up to 3 photos per place
-        for photo in photos[:3]:
+        # Get up to 5 photos per place
+        for index, photo in enumerate(photos[:5]):
             photo_ref = photo.get('photo_reference')
             if photo_ref:
-                photo_url = self.get_google_place_photo(photo_ref)
+                photo_url = self.get_google_place_photo(photo_ref, event_id, index)
                 if photo_url:
                     photo_urls.append(photo_url)
-                time.sleep(0.1)  # Rate limiting
+                time_module.sleep(0.1)  # Rate limiting
                 
         return photo_urls
+
     def get_google_place_details(self, place_id: str) -> Dict:
         """Get detailed information for a specific place"""
         url = "https://maps.googleapis.com/maps/api/place/details/json"
@@ -265,44 +265,66 @@ class TorontoActivityScraper:
             print(f"Yelp API error: {e}")
             return []
 
-    def get_eventbrite_events(self, limit: int = 50) -> List[Dict]:
-        """Fetch events from Eventbrite API"""
-        url = "https://www.eventbriteapi.com/v3/events/search/"
-        headers = {'Authorization': f'Bearer {self.eventbrite_api_key}'}
+    def get_ticket_master_events(self, limit: int = 50) -> List[Dict]:
+        """Fetch events from TicketMaster API"""
+        url = "https://app.ticketmaster.com/discovery/v2/events.json"
         
         params = {
-            'location.address': 'Toronto, ON',
-            'location.within': '10km',
-            'start_date.range_start': datetime.now().isoformat(),
-            'start_date.range_end': (datetime.now() + timedelta(days=90)).isoformat(),
-            'expand': 'venue',
-            'page_size': min(limit, 50)
+            'apikey': self.ticket_master_api_key,
+            'city': 'Toronto',
+            'countryCode': 'CA',
+            'startDateTime': datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'endDateTime': (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'size': min(limit, 50),
+            'sort': 'date,asc'
         }
         
         try:
-            response = requests.get(url, headers=headers, params=params)
+            print(f"\nMaking TicketMaster API request with params: {params}")
+            response = requests.get(url, params=params)
             response.raise_for_status()
-            return response.json().get('events', [])
+            response_data = response.json()
+            
+            # Print the raw response for debugging
+            print(f"TicketMaster API Response Status: {response.status_code}")
+            print(f"Response Data: {json.dumps(response_data, indent=2)}")
+            
+            # TicketMaster returns events in _embedded.events
+            if '_embedded' in response_data and 'events' in response_data['_embedded']:
+                events = response_data['_embedded']['events']
+                print(f"Successfully retrieved {len(events)} events")
+                return events
+            print("No events found in response")
+            return []
         except requests.RequestException as e:
-            print(f"Eventbrite API error: {e}")
+            print(f"TicketMaster API error: {e}")
+            if hasattr(e.response, 'text'):
+                print(f"Error response: {e.response.text}")
             return []
 
     def transform_google_place(self, place: Dict, event_type: str) -> Dict:
         """Transform Google Places data to match Supabase schema"""
         # Get additional details if place_id exists
         details = {}
-        photos = []
+        photo_refs = []
         if place.get('place_id'):
             details = self.get_google_place_details(place['place_id'])
             if details:
-                # Just store photo references, don't download yet
-                photos = [photo.get('photo_reference') for photo in details.get('photos', [])[:3]]
-            time.sleep(0.1)  # Rate limiting
+                # Store up to 5 photo references for later processing
+                photo_refs = [photo.get('photo_reference') for photo in details.get('photos', [])[:5] if photo.get('photo_reference')]
+            time_module.sleep(0.1)  # Rate limiting
         
-        # Store first photo reference for later processing
-        main_photo_ref = photos[0] if photos else None
-        additional_photos_info = f" | Additional photos: {len(photos)-1}" if len(photos) > 1 else ""
+        # Store photo references for later processing
+        additional_photos_info = f" | Photos available: {len(photo_refs)}" if photo_refs else ""
         event_type_categories = self.event_type_to_category.get(event_type, [])
+        
+        # Generate link - prefer website from details, fallback to Google Maps URL
+        link = None
+        if details.get('website'):
+            link = details.get('website')
+        elif place.get('place_id'):
+            # Create Google Maps URL using place_id
+            link = f"https://maps.google.com/maps/place/?q=place_id:{place.get('place_id')}"
         
         return {
             'name': place.get('name', ''),
@@ -317,26 +339,42 @@ class TorontoActivityScraper:
             'age_restriction': None,
             'reservation': 'recommended' if event_type in ['restaurant', 'spa'] else None,
             'description': f"Rating: {place.get('rating', 'N/A')}/5{additional_photos_info}",
-            'image': None,  # Will be set later
+            'image': None,  # Will be set later with multiple images
             'occurrence': 'ongoing',
             'latitude': place.get('geometry', {}).get('location', {}).get('lat'),
             'longitude': place.get('geometry', {}).get('location', {}).get('lng'),
             'days_of_the_week': self.extract_opening_days(details.get('opening_hours', {})),
-            '_temp_image_data': main_photo_ref  # Store photo reference for later processing
+            'link': link,  # Website URL or Google Maps URL
+            '_temp_image_data': photo_refs  # Store multiple photo references for later processing
         }
 
     def transform_yelp_business(self, business: Dict, event_type: str) -> Dict:
         """Transform Yelp data to match Supabase schema"""
-        # Download Yelp image
-        image_url = business.get('image_url')
-        processed_image = None
-        temp_image_data = None
-        if image_url and self.image_storage_method != 'url_only':
-            # Store URL temporarily, we'll download and process later
-            temp_image_data = image_url
-        elif image_url:
-            processed_image = image_url  # Store URL only
+        # Collect Yelp images - Yelp typically only provides one main image
+        image_urls = []
+        main_image = business.get('image_url')
+        if main_image:
+            image_urls.append(main_image)
+        
+        # Check if there are additional photos (some Yelp responses include photos array)
+        photos = business.get('photos', [])
+        for photo in photos[:4]:  # Get up to 4 additional photos
+            if photo != main_image:  # Avoid duplicates
+                image_urls.append(photo)
+        
+        processed_images = []
+        temp_image_data = []
+        
+        if image_urls and self.image_storage_method != 'url_only':
+            # Store URLs temporarily, we'll download and process later
+            temp_image_data = image_urls
+        elif image_urls:
+            processed_images = image_urls  # Store URLs only
+            
         event_type_categories = self.event_type_to_category.get(event_type, [])
+        
+        # Get Yelp business URL
+        link = business.get('url')  # Yelp provides direct URL to business page
         
         return {
             'name': business.get('name', ''),
@@ -354,64 +392,113 @@ class TorontoActivityScraper:
             'cost': self.map_yelp_price(business.get('price')),
             'age_restriction': None,
             'reservation': 'recommended' if event_type == 'restaurant' else None,
-            'description': f"Rating: {business.get('rating', 'N/A')}/5 | {business.get('review_count', 0)} reviews",
-            'image': processed_image,
+            'description': f"Rating: {business.get('rating', 'N/A')}/5 | {business.get('review_count', 0)} reviews | Images: {len(image_urls)}",
+            'image': processed_images if processed_images else None,
             'occurrence': 'ongoing',
             'latitude': business.get('coordinates', {}).get('latitude'),
             'longitude': business.get('coordinates', {}).get('longitude'),
             'days_of_the_week': None,  # Yelp does not provide this info
+            'link': link,  # Yelp business page URL
             '_temp_image_data': temp_image_data
         }
 
-    def transform_eventbrite_event(self, event: Dict) -> Dict:
-        """Transform Eventbrite data to match Supabase schema"""
-        start_time = event.get('start', {}).get('local', '')
-        end_time = event.get('end', {}).get('local', '')
+    def transform_ticket_master_event(self, event: Dict) -> Dict:
+        """Transform TicketMaster data to match Supabase schema"""
+        dates = event.get('dates', {})
+        start_info = dates.get('start', {})
+        end_info = dates.get('end', {})
+        
+        start_datetime = start_info.get('dateTime', '')
+        end_datetime = end_info.get('dateTime', '')
 
-        print("start_time eventbrite: ", start_time)
-        print("end_time eventbrite: ", end_time)
+        print("start_time ticketmaster: ", start_datetime)
+        print("end_time ticketmaster: ", end_datetime)
         
         # Parse datetime strings
         start_dt = None
         end_dt = None
-        if start_time:
-            start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-        if end_time:
-            end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+        if start_datetime:
+            start_dt = datetime.fromisoformat(start_datetime.replace('Z', '+00:00'))
+        if end_datetime:
+            end_dt = datetime.fromisoformat(end_datetime.replace('Z', '+00:00'))
         
-        venue = event.get('venue', {}) or {}
+        # Get venue info from _embedded.venues
+        venues = event.get('_embedded', {}).get('venues', [])
+        venue = venues[0] if venues else {}
         
-        # Download Eventbrite logo/image
-        logo_url = event.get('logo', {}).get('url') if event.get('logo') else None
-        processed_image = None
-        temp_image_data = None
-        if logo_url and self.image_storage_method != 'url_only':
-            # Store URL temporarily, we'll download and process later
-            temp_image_data = logo_url
-        elif logo_url:
-            processed_image = logo_url  # Store URL only
+        # Get multiple images from event images array
+        images = event.get('images', [])
+        image_urls = []
         
-        # For Eventbrite, use a default category
-        event_type_categories = ['Experiences & Activities']
+        # Sort images by ratio (prefer landscape images) and get up to 5
+        sorted_images = sorted(images, key=lambda x: x.get('ratio', '16_9'), reverse=True)
+        for img in sorted_images[:5]:
+            img_url = img.get('url')
+            if img_url:
+                image_urls.append(img_url)
+        
+        processed_images = []
+        temp_image_data = []
+        
+        if image_urls and self.image_storage_method != 'url_only':
+            # Store URLs temporarily, we'll download and process later
+            temp_image_data = image_urls
+        elif image_urls:
+            processed_images = image_urls  # Store URLs only
+        
+        # Get event type from classifications
+        classifications = event.get('classifications', [])
+        classification = classifications[0] if classifications else {}
+        segment = classification.get('segment', {})
+        segment_name = segment.get('name', 'Experiences & Activities')
+        
+        # Map TicketMaster segments to our categories
+        segment_mapping = {
+            'Music': ['Experiences & Activities'],
+            'Sports': ['Games & Entertainment'],
+            'Arts & Theatre': ['Arts & Culture'],
+            'Film': ['Arts & Culture'],
+            'Miscellaneous': ['Experiences & Activities'],
+            'Family': ['Experiences & Activities']
+        }
+        event_type_categories = segment_mapping.get(segment_name, ['Experiences & Activities'])
+        
+        # Build location string
+        location_parts = []
+        if venue.get('name'):
+            location_parts.append(venue.get('name'))
+        if venue.get('city', {}).get('name'):
+            location_parts.append(venue.get('city', {}).get('name'))
+        if venue.get('state', {}).get('name'):
+            location_parts.append(venue.get('state', {}).get('name'))
+        location = ', '.join(location_parts)
+        
+        # Update description with image count
+        base_description = (event.get('info', '') or '')[:450]  # Leave room for image info
+        description = f"{base_description} | Images: {len(image_urls)}" if image_urls else base_description
+        
+        # Get TicketMaster event URL
+        link = event.get('url')  # TicketMaster provides direct URL to event page
         
         return {
-            'name': event.get('name', {}).get('text', ''),
-            'organization': event.get('organizer', {}).get('name', ''),
+            'name': event.get('name', ''),
+            'organization': None,  # TicketMaster doesn't typically provide organizer info
             'event_type': event_type_categories,
             'start_time': start_dt.time() if start_dt else None,
             'end_time': end_dt.time() if end_dt else None,
             'start_date': start_dt.date() if start_dt else None,
             'end_date': end_dt.date() if end_dt else None,
-            'location': venue.get('address', {}).get('localized_area_display', ''),
-            'cost': self.extract_eventbrite_cost(event),
-            'age_restriction': self.extract_age_restriction(event.get('description', {}).get('text', '')),
+            'location': location,
+            'cost': self.extract_ticket_master_cost(event),
+            'age_restriction': self.extract_age_restriction(event.get('info', '') or ''),
             'reservation': 'required',
-            'description': event.get('description', {}).get('text', '')[:500],  # Truncate long descriptions
-            'image': processed_image,
+            'description': description,
+            'image': processed_images if processed_images else None,
             'occurrence': 'single',
-            'latitude': venue.get('latitude'),
-            'longitude': venue.get('longitude'),
-            'days_of_the_week': None,  # Eventbrite does not provide this info
+            'latitude': venue.get('location', {}).get('latitude'),
+            'longitude': venue.get('location', {}).get('longitude'),
+            'days_of_the_week': None,  # TicketMaster does not provide this info
+            'link': link,  # TicketMaster event page URL
             '_temp_image_data': temp_image_data
         }
 
@@ -429,12 +516,17 @@ class TorontoActivityScraper:
         price_map = {'$': 25.0, '$$': 50.0, '$$$': 100.0, '$$$$': 200.0}
         return price_map.get(price_str, None)
 
-    def extract_eventbrite_cost(self, event: Dict) -> Optional[float]:
-        """Extract cost from Eventbrite event"""
-        ticket_availability = event.get('ticket_availability', {})
-        if ticket_availability.get('is_free'):
-            return 0.0
-        # You might need to make additional API calls to get ticket prices
+    def extract_ticket_master_cost(self, event: Dict) -> Optional[float]:
+        """Extract cost from TicketMaster event"""
+        # Check if event has price ranges
+        price_ranges = event.get('priceRanges', [])
+        if price_ranges:
+            # Return the minimum price from the first price range
+            min_price = price_ranges[0].get('min')
+            if min_price is not None:
+                return float(min_price)
+        
+        # If no price ranges available, return None (price unknown)
         return None
 
     def extract_age_restriction(self, description: str) -> Optional[int]:
@@ -459,101 +551,183 @@ class TorontoActivityScraper:
                 days.append(day)
         return days if days else None
 
+    def convert_datetime_to_string(self, obj):
+        """Convert datetime and time objects to ISO format strings"""
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, time):  # Using time class from datetime
+            return obj.strftime('%H:%M:%S')
+        elif isinstance(obj, date):
+            return obj.isoformat()
+        return obj
+
     def save_to_supabase(self, activities: List[Dict]):
         """Save activities to Supabase database"""
         try:
+            print(f"\nPreparing to save {len(activities)} activities to Supabase")
+            
             # Clear existing images from the bucket
             try:
                 bucket_name = "event-images"
-                # List all files in the bucket
+                print("\nClearing existing images from storage...")
+                # List all files/folders in the bucket
                 files = supabase.storage.from_(bucket_name).list()
-                # Delete each file
+                print(f"Found {len(files)} existing files/folders")
+                # Delete each file/folder
                 for file in files:
-                    supabase.storage.from_(bucket_name).remove([file['name']])
+                    if file.get('name'):
+                        try:
+                            # If it's a folder, list and delete contents first
+                            if not file.get('name').endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                                # This might be a folder, try to list its contents
+                                folder_files = supabase.storage.from_(bucket_name).list(file['name'])
+                                folder_file_names = [f"{file['name']}/{f['name']}" for f in folder_files if f.get('name')]
+                                if folder_file_names:
+                                    supabase.storage.from_(bucket_name).remove(folder_file_names)
+                            else:
+                                # Direct file deletion
+                                supabase.storage.from_(bucket_name).remove([file['name']])
+                        except Exception as fe:
+                            # If individual deletion fails, continue with others
+                            print(f"Failed to delete {file['name']}: {fe}")
                 print("Cleared existing images from storage")
             except Exception as e:
                 print(f"Error clearing existing images: {e}")
             
             # Process images for each activity
+            print("\nProcessing images for activities...")
             for activity in activities:
+                print(f"\nProcessing activity: {activity.get('name')} (ID: {activity.get('id')})")
                 if '_temp_image_data' in activity:
                     temp_data = activity.pop('_temp_image_data')
                     if temp_data:
+                        image_urls = []
                         try:
-                            if isinstance(temp_data, str):
-                                if temp_data.startswith('http'):
-                                    # Download and process image from URL
-                                    activity['image'] = self.download_image_from_url(temp_data, str(activity['id']))
-                                else:
-                                    # This is a Google photo reference
-                                    activity['image'] = self.get_google_place_photo(temp_data, str(activity['id']))
+                            # Handle multiple images
+                            if isinstance(temp_data, list):
+                                print(f"Processing {len(temp_data)} images")
+                                for index, image_data in enumerate(temp_data):
+                                    image_url = None
+                                    if isinstance(image_data, str):
+                                        if image_data.startswith('http'):
+                                            # Download and process image from URL
+                                            image_url = self.download_image_from_url(image_data, activity['id'], index)
+                                        else:
+                                            # This is a Google photo reference
+                                            image_url = self.get_google_place_photo(image_data, activity['id'], index)
+                                    else:
+                                        # Process raw image data
+                                        image_url = self.upload_to_supabase_storage(image_data, activity['id'], index)
+                                    
+                                    if image_url:
+                                        image_urls.append(image_url)
+                                    
+                                    # Small delay between image downloads
+                                    time_module.sleep(0.2)
                             else:
-                                print("activity id: ", activity['id'])
-                                # Process raw image data
-                                activity['image'] = self.upload_to_supabase_storage(temp_data, activity['id'])
+                                # Single image (legacy support)
+                                if isinstance(temp_data, str):
+                                    if temp_data.startswith('http'):
+                                        image_url = self.download_image_from_url(temp_data, activity['id'], 0)
+                                    else:
+                                        image_url = self.get_google_place_photo(temp_data, activity['id'], 0)
+                                else:
+                                    image_url = self.upload_to_supabase_storage(temp_data, activity['id'], 0)
+                                
+                                if image_url:
+                                    image_urls.append(image_url)
+                            
+                            # Store the list of image URLs or first image URL based on schema
+                            if image_urls:
+                                activity['image'] = image_urls[0]  # Using first image for now
+                                print(f"Successfully processed {len(image_urls)} images")
+                            else:
+                                activity['image'] = None
+                                print("No images were successfully processed")
+                                
                         except Exception as e:
-                            print(f"Error processing image for activity {activity['id']}: {e}")
+                            print(f"Error processing images for activity {activity['id']}: {e}")
                             activity['image'] = None
             
             # Filter out None values and ensure data types
+            print("\nCleaning activity data...")
             cleaned_activities = []
             for activity in activities:
-                cleaned = {k: v for k, v in activity.items() if v is not None and not k.startswith('_')}
+                # Convert datetime and time objects to strings
+                cleaned = {
+                    k: self.convert_datetime_to_string(v) 
+                    for k, v in activity.items() 
+                    if v is not None and not k.startswith('_')
+                }
                 cleaned_activities.append(cleaned)
             
             # Insert in batches
+            print("\nSaving to Supabase database...")
             batch_size = 100
             for i in range(0, len(cleaned_activities), batch_size):
                 batch = cleaned_activities[i:i+batch_size]
+                print(f"Saving batch {i//batch_size + 1} ({len(batch)} records)...")
                 result = supabase.table('all_events').upsert(batch).execute()
-                print(f"Inserted batch {i//batch_size + 1}: {len(batch)} records")
+                print(f"Successfully saved batch {i//batch_size + 1}")
                 
         except Exception as e:
             print(f"Error saving to Supabase: {e}")
+            raise  # Re-raise the exception to see the full traceback
 
     def run_full_scrape(self):
         """Main method to scrape all data sources"""
         all_activities = []
         
-        print("Fetching Google Places data...")
+        print("\n=== Starting Google Places Scrape ===")
         for event_type, place_types in self.activity_types.items():
+            print(f"\nScraping {event_type}...")
             for place_type in place_types:
+                print(f"  - Getting {place_type} places...")
                 places = self.get_google_places(place_type, max_results=1)
+                print(f"    Found {len(places)} places")
                 for place in places:
                     activity = self.transform_google_place(place, event_type)
                     all_activities.append(activity)
-                time.sleep(1)  # Rate limiting
+                time_module.sleep(1)  # Rate limiting
         
-        print("Fetching Yelp data...")
+        print("\n=== Starting Yelp Scrape ===")
         yelp_categories = ['restaurants', 'bars', 'coffee', 'shopping', 'arts']
         for category in yelp_categories:
+            print(f"\nScraping {category}...")
             businesses = self.get_yelp_businesses(category, limit=1)
+            print(f"  Found {len(businesses)} businesses")
             for business in businesses:
                 activity = self.transform_yelp_business(business, category)
                 all_activities.append(activity)
-            time.sleep(1)  # Rate limiting
+            time_module.sleep(1)  # Rate limiting
         
-        print("Fetching Eventbrite data...")
-        events = self.get_eventbrite_events(limit=1)
+        print("\n=== Starting TicketMaster Scrape ===")
+        events = self.get_ticket_master_events(limit=1)
+        print(f"Found {len(events)} events from TicketMaster")
         for event in events:
-            activity = self.transform_eventbrite_event(event)
+            activity = self.transform_ticket_master_event(event)
             all_activities.append(activity)
         
-        print(f"Total activities collected: {len(all_activities)}")
+        print(f"\nTotal activities collected: {len(all_activities)}")
         
         # Remove duplicates and merge data
-        print("Removing duplicates and merging data...")
+        print("\n=== Removing Duplicates ===")
         unique_activities = self.remove_duplicates(all_activities)
+        print(f"Found {len(unique_activities)} unique activities after deduplication")
+        
+        print("\n=== Merging Duplicate Data ===")
         merged_activities = self.merge_duplicate_data(unique_activities)
-        print(f"Final unique activities after deduplication and merging: {len(merged_activities)}")
+        print(f"Final unique activities after merging: {len(merged_activities)}")
         
         # Assign IDs to the final deduplicated activities
+        print("\n=== Assigning IDs ===")
         self.next_event_id = 1
         for activity in merged_activities:
             activity['id'] = self.next_event_id
             self.next_event_id += 1
         
         # Save to database
+        print("\n=== Saving to Database ===")
         self.save_to_supabase(merged_activities)
         
         return merged_activities
@@ -668,7 +842,12 @@ class TorontoActivityScraper:
             
             # Create a location-based key
             if lat and lng:
-                location_key = f"{round(lat, 4)}_{round(lng, 4)}"
+                try:
+                    lat_float = float(lat)
+                    lng_float = float(lng)
+                    location_key = f"{round(lat_float, 4)}_{round(lng_float, 4)}"
+                except (ValueError, TypeError):
+                    location_key = activity.get('location', '').lower()
             else:
                 location_key = activity.get('location', '').lower()
             
@@ -720,7 +899,7 @@ if __name__ == "__main__":
     # Set up your environment variables first:
     # export GOOGLE_PLACES_API_KEY="your_key_here"
     # export YELP_API_KEY="your_key_here"
-    # export EVENTBRITE_API_KEY="your_key_here"
+    # export TICKET_MASTER_API_KEY="your_key_here"
     # export SUPABASE_URL="your_supabase_url"
     # export SUPABASE_KEY="your_supabase_anon_key"
     

@@ -30,6 +30,8 @@ export interface EventCard {
   longitude?: number;
   distance?: number | null;  // Add distance property
   days_of_the_week?: string[];
+  allImages?: string[];  // Array of all 5 image URLs for the event
+  link?: string;  // Source URL for the event/activity
 };
 
 export interface UserProfile {
@@ -198,13 +200,24 @@ class GlobalDataManager extends EventEmitter {
       // Add image URLs to events (similar to how the recommendation API does it)
       const eventsWithImages = (events || []).map(event => {
         try {
+          // Randomly select one of the 5 images (0-4)
+          const randomImageIndex = Math.floor(Math.random() * 5);
           const { data: { publicUrl } } = supabase.storage
             .from('event-images')
-            .getPublicUrl(`${event.id}.jpg`);
-          return { ...event, image: publicUrl };
+            .getPublicUrl(`${event.id}/${randomImageIndex}.jpg`);
+          
+          // Create all 5 image URLs
+          const allImages = Array.from({ length: 5 }, (_, i) => {
+            const { data: { publicUrl: imageUrl } } = supabase.storage
+              .from('event-images')
+              .getPublicUrl(`${event.id}/${i}.jpg`);
+            return imageUrl;
+          });
+          
+          return { ...event, image: publicUrl, allImages };
         } catch (e) {
           console.log(`No image found for event ${event.id}`);
-          return { ...event, image: null };
+          return { ...event, image: null, allImages: [] };
         }
       });
       

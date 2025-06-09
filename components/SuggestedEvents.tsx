@@ -157,11 +157,27 @@ export default function SuggestedEvents() {
 
       const eventsData = await response.json();
 
+      // Process events to add random image selection
+      const processedEvents = eventsData.events.map((event: EventCard) => {
+        // Randomly select one of the 5 images (0-4)
+        const randomImageIndex = Math.floor(Math.random() * 5);
+        const imageUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg`;
+        
+        return {
+          ...event,
+          image: imageUrl,
+          // Store all 5 image URLs for use in EventDetailModal
+          allImages: Array.from({ length: 5 }, (_, i) => 
+            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
+          )
+        };
+      });
+
       // Reset the Swiper state
       setCardIndex(0);
       setEVENTS([]); // Clear current events
       setTimeout(() => {
-        setEVENTS(eventsData.events); // Set new events after a brief delay
+        setEVENTS(processedEvents); // Set new events after a brief delay
         setLoading(false);
         setIsFetchingActivities(false); // Reset fetching activities state
       }, 100);

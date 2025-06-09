@@ -92,15 +92,20 @@ export default function Discover() {
           const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
 
           const eventsWithLikes = events.map(event => {
-            // Construct the image URL using the event ID
+            // Randomly select one of the 5 images (0-4)
+            const randomImageIndex = Math.floor(Math.random() * 5);
             const imageUrl = event.id ? 
-              `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}.jpg` : 
+              `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
               null;
 
             return {
               ...event,
               image: imageUrl,
-              isLiked: savedEventIds.has(event.id)
+              isLiked: savedEventIds.has(event.id),
+              // Store all 5 image URLs for use in EventDetailModal
+              allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
+                `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
+              ) : []
             } as ExtendedEventCard;
           });
 
@@ -230,15 +235,21 @@ export default function Discover() {
       const newEvents = eventsData
         .filter(event => !loadedEventIds.has(event.id))
         .map(event => {
+          // Randomly select one of the 5 images (0-4)
+          const randomImageIndex = Math.floor(Math.random() * 5);
           const imageUrl = event.id ? 
-            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}.jpg` : 
+            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
             null;
 
           return {
             ...event,
             image: imageUrl,
             isLiked: savedEventIds.has(event.id),
-            occurrence: event.occurrence || 'one-time' // Add default occurrence
+            occurrence: event.occurrence || 'one-time', // Add default occurrence
+            // Store all 5 image URLs for use in EventDetailModal
+            allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
+              `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
+            ) : []
           } as ExtendedEventCard;
         });
 
