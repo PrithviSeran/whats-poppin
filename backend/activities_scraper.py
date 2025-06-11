@@ -330,8 +330,6 @@ class TorontoActivityScraper:
             'name': place.get('name', ''),
             'organization': None,
             'event_type': event_type_categories,
-            'start_time': None,  # Ongoing business
-            'end_time': None,
             'start_date': None,
             'end_date': None,
             'location': place.get('vicinity', details.get('formatted_address', '')),
@@ -344,6 +342,7 @@ class TorontoActivityScraper:
             'latitude': place.get('geometry', {}).get('location', {}).get('lat'),
             'longitude': place.get('geometry', {}).get('location', {}).get('lng'),
             'days_of_the_week': self.extract_opening_days(details.get('opening_hours', {})),
+            'times': self.extract_opening_times(details.get('opening_hours', {})),
             'link': link,  # Website URL or Google Maps URL
             '_temp_image_data': photo_refs  # Store multiple photo references for later processing
         }
@@ -380,8 +379,6 @@ class TorontoActivityScraper:
             'name': business.get('name', ''),
             'organization': None,
             'event_type': event_type_categories,
-            'start_time': None,
-            'end_time': None,
             'start_date': None,
             'end_date': None,
             'location': ', '.join([
@@ -398,6 +395,7 @@ class TorontoActivityScraper:
             'latitude': business.get('coordinates', {}).get('latitude'),
             'longitude': business.get('coordinates', {}).get('longitude'),
             'days_of_the_week': None,  # Yelp does not provide this info
+            'times': self.extract_yelp_opening_times(business),
             'link': link,  # Yelp business page URL
             '_temp_image_data': temp_image_data
         }
@@ -484,8 +482,6 @@ class TorontoActivityScraper:
             'name': event.get('name', ''),
             'organization': None,  # TicketMaster doesn't typically provide organizer info
             'event_type': event_type_categories,
-            'start_time': start_dt.time() if start_dt else None,
-            'end_time': end_dt.time() if end_dt else None,
             'start_date': start_dt.date() if start_dt else None,
             'end_date': end_dt.date() if end_dt else None,
             'location': location,
@@ -498,6 +494,7 @@ class TorontoActivityScraper:
             'latitude': venue.get('location', {}).get('latitude'),
             'longitude': venue.get('location', {}).get('longitude'),
             'days_of_the_week': None,  # TicketMaster does not provide this info
+            'times': self.extract_ticketmaster_times(event),
             'link': link,  # TicketMaster event page URL
             '_temp_image_data': temp_image_data
         }
@@ -551,14 +548,190 @@ class TorontoActivityScraper:
                 days.append(day)
         return days if days else None
 
+    def extract_opening_times(self, opening_hours: Dict) -> Optional[Dict]:
+        """Extract opening times from Google Places opening hours in the specified format
+        
+        Returns:
+        {
+            Monday: (start_time, end_time),
+            Tuesday: 'all_day',
+            ...
+        }
+        """
+        if not opening_hours or not opening_hours.get('weekday_text'):
+            return None
+            
+        import re
+        
+        times_dict = {}
+        
+        # weekday_text example: ["Monday: 9:00 AM – 5:00 PM", "Tuesday: Open 24 hours", "Wednesday: Closed"]
+        for entry in opening_hours.get('weekday_text', []):
+            if ':' not in entry:
+                continue
+                
+            parts = entry.split(':', 1)
+            day = parts[0].strip()
+            hours_text = parts[1].strip()
+            
+            # Check for closed
+            if 'closed' in hours_text.lower():
+                continue  # Don't add closed days to the times dict
+                
+            # Check for 24 hours / open 24 hours
+            if '24 hours' in hours_text.lower() or 'open 24' in hours_text.lower():
+                times_dict[day] = 'all_day'
+                continue
+            
+            # Try to extract time ranges using regex
+            # Patterns to match: "9:00 AM – 5:00 PM", "9:00 AM - 5:00 PM", "9 AM – 5 PM", etc.
+            time_pattern = r'(\d{1,2}):?(\d{0,2})\s*(AM|PM|am|pm)?\s*[–-]\s*(\d{1,2}):?(\d{0,2})\s*(AM|PM|am|pm)?'
+            match = re.search(time_pattern, hours_text)
+            
+            if match:
+                start_hour, start_min, start_ampm, end_hour, end_min, end_ampm = match.groups()
+                
+                # Convert to 24-hour format and then to simple format
+                try:
+                    # Handle start time
+                    start_hour = int(start_hour)
+                    start_min = int(start_min) if start_min else 0
+                    
+                    if start_ampm and start_ampm.lower() == 'pm' and start_hour != 12:
+                        start_hour += 12
+                    elif start_ampm and start_ampm.lower() == 'am' and start_hour == 12:
+                        start_hour = 0
+                    
+                    # Handle end time
+                    end_hour = int(end_hour)
+                    end_min = int(end_min) if end_min else 0
+                    
+                    if end_ampm and end_ampm.lower() == 'pm' and end_hour != 12:
+                        end_hour += 12
+                    elif end_ampm and end_ampm.lower() == 'am' and end_hour == 12:
+                        end_hour = 0
+                    
+                    # Format as "H:MM" (removing leading zero from hour)
+                    start_time = f"{start_hour}:{start_min:02d}"
+                    end_time = f"{end_hour}:{end_min:02d}"
+                    
+                    times_dict[day] = (start_time, end_time)
+                    
+                except (ValueError, TypeError):
+                    # If parsing fails, skip this day
+                    continue
+        
+        return times_dict if times_dict else None
+
+    def extract_yelp_opening_times(self, business: Dict) -> Optional[Dict]:
+        """Extract opening times from Yelp business data
+        
+        Note: Yelp API typically doesn't provide detailed opening hours in the basic search response.
+        This function checks for any available hours data and attempts to get business details.
+        """
+        # Check if hours are included in the business response (some Yelp responses include limited hours)
+        hours = business.get('hours')
+        if hours and isinstance(hours, list) and len(hours) > 0:
+            # Yelp hours format: [{"open": [{"is_overnight": false, "start": "1100", "end": "2200", "day": 0}], "hours_type": "REGULAR"}]
+            regular_hours = None
+            for hour_set in hours:
+                if hour_set.get('hours_type') == 'REGULAR':
+                    regular_hours = hour_set.get('open', [])
+                    break
+            
+            if regular_hours:
+                times_dict = {}
+                day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                
+                for hour_info in regular_hours:
+                    day_num = hour_info.get('day')  # 0 = Monday, 1 = Tuesday, etc.
+                    if day_num is not None and 0 <= day_num < 7:
+                        day_name = day_names[day_num]
+                        start_time = hour_info.get('start')
+                        end_time = hour_info.get('end')
+                        
+                        if start_time and end_time:
+                            # Convert from Yelp format (e.g., "1100") to our format (e.g., "11:00")
+                            try:
+                                start_hour = int(start_time[:2])
+                                start_min = int(start_time[2:])
+                                end_hour = int(end_time[:2])
+                                end_min = int(end_time[2:])
+                                
+                                start_formatted = f"{start_hour}:{start_min:02d}"
+                                end_formatted = f"{end_hour}:{end_min:02d}"
+                                
+                                # Check if it's 24 hours (e.g., start at 00:00 and end at 23:59 or similar)
+                                if start_time == "0000" and end_time in ["2359", "2400"]:
+                                    times_dict[day_name] = 'all_day'
+                                else:
+                                    times_dict[day_name] = (start_formatted, end_formatted)
+                            except (ValueError, IndexError):
+                                continue
+                
+                return times_dict if times_dict else None
+        
+        # If no hours in basic response, we could potentially make a business details API call here
+        # For now, return None as the basic search API doesn't typically include opening hours
+        return None
+
+    def extract_ticketmaster_times(self, event: Dict) -> Optional[Dict]:
+        """Extract times from TicketMaster event data
+        
+        TicketMaster events are single occurrences, so we'll structure them differently
+        """
+        dates = event.get('dates', {})
+        start_info = dates.get('start', {})
+        end_info = dates.get('end', {})
+        
+        start_datetime = start_info.get('dateTime', '')
+        end_datetime = end_info.get('dateTime', '')
+        
+        if not start_datetime:
+            return None
+            
+        try:
+            # Parse the datetime
+            from datetime import datetime
+            start_dt = datetime.fromisoformat(start_datetime.replace('Z', '+00:00'))
+            
+            # Get the day of the week
+            day_name = start_dt.strftime('%A')  # Monday, Tuesday, etc.
+            
+            # Format times
+            start_time = f"{start_dt.hour}:{start_dt.minute:02d}"
+            
+            if end_datetime:
+                end_dt = datetime.fromisoformat(end_datetime.replace('Z', '+00:00'))
+                end_time = f"{end_dt.hour}:{end_dt.minute:02d}"
+            else:
+                # If no end time, assume 2 hours duration (common for events)
+                end_dt = start_dt.replace(hour=(start_dt.hour + 2) % 24)
+                end_time = f"{end_dt.hour}:{end_dt.minute:02d}"
+            
+            return {day_name: (start_time, end_time)}
+            
+        except (ValueError, TypeError, AttributeError):
+            return None
+
     def convert_datetime_to_string(self, obj):
-        """Convert datetime and time objects to ISO format strings"""
+        """Convert datetime and date objects to ISO format strings"""
         if isinstance(obj, datetime):
             return obj.isoformat()
-        elif isinstance(obj, time):  # Using time class from datetime
-            return obj.strftime('%H:%M:%S')
         elif isinstance(obj, date):
             return obj.isoformat()
+        elif isinstance(obj, dict):
+            # Handle the times dictionary by recursively converting values
+            converted_dict = {}
+            for key, value in obj.items():
+                converted_dict[key] = self.convert_datetime_to_string(value)
+            return converted_dict
+        elif isinstance(obj, tuple):
+            # Handle tuples (like time ranges in the times dict) - these should already be strings
+            return tuple(self.convert_datetime_to_string(item) for item in obj)
+        elif isinstance(obj, list):
+            # Handle lists by recursively converting items
+            return [self.convert_datetime_to_string(item) for item in obj]
         return obj
 
     def save_to_supabase(self, activities: List[Dict]):
@@ -887,6 +1060,11 @@ class TorontoActivityScraper:
                     new_desc = value or ''
                     if new_desc and new_desc not in existing_desc:
                         merged['description'] = f"{existing_desc} | {new_desc}".strip(' |')
+                elif key == 'times' and value is not None:
+                    # Merge times dictionaries, preferring more complete data
+                    existing_times = merged.get('times', {})
+                    if not existing_times or (isinstance(value, dict) and len(value) > len(existing_times)):
+                        merged['times'] = value
                 elif key == '_temp_image_data' and value is not None:
                     # Preserve image data if we don't have it yet
                     if not merged.get('_temp_image_data'):
