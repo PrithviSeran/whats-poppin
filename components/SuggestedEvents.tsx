@@ -92,6 +92,39 @@ export default function SuggestedEvents() {
 
   const dataManager = GlobalDataManager.getInstance();
 
+  // Helper function to format times data for display
+  const formatTimesForDisplay = (times: { [key: string]: string | [string, string] } | undefined): string => {
+    if (!times || Object.keys(times).length === 0) {
+      return 'Hours not available';
+    }
+
+    const entries = Object.entries(times);
+    if (entries.length === 1) {
+      const [day, timeValue] = entries[0];
+      if (timeValue === 'all_day') {
+        return `${day}: Open 24 hours`;
+      } else if (Array.isArray(timeValue)) {
+        return `${day}: ${timeValue[0]} - ${timeValue[1]}`;
+      }
+      return `${day}: ${timeValue}`;
+    }
+
+    // Multiple days - show a summary
+    const allDayCount = entries.filter(([_, timeValue]) => timeValue === 'all_day').length;
+    const regularHours = entries.filter(([_, timeValue]) => Array.isArray(timeValue));
+    
+    if (allDayCount === entries.length) {
+      return 'Open 24 hours daily';
+    } else if (regularHours.length > 0) {
+      const [_, firstTime] = regularHours[0];
+      if (Array.isArray(firstTime)) {
+        return `Varies by day (e.g., ${firstTime[0]} - ${firstTime[1]})`;
+      }
+    }
+    
+    return 'Varies by day';
+  };
+
   const fetchTokenAndCallBackend = async () => {
     const currentUserEmail = dataManager.getCurrentUser()?.email ?? null;
     const userLocation = await Location.getCurrentPositionAsync();
@@ -104,6 +137,11 @@ export default function SuggestedEvents() {
     }
 
     try {
+      // IMPORTANT: Refresh GlobalDataManager data to ensure we have the latest state
+      // This is crucial when user has just cleared events or applied filters
+      console.log('🔄 fetchTokenAndCallBackend: Refreshing data before API call...');
+      await dataManager.refreshAllDataImmediate();
+      
       // Get both rejected and liked (saved) events to exclude from recommendations
       const rejectedEvents = await dataManager.getRejectedEvents();
       const savedEvents = await dataManager.getSavedEvents();
@@ -117,9 +155,31 @@ export default function SuggestedEvents() {
       const filterByDistance = await dataManager.getIsFilterByDistance();
       const session = await dataManager.getSession();
       
-      console.log('Rejected events:', rejectedEventIds);
-      console.log('Saved events:', savedEventIds);
-      console.log('Total excluded events:', excludedEventIds);
+      console.log('📊 fetchTokenAndCallBackend: Data state:');
+      console.log('  - Rejected events:', rejectedEventIds);
+      console.log('  - Saved events:', savedEventIds);
+      console.log('  - Total excluded events:', excludedEventIds);
+      console.log('  - Filter by distance:', filterByDistance);
+
+      // ADDITIONAL: Verify data directly from Supabase to check for race conditions
+      try {
+        const { data: userData } = await supabase
+          .from('all_users')
+          .select('saved_events')
+          .eq('email', currentUserEmail)
+          .single();
+        
+        console.log('✅ Direct Supabase saved_events check:', userData?.saved_events);
+        
+        if (userData?.saved_events && Array.isArray(userData.saved_events) && userData.saved_events.length !== savedEventIds.length) {
+          console.warn('⚠️  CACHE MISMATCH DETECTED!');
+          console.warn('  - GlobalDataManager saved events count:', savedEventIds.length);
+          console.warn('  - Supabase saved events count:', userData.saved_events.length);
+          console.warn('  - This indicates a race condition or cache sync issue');
+        }
+      } catch (error) {
+        console.error('❌ Error checking Supabase data directly:', error);
+      }
 
 
       /*const params = new URLSearchParams({
@@ -986,9 +1046,9 @@ export default function SuggestedEvents() {
                         <Ionicons name="time-outline" size={20} color="white" />
                       </LinearGradient>
                       <View style={styles.infoTextContainer}>
-                        <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Time</Text>
+                        <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Hours</Text>
                         <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          {expandedSavedActivity.start_time}
+                          {formatTimesForDisplay(expandedSavedActivity.times)}
                         </Text>
                       </View>
                     </View>

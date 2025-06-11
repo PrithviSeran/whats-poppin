@@ -15,8 +15,6 @@ export interface EventCard {
   name: string;
   organization: string;
   event_type: string;
-  start_time: string; // 'HH:MM'
-  end_time: string;   // 'HH:MM'
   location: string;
   cost: number;
   age_restriction: number;
@@ -30,6 +28,7 @@ export interface EventCard {
   longitude?: number;
   distance?: number | null;  // Add distance property
   days_of_the_week?: string[];
+  times?: { [key: string]: string | [string, string] };  // New times field replacing start_time/end_time
   allImages?: string[];  // Array of all 5 image URLs for the event
   link?: string;  // Source URL for the event/activity
 };
@@ -299,6 +298,19 @@ class GlobalDataManager extends EventEmitter {
     }, 1000); // Debounce for 1 second
   }
 
+  // Immediate refresh without debouncing - used after critical operations like clearing events
+  async refreshAllDataImmediate() {
+    console.log('🔄 Performing immediate data refresh...');
+    if (this.dataUpdateTimeout) {
+      clearTimeout(this.dataUpdateTimeout);
+      this.dataUpdateTimeout = null;
+    }
+    
+    this.isInitialized = false;
+    await this.initialize();
+    console.log('✅ Immediate data refresh completed');
+  }
+
   // Cleanup method
   cleanup() {
     if (this.dataUpdateTimeout) {
@@ -497,23 +509,83 @@ class GlobalDataManager extends EventEmitter {
   async clearSavedEvents() {
     try {
       const user = this.currentUser;
-      if (!user || !user.email) return;
+      if (!user || !user.email) {
+        console.error('No user or email available for clearing saved events');
+        throw new Error('User not authenticated');
+      }
 
-      // Clear from Supabase first
-      await supabase
+      console.log(`🗑️ Starting clear all saved events for user ${user.email}`);
+
+      // Clear from Supabase first with detailed error checking
+      const { data: updateData, error: updateError } = await supabase
         .from('all_users')
         .update({ saved_events: [] })
-        .eq('email', user.email);
+        .eq('email', user.email)
+        .select(); // Return the updated row to verify the change
+
+      if (updateError) {
+        console.error('❌ Error clearing saved events in Supabase:', updateError);
+        throw updateError;
+      }
+
+      console.log('✅ Supabase clear operation completed. Updated data:', updateData);
+
+      // Verify the update worked
+      if (updateData && updateData.length > 0) {
+        console.log('📊 Verified cleared saved_events in database:', updateData[0].saved_events);
+      }
+
+      // CRITICAL: Wait and verify the change has fully propagated before proceeding
+      // This prevents race conditions with subsequent refreshAllData() calls
+      console.log('⏳ Verifying database state is fully synchronized...');
+      
+      let verificationAttempts = 0;
+      const maxAttempts = 5;
+      const retryDelay = 200; // milliseconds
+      
+      while (verificationAttempts < maxAttempts) {
+        // Read the current state directly from database
+        const { data: verifyData, error: verifyError } = await supabase
+          .from('all_users')
+          .select('saved_events')
+          .eq('email', user.email)
+          .single();
+        
+        if (verifyError) {
+          console.warn(`⚠️  Verification attempt ${verificationAttempts + 1} failed:`, verifyError);
+        } else if (verifyData && Array.isArray(verifyData.saved_events) && verifyData.saved_events.length === 0) {
+          console.log(`✅ Database verification successful on attempt ${verificationAttempts + 1}`);
+          break;
+        } else {
+          console.warn(`⚠️  Verification attempt ${verificationAttempts + 1}: Database still shows events:`, verifyData?.saved_events);
+        }
+        
+        verificationAttempts++;
+        if (verificationAttempts < maxAttempts) {
+          console.log(`⏳ Waiting ${retryDelay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+      }
+      
+      if (verificationAttempts >= maxAttempts) {
+        console.error('❌ Database verification failed after maximum attempts');
+        throw new Error('Clear operation completed but verification failed - database may be inconsistent');
+      }
 
       // Then clear from AsyncStorage
       await AsyncStorage.setItem('savedEvents', JSON.stringify([]));
       
+      // CRITICAL: Immediately refresh all data to ensure cache synchronization
+      // This prevents race conditions with subsequent operations
+      console.log('🔄 Performing immediate cache refresh after clear...');
+      await this.refreshAllDataImmediate();
+      
       // Emit an event to notify listeners
       this.emit('savedEventsUpdated', []);
       
-      console.log('Saved events cleared successfully');
+      console.log('✅ Saved events cleared successfully and verified in both Supabase and AsyncStorage');
     } catch (error) {
-      console.error('Error clearing saved events:', error);
+      console.error('❌ Error clearing saved events:', error);
       throw error;
     }
   }
@@ -711,7 +783,12 @@ class GlobalDataManager extends EventEmitter {
   async removeEventFromSavedEvents(eventId: number) {
     try {
       const user = this.currentUser;
-      if (!user || !user.email) return;
+      if (!user || !user.email) {
+        console.error('No user or email available for removing saved event');
+        throw new Error('User not authenticated');
+      }
+
+      console.log(`Starting removal of event ${eventId} for user ${user.email}`);
 
       // Get current saved events from Supabase
       const { data: userData, error } = await supabase
@@ -720,7 +797,12 @@ class GlobalDataManager extends EventEmitter {
         .eq('email', user.email)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching user data from Supabase:', error);
+        throw error;
+      }
+
+      console.log('Current user data from Supabase:', userData);
 
       // Parse current saved events
       let savedEventIds: number[] = [];
@@ -736,25 +818,56 @@ class GlobalDataManager extends EventEmitter {
         }
       }
 
-      // Remove event ID if present
-      savedEventIds = savedEventIds.filter(id => id !== eventId);
+      console.log('Parsed saved event IDs before removal:', savedEventIds);
 
-      // Update Supabase
-      await supabase
+      // Check if event ID is actually in the list
+      if (!savedEventIds.includes(eventId)) {
+        console.log(`Event ${eventId} not found in saved events list`);
+        return; // Event wasn't saved anyway
+      }
+
+      // Remove event ID if present
+      const originalLength = savedEventIds.length;
+      savedEventIds = savedEventIds.filter(id => id !== eventId);
+      
+      console.log(`Removed event ${eventId}. Array length changed from ${originalLength} to ${savedEventIds.length}`);
+      console.log('Updated saved event IDs after removal:', savedEventIds);
+
+      // Update Supabase with detailed error checking
+      const { data: updateData, error: updateError } = await supabase
         .from('all_users')
         .update({ saved_events: savedEventIds })
-        .eq('email', user.email);
+        .eq('email', user.email)
+        .select(); // Return the updated row to verify the change
+
+      if (updateError) {
+        console.error('Error updating Supabase:', updateError);
+        throw updateError;
+      }
+
+      console.log('Supabase update successful. Updated data:', updateData);
+
+      // Verify the update worked
+      if (updateData && updateData.length > 0) {
+        console.log('Verified updated saved_events in database:', updateData[0].saved_events);
+      }
 
       // Get current saved events from AsyncStorage
       const savedEventsJson = await AsyncStorage.getItem('savedEvents');
       const currentSavedEvents = savedEventsJson ? JSON.parse(savedEventsJson) : [];
 
+      console.log('Current AsyncStorage events before removal:', currentSavedEvents.map((e: EventCard) => e.id));
+
       // Remove event from AsyncStorage
       const updatedSavedEvents = currentSavedEvents.filter((event: EventCard) => event.id !== eventId);
       await AsyncStorage.setItem('savedEvents', JSON.stringify(updatedSavedEvents));
 
+      console.log('Updated AsyncStorage events after removal:', updatedSavedEvents.map((e: EventCard) => e.id));
+
       // Emit an event to notify listeners
       this.emit('savedEventsUpdated', updatedSavedEvents);
+      
+      console.log(`Successfully removed event ${eventId} from saved events`);
     } catch (error) {
       console.error('Error removing event from saved events:', error);
       throw error;
