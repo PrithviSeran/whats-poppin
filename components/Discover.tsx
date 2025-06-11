@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -11,6 +11,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import GlobalDataManager, { EventCard } from '@/lib/GlobalDataManager';
 import EventDetailModal from './EventDetailModal';
 import * as Location from 'expo-location';
+import EventCardComponent from './EventCard';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
@@ -37,6 +38,11 @@ export default function Discover() {
   const [loadedEventIds, setLoadedEventIds] = useState<Set<number>>(new Set());
   const [cardLayout, setCardLayout] = useState<LayoutRectangle | null>(null);
   const [hiddenCardId, setHiddenCardId] = useState<number | null>(null);
+  const [sharedEvent, setSharedEvent] = useState<ExtendedEventCard | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pullToRefreshEnabled, setPullToRefreshEnabled] = useState(false);
+  const [refreshTriggered, setRefreshTriggered] = useState(false);
+  const refreshAnimation = useRef(new Animated.Value(0)).current;
 
   // Animation refs
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -47,6 +53,9 @@ export default function Discover() {
 
   const colorScheme = useColorScheme();
   const dataManager = GlobalDataManager.getInstance();
+
+  // Add cardRefs at the top of the component
+  const cardRefs = useRef<{ [key: number]: any }>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -87,31 +96,36 @@ export default function Discover() {
 
           if (!isMounted) return;
 
-          // Get saved events to mark which ones are liked
+          // Get saved events to filter them out
           const savedEvents = await dataManager.getSavedEvents();
           const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
 
-          const eventsWithLikes = events.map(event => {
-            // Randomly select one of the 5 images (0-4)
-            const randomImageIndex = Math.floor(Math.random() * 5);
-            const imageUrl = event.id ? 
-              `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
-              null;
+          // Filter out saved events and map the remaining ones
+          const eventsWithLikes = events
+            .filter(event => !savedEventIds.has(event.id))
+            .map(event => {
+              // Randomly select one of the 5 images (0-4)
+              const randomImageIndex = Math.floor(Math.random() * 5);
+              const imageUrl = event.id ? 
+                `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
+                null;
 
-            return {
-              ...event,
-              image: imageUrl,
-              isLiked: savedEventIds.has(event.id),
-              // Store all 5 image URLs for use in EventDetailModal
-              allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
-                `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
-              ) : []
-            } as ExtendedEventCard;
-          });
+              return {
+                ...event,
+                image: imageUrl,
+                isLiked: false, // These are unsaved events
+                allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
+                  `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
+                ) : []
+              } as ExtendedEventCard;
+            });
 
-          setAllEvents(eventsWithLikes);
-          setEvents(eventsWithLikes.slice(0, ITEMS_PER_PAGE));
-          setLoadedEventIds(new Set(eventsWithLikes.slice(0, ITEMS_PER_PAGE).map(e => e.id)));
+          // Shuffle the events array only once during initialization
+          const shuffledEvents = [...eventsWithLikes].sort(() => Math.random() - 0.5);
+
+          setAllEvents(shuffledEvents);
+          setEvents(shuffledEvents.slice(0, ITEMS_PER_PAGE));
+          setLoadedEventIds(new Set(shuffledEvents.slice(0, ITEMS_PER_PAGE).map(e => e.id)));
           setHasInitialLoad(true);
         } catch (error) {
           console.error('Error initializing data:', error);
@@ -157,14 +171,28 @@ export default function Discover() {
       }
     };
 
+    // Listen for shared events
+    const handleSharedEvent = (event: EventCard) => {
+      // Add the shared event to the top of the stack
+      setSharedEvent(event as ExtendedEventCard);
+      setEvents(prevEvents => {
+        // Remove the event if it already exists in the list
+        const filteredEvents = prevEvents.filter(e => e.id !== event.id);
+        // Add the shared event at the beginning
+        return [event as ExtendedEventCard, ...filteredEvents];
+      });
+    };
+
     dataManager.on('dataInitialized', handleDataUpdate);
     dataManager.on('savedEventsUpdated', handleSavedEventsUpdate);
+    dataManager.on('sharedEventReceived', handleSharedEvent);
     initializeData();
 
     return () => {
       isMounted = false;
       dataManager.removeListener('dataInitialized', handleDataUpdate);
       dataManager.removeListener('savedEventsUpdated', handleSavedEventsUpdate);
+      dataManager.removeListener('sharedEventReceived', handleSharedEvent);
     };
   }, []);
 
@@ -227,13 +255,13 @@ export default function Discover() {
 
       if (error) throw error;
 
-      // Get saved events to mark them as liked
+      // Get saved events to mark them as liked and filter them out
       const savedEvents = await dataManager.getSavedEvents();
       const savedEventIds = new Set(savedEvents.map(event => event.id));
 
-      // Filter out already loaded events and map the remaining ones
+      // Filter out already loaded events and saved events, then map the remaining ones
       const newEvents = eventsData
-        .filter(event => !loadedEventIds.has(event.id))
+        .filter(event => !loadedEventIds.has(event.id) && !savedEventIds.has(event.id))
         .map(event => {
           // Randomly select one of the 5 images (0-4)
           const randomImageIndex = Math.floor(Math.random() * 5);
@@ -244,13 +272,12 @@ export default function Discover() {
           return {
             ...event,
             image: imageUrl,
-            isLiked: savedEventIds.has(event.id),
-            occurrence: event.occurrence || 'one-time', // Add default occurrence
-            // Store all 5 image URLs for use in EventDetailModal
+            isLiked: false, // These are unsaved events
+            occurrence: event.occurrence || 'one-time',
             allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
               `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
             ) : []
-          } as ExtendedEventCard;
+          };
         });
 
       if (newEvents.length === 0) {
@@ -280,6 +307,42 @@ export default function Discover() {
     }
   };
 
+  const handleRefresh = async () => {
+    if (!pullToRefreshEnabled || refreshTriggered) return;
+    
+    setRefreshTriggered(true);
+    setIsRefreshing(true);
+    setPullToRefreshEnabled(false);
+    
+    // Add a delay before starting the refresh animation
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Animate the refresh
+    Animated.sequence([
+      Animated.timing(refreshAnimation, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(refreshAnimation, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start();
+
+    // Shuffle all events and reset to initial state
+    const shuffledEvents = [...allEvents].sort(() => Math.random() - 0.5);
+    setAllEvents(shuffledEvents);
+    setEvents(shuffledEvents.slice(0, ITEMS_PER_PAGE));
+    setPage(1);
+    setLoadedEventIds(new Set(shuffledEvents.slice(0, ITEMS_PER_PAGE).map(e => e.id)));
+    setHasMore(true);
+    
+    setIsRefreshing(false);
+    setRefreshTriggered(false);
+  };
+
   const handleScroll = ({ nativeEvent }: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
     const paddingToBottom = 20;
@@ -289,12 +352,11 @@ export default function Discover() {
       handleLoadMore();
     }
 
-    // If we've scrolled all the way up, reset to initial state but keep the ability to load more
+    // Enable pull to refresh when scrolled to top
     if (contentOffset.y <= 0) {
-      setEvents(allEvents.slice(0, ITEMS_PER_PAGE));
-      setPage(1);
-      // Reset hasMore to true to ensure we can load more events
-      setHasMore(true);
+      setPullToRefreshEnabled(true);
+    } else {
+      setPullToRefreshEnabled(false);
     }
   };
 
@@ -529,8 +591,55 @@ export default function Discover() {
         contentContainerStyle={styles.scrollContent}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            enabled={pullToRefreshEnabled}
+            progressViewOffset={10}
+            tintColor={Colors[colorScheme].tint}
+            colors={[Colors[colorScheme].tint]}
+            progressBackgroundColor={Colors[colorScheme].background}
+          />
+        }
       >
-        <View style={styles.gridContainer}>
+        <Animated.View 
+          style={[
+            styles.gridContainer,
+            {
+              opacity: refreshAnimation.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 0.3]
+              }),
+              transform: [{
+                scale: refreshAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 0.95]
+                })
+              }]
+            }
+          ]}
+        >
+          {/* Show shared event at the top if it exists */}
+          {sharedEvent && (
+            <View style={styles.sharedEventContainer}>
+              <Text style={[styles.sharedEventLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Shared Event
+              </Text>
+              <EventCardComponent
+                event={sharedEvent}
+                onPress={() => handleEventPress(sharedEvent, cardLayout!)}
+                onLike={() => toggleLike(sharedEvent)}
+                isLiked={!!sharedEvent.isLiked}
+                userLocation={userLocation}
+                cardRef={(ref) => {
+                  if (ref) {
+                    cardRefs.current[0] = ref;
+                  }
+                }}
+              />
+            </View>
+          )}
           {events.map((event, index) => (
             <Animated.View
               key={`${event.id}-${index}`}
@@ -588,7 +697,7 @@ export default function Discover() {
               </TouchableOpacity>
             </Animated.View>
           ))}
-        </View>
+        </Animated.View>
         {isLoadingMore && (
           <View style={styles.loadingMoreContainer}>
             <ActivityIndicator size="small" color="#F45B5B" />
@@ -814,5 +923,15 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+  },
+  sharedEventContainer: {
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  sharedEventLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 10,
+    opacity: 0.7,
   },
 }); 

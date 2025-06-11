@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "whatspoppin",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -29,7 +29,13 @@
         },
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show nearby events and your position on the map.",
         "NSLocationAlwaysUsageDescription": "This app needs access to your location to show nearby events and your position on the map.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": ["location", "fetch"],
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["whatspoppin"],
+            "CFBundleURLName": "com.iamtheprince.whats-poppin"
+          }
+        ]
       }
     },
     "android": {
@@ -48,6 +54,20 @@
         "ACCESS_NETWORK_STATE",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "whatspoppin",
+              "host": "*",
+              "pathPrefix": "/event"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
     },
     "web": {

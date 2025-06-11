@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Linking,
+  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -246,6 +247,25 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
     }
   }, [isClosing, cardPosition, onClose]);
 
+  const handleShare = async () => {
+    if (!event) return;
+
+    try {
+      // Format the date
+      const eventDate = event.start_date ? new Date(event.start_date).toLocaleDateString() : 'Check event details';
+      
+      // Create the share message with the exact template
+      const shareMessage = `Let's see What's Poppin @ ${event.name} 🎈\n\n📍 ${event.location}\n⏰ ${eventDate}\n\nYou down? 😉\n\nhttps://whatspoppin.app/event/${event.id}`;
+      
+      await Share.share({
+        message: shareMessage,
+        title: event.name,
+      });
+    } catch (error) {
+      console.error('Error sharing event:', error);
+    }
+  };
+
   if (!visible || !event) return null;
 
   return (
@@ -382,17 +402,43 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 {event.organization}
               </Text>
               
-              {/* Link Button */}
-              {event.link && (
+              <View style={styles.buttonContainer}>
+                {/* Link Button */}
+                {event.link && (
+                  <TouchableOpacity
+                    style={[styles.linkButton, { flex: 1, marginRight: 10 }]}
+                    onPress={() => {
+                      if (event.link) {
+                        Linking.openURL(event.link).catch(err => {
+                          console.error('Failed to open URL:', err);
+                        });
+                      }
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.25, 0.5, 0.75, 1]}
+                      style={styles.linkButtonGradient}
+                    >
+                      <Ionicons name="link-outline" size={18} color="white" style={styles.linkIcon} />
+                      <Text style={styles.linkButtonText}>
+                        {event.link.includes('yelp.com') ? 'View on Yelp' :
+                         event.link.includes('ticketmaster') ? 'Get Tickets' :
+                         event.link.includes('maps.google.com') ? 'View on Maps' :
+                         'Visit Website'}
+                      </Text>
+                      <Ionicons name="open-outline" size={16} color="white" style={styles.externalIcon} />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
+
+                {/* Share Button */}
                 <TouchableOpacity
-                  style={styles.linkButton}
-                  onPress={() => {
-                    if (event.link) {
-                      Linking.openURL(event.link).catch(err => {
-                        console.error('Failed to open URL:', err);
-                      });
-                    }
-                  }}
+                  style={styles.shareButton}
+                  onPress={handleShare}
                   activeOpacity={0.8}
                 >
                   <LinearGradient
@@ -400,19 +446,12 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     locations={[0, 0.25, 0.5, 0.75, 1]}
-                    style={styles.linkButtonGradient}
+                    style={styles.shareButtonGradient}
                   >
-                    <Ionicons name="link-outline" size={18} color="white" style={styles.linkIcon} />
-                    <Text style={styles.linkButtonText}>
-                      {event.link.includes('yelp.com') ? 'View on Yelp' :
-                       event.link.includes('ticketmaster') ? 'Get Tickets' :
-                       event.link.includes('maps.google.com') ? 'View on Maps' :
-                       'Visit Website'}
-                    </Text>
-                    <Ionicons name="open-outline" size={16} color="white" style={styles.externalIcon} />
+                    <Ionicons name="share-outline" size={20} color="white" />
                   </LinearGradient>
                 </TouchableOpacity>
-              )}
+              </View>
             </View>
 
             <View style={styles.infoSection}>
@@ -864,8 +903,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     transform: [{ scale: 1.2 }],
   },
-  linkButton: {
+  buttonContainer: {
+    flexDirection: 'row',
     marginTop: 16,
+    alignItems: 'center',
+  },
+  linkButton: {
+    flex: 1,
     borderRadius: 25,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -895,5 +939,22 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     opacity: 0.8,
   },
-
+  shareButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginLeft: 10,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  shareButtonGradient: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 }); 
