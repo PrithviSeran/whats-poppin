@@ -235,38 +235,72 @@ class EventRecommendationSystem:
         raise ValueError(f"Unknown time format: {tstr}")
     
     def filter_by_time(self, events, start_time, end_time):
-        """Filter events based on time preferences"""
+        """Filter events by time preferences using the new times field"""
         def parse_time_str(tstr):
             if not tstr:
                 return None
-                try:
-                return datetime.strptime(tstr, '%H:%M:%S').time()
+            try:
+                return datetime.strptime(str(tstr), '%H:%M').time()
             except (ValueError, TypeError):
-            return None
+                return None
 
         def is_time_in_range(start, end, t):
-            if t is None:
+            if t is None or start is None or end is None:
                 return False
             if start <= end:
                 return start <= t <= end
             else:  # Handles cases where time range crosses midnight
                 return t >= start or t <= end
 
-        filtered_events = []
-                for event in events:
-            event_start = parse_time_str(event.get('start_time'))
-            event_end = parse_time_str(event.get('end_time'))
+        # Parse user's start_time and end_time to datetime.time objects
+        user_start = parse_time_str(start_time)
+        user_end = parse_time_str(end_time)
+        
+        if user_start is None or user_end is None:
+            # If we can't parse user times, don't filter by time
+            return events
+
+        def extract_times_from_event(event):
+            """Extract time ranges from the new times field"""
+            times_data = event.get('times', {})
+            if not times_data or not isinstance(times_data, dict):
+                return []
             
-            # If both event times are None, let it through
-            if event_start is None and event_end is None:
+            time_ranges = []
+            for day, time_info in times_data.items():
+                if time_info == 'all_day':
+                    # 24-hour businesses are always available
+                    time_ranges.append((datetime.strptime('00:00', '%H:%M').time(), 
+                                      datetime.strptime('23:59', '%H:%M').time()))
+                elif isinstance(time_info, (list, tuple)) and len(time_info) == 2:
+                    start_str, end_str = time_info
+                    start_t = parse_time_str(start_str)
+                    end_t = parse_time_str(end_str)
+                    if start_t and end_t:
+                        time_ranges.append((start_t, end_t))
+            
+            return time_ranges
+
+        filtered_events = []
+        for event in events:
+            # Extract time ranges from the new times field
+            event_time_ranges = extract_times_from_event(event)
+            
+            # If no time data available, let it through (for events without specific hours)
+            if not event_time_ranges:
                 filtered_events.append(event)
                 continue
-                
-            # If we have valid event times, check if they overlap with user's preferred time
-            if event_start is not None and event_end is not None:
-                if is_time_in_range(start_time, end_time, event_start) or \
-                   is_time_in_range(start_time, end_time, event_end):
-                    filtered_events.append(event)
+            
+            # Check if any of the event's time ranges overlap with user's preferred time
+            time_overlap = False
+            for event_start, event_end in event_time_ranges:
+                if is_time_in_range(user_start, user_end, event_start) or \
+                   is_time_in_range(user_start, user_end, event_end):
+                    time_overlap = True
+                    break
+            
+            if time_overlap:
+                filtered_events.append(event)
             
         return filtered_events
     
@@ -371,9 +405,20 @@ class EventRecommendationSystem:
         for event in events:
             eid = event.get("id")
             event_types = self.parse_event_types(event.get("event_type", []))
-            start_time = event.get("start_time")
-            end_time = event.get("end_time")
-            time_tag = self.get_time_tag(start_time, end_time) if start_time and end_time else None
+            
+            # Extract time information from the new times field
+            times_data = event.get("times", {})
+            time_tag = None
+            if times_data and isinstance(times_data, dict):
+                # Use the first available time range for feature extraction
+                for day, time_info in times_data.items():
+                    if time_info == 'all_day':
+                        time_tag = self.get_time_tag("00:00", "23:59")
+                        break
+                    elif isinstance(time_info, (list, tuple)) and len(time_info) == 2:
+                        start_time, end_time = time_info
+                        time_tag = self.get_time_tag(start_time, end_time)
+                        break
             age_restriction = event.get("age_restriction")
             cost = event.get("cost")
             cost_range = None
@@ -432,7 +477,7 @@ class EventRecommendationSystem:
             
             # 1. Fetch the target user's preferences
             try:
-            user_data = self.get_user_data(email)
+                user_data = self.get_user_data(email)
                 print(f"User data fetched: {user_data is not None}")
             except Exception as e:
                 print(f"Error fetching user data: {str(e)}")
@@ -443,11 +488,11 @@ class EventRecommendationSystem:
 
             # Parse user data
             try:
-            user_preferences = self.parse_preferences(user_data.get("preferences", []))
-            user_travel_distance = user_data.get("travel-distance", 50)
-            saved_events = user_data.get("saved_events", [])
-            user_start_time = user_data.get("start-time")
-            user_end_time = user_data.get("end-time")
+                user_preferences = self.parse_preferences(user_data.get("preferences", []))
+                user_travel_distance = user_data.get("travel-distance", 50)
+                saved_events = user_data.get("saved_events", [])
+                user_start_time = user_data.get("start-time")
+                user_end_time = user_data.get("end-time")
                 print(f"User preferences parsed: {user_preferences}")
             except Exception as e:
                 print(f"Error parsing user data: {str(e)}")
@@ -459,7 +504,7 @@ class EventRecommendationSystem:
 
             # 2. Query all_events from Supabase
             try:
-            all_events_raw = self.get_events_data(user_preferences if user_preferences else None)
+                all_events_raw = self.get_events_data(user_preferences if user_preferences else None)
                 print(f"Events fetched: {len(all_events_raw)}")
             except Exception as e:
                 print(f"Error fetching events: {str(e)}")
@@ -475,17 +520,17 @@ class EventRecommendationSystem:
             # 3. Apply filters
             try:
                 # Only apply time filter if both start_time and end_time are not None
-                all_events_raw = self.filter_by_time(all_events_raw, user_start_time, user_end_time)
+                if user_start_time and user_end_time:
+                    all_events_raw = self.filter_by_time(all_events_raw, user_start_time, user_end_time)
 
-            
-            user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
-            all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
+                user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
+                all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
                 print(f"Events after occurrence filter: {len(all_events_raw)}")
-            
-            all_events_filtered = self.apply_distance_filter(
-                all_events_raw, latitude, longitude, 
-                filter_distance, user_travel_distance
-            )
+                
+                all_events_filtered = self.apply_distance_filter(
+                    all_events_raw, latitude, longitude, 
+                    filter_distance, user_travel_distance
+                )
                 print(f"Events after distance filter: {len(all_events_filtered)}")
             except Exception as e:
                 print(f"Error applying filters: {str(e)}")
@@ -500,8 +545,8 @@ class EventRecommendationSystem:
 
             # Remove saved and rejected events
             try:
-            exclude_ids = set(saved_events) | set(rejected_events)
-            final_events = [e for e in all_events_filtered if e["id"] not in exclude_ids]
+                exclude_ids = set(saved_events) | set(rejected_events)
+                final_events = [e for e in all_events_filtered if e["id"] not in exclude_ids]
                 event_ids_filtered = [event["id"] for event in final_events]
                 print(f"Events after removing saved/rejected: {len(event_ids_filtered)}")
             except Exception as e:
@@ -517,35 +562,35 @@ class EventRecommendationSystem:
 
             # 4. ML Recommendation logic
             try:
-            all_users_result = self.Client.table("all_users").select("*").execute()
-            all_users = all_users_result.data
+                all_users_result = self.Client.table("all_users").select("*").execute()
+                all_users = all_users_result.data
                 print(f"Users fetched: {len(all_users)}")
-        
-            user_emails = [user.get("email") for user in all_users if user.get("email")]
+            
+                user_emails = [user.get("email") for user in all_users if user.get("email")]
                 interactions = self.build_interactions(all_users)
                 print(f"Interactions built: {len(interactions)}")
 
-            user_feature_tuples = self.build_user_features(all_users)
+                user_feature_tuples = self.build_user_features(all_users)
                 print(f"User features built: {len(user_feature_tuples)}")
 
                 event_feature_tuples = self.build_event_features(all_events_filtered)
                 print(f"Event features built: {len(event_feature_tuples)}")
 
-            rec = BeaconAI()
+                rec = BeaconAI()
                 rec.fit_data(user_emails, event_ids_filtered, user_feature_tuples, event_feature_tuples, interactions)
-            rec.train_model()
+                rec.train_model()
                 print("Model trained successfully")
 
-            top_5_recommended_events = []
-            recommendations = rec.recommend_for_user(
-                email,
-                top_n=5,
-            )
+                top_5_recommended_events = []
+                recommendations = rec.recommend_for_user(
+                    email,
+                    top_n=5,
+                )
                 print(f"Recommendations generated: {len(recommendations)}")
 
                 # Get the full event objects for the recommended events
                 recommended_events = []
-            for eid, score in recommendations:
+                for eid, score in recommendations:
                     # Find the full event object from all_events_filtered
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
@@ -557,8 +602,8 @@ class EventRecommendationSystem:
                             print(f"Error getting image URL for event {eid}: {e}")
                             event_obj["image"] = None
                         recommended_events.append(event_obj)
-            
-            return {
+                
+                return {
                     "summary": f"Found {len(recommended_events)} recommended events for {email}",
                     "events": recommended_events,  # Now returning full event objects with image URLs
                     "total_found": len(event_ids_filtered)

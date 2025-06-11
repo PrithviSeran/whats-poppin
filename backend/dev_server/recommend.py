@@ -156,6 +156,8 @@ def recommend():
         return None
 
     def is_time_in_range(start, end, t):
+        if t is None or start is None or end is None:
+            return False
         if start <= end:
             return start <= t <= end
         else:  # Overnight
@@ -167,9 +169,29 @@ def recommend():
         if user_start and user_end:
             filtered_by_time = []
             for event in all_events_raw:
-                event_start = parse_time_str(str(event.get("start_time")))
-                if event_start and is_time_in_range(user_start, user_end, event_start):
+                # Extract time ranges from the new times field
+                times_data = event.get('times', {})
+                time_match = False
+                
+                if times_data and isinstance(times_data, dict):
+                    for day, time_info in times_data.items():
+                        if time_info == 'all_day':
+                            # 24-hour businesses are always available
+                            time_match = True
+                            break
+                        elif isinstance(time_info, (list, tuple)) and len(time_info) == 2:
+                            start_str, end_str = time_info
+                            event_start = parse_time_str(start_str)
+                            if event_start and is_time_in_range(user_start, user_end, event_start):
+                                time_match = True
+                                break
+                
+                if time_match:
                     filtered_by_time.append(event)
+                elif not times_data:
+                    # Include events without time data
+                    filtered_by_time.append(event)
+                    
             all_events_raw = filtered_by_time
     print("all_events_raw after time filter:", len(all_events_raw))
 
@@ -297,9 +319,20 @@ def recommend():
     for event in all_events_filtered:
         eid = event.get("id")
         event_types = parse_event_types(event.get("event_type", []))
-        start_time = event.get("start_time")
-        end_time = event.get("end_time")
-        time_tag = get_time_tag(start_time, end_time) if start_time and end_time else None
+        
+        # Extract time information from the new times field
+        times_data = event.get("times", {})
+        time_tag = None
+        if times_data and isinstance(times_data, dict):
+            # Use the first available time range for feature extraction
+            for day, time_info in times_data.items():
+                if time_info == 'all_day':
+                    time_tag = get_time_tag("00:00", "23:59")
+                    break
+                elif isinstance(time_info, (list, tuple)) and len(time_info) == 2:
+                    start_time, end_time = time_info
+                    time_tag = get_time_tag(start_time, end_time)
+                    break
         age_restriction = event.get("age_restriction")
         cost = event.get("cost")
         cost_range = None
