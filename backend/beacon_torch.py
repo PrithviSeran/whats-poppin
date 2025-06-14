@@ -105,7 +105,7 @@ class MatrixFactorizationModel(nn.Module):
             item_ids_tensor = torch.tensor(item_ids, dtype=torch.long)
             
             # Make predictions
-            predictions = self.forward(
+            raw_predictions = self.forward(
                 user_ids_tensor, 
                 item_ids_tensor,
                 user_feature_indices,
@@ -113,6 +113,9 @@ class MatrixFactorizationModel(nn.Module):
                 item_feature_indices,
                 item_feature_values
             )
+            
+            # Apply sigmoid and scale to match training
+            predictions = torch.sigmoid(raw_predictions) * 3.0
             
             return predictions.numpy()
 
@@ -174,11 +177,18 @@ class BeaconAI:
         item_indices = []
         values = []
         
+        print(f"Debug: Processing {len(clean_interactions)} clean interactions")
+        positive_interactions = 0
+        
         for u, e, val in clean_interactions:
-            if val == 1 and u in self.user_id_map and e in self.item_id_map:
+            # Accept any positive interaction value (1.0, 2.0, etc.) but reject negative ones
+            if val > 0 and u in self.user_id_map and e in self.item_id_map:
                 user_indices.append(self.user_id_map[u])
                 item_indices.append(self.item_id_map[e])
-                values.append(1.0)
+                values.append(float(val))  # Keep the original weight
+                positive_interactions += 1
+        
+        print(f"Debug: Found {positive_interactions} positive interactions for training")
         
         self.interactions = coo_matrix(
             (values, (user_indices, item_indices)),
@@ -222,16 +232,16 @@ class BeaconAI:
         # Create optimizer
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         
-        # Use binary cross entropy with logits as loss function
-        loss_fn = nn.BCEWithLogitsLoss()
+        # Use mean squared error loss to handle weighted interactions
+        loss_fn = nn.MSELoss()
         
         # Convert interactions to training data
         coo = self.interactions.tocoo()
         
-        # Generate positive examples
+        # Generate positive examples with their actual weights
         pos_user_ids = coo.row
         pos_item_ids = coo.col
-        pos_labels = np.ones_like(pos_user_ids, dtype=np.float32)
+        pos_labels = coo.data.astype(np.float32)  # Use actual interaction weights
         
         # Generate negative examples (simple negative sampling)
         num_negatives = len(pos_user_ids)
@@ -248,6 +258,14 @@ class BeaconAI:
         dataset_size = len(all_user_ids)
         indices = np.arange(dataset_size)
         np.random.shuffle(indices)
+        
+        print(f"Debug: Training dataset size: {dataset_size}")
+        print(f"Debug: Positive examples: {len(pos_user_ids)}, Negative examples: {len(neg_user_ids)}")
+        print(f"Debug: Sample positive labels: {pos_labels[:5] if len(pos_labels) > 0 else 'None'}")
+        
+        if dataset_size == 0:
+            print("Warning: No training data available!")
+            return
         
         # Training loop
         self.model.train()
@@ -295,7 +313,7 @@ class BeaconAI:
                 batch_labels_tensor = torch.tensor(batch_labels, dtype=torch.float)
                 
                 # Forward pass
-                predictions = self.model(
+                raw_predictions = self.model(
                     batch_user_tensor,
                     batch_item_tensor,
                     user_feature_indices,
@@ -303,6 +321,9 @@ class BeaconAI:
                     item_feature_indices,
                     item_feature_values
                 )
+                
+                # Apply sigmoid to get predictions in [0, 1] range, then scale for weighted interactions
+                predictions = torch.sigmoid(raw_predictions) * 3.0  # Scale to handle weights up to 3.0
                 
                 # Compute loss
                 loss = loss_fn(predictions, batch_labels_tensor)

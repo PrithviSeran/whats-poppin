@@ -48,6 +48,7 @@ export interface UserProfile {
   rejected_events?: string[] | string;
   preferred_days?: string[] | string;
   saved_events?: number[];
+  saved_events_all_time?: number[];  // Permanent history of all events ever liked
   profileImage?: string;
   bannerImage?: string;
 }
@@ -286,6 +287,40 @@ class GlobalDataManager extends EventEmitter {
     return savedEventsJson ? JSON.parse(savedEventsJson) : [];
   }
 
+  // Get all events the user has ever liked (permanent history)
+  async getSavedEventsAllTime(): Promise<number[]> {
+    try {
+      const user = this.currentUser;
+      if (!user || !user.email) return [];
+
+      const { data: userData, error } = await supabase
+        .from('all_users')
+        .select('saved_events_all_time')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      let savedEventsAllTime: number[] = [];
+      if (userData?.saved_events_all_time) {
+        if (Array.isArray(userData.saved_events_all_time)) {
+          savedEventsAllTime = userData.saved_events_all_time;
+        } else if (typeof userData.saved_events_all_time === 'string' && userData.saved_events_all_time) {
+          savedEventsAllTime = userData.saved_events_all_time
+            .replace(/[{}"']+/g, '')
+            .split(',')
+            .map((s: string) => parseInt(s.trim(), 10))
+            .filter(Boolean);
+        }
+      }
+
+      return savedEventsAllTime;
+    } catch (error) {
+      console.error('Error getting saved events all time:', error);
+      return [];
+    }
+  }
+
   // Method to refresh all data with debouncing
   async refreshAllData() {
     if (this.dataUpdateTimeout) {
@@ -365,10 +400,10 @@ class GlobalDataManager extends EventEmitter {
       const user = this.currentUser;
       if (!user || !user.email) return;
 
-      // Get current saved events from Supabase
+      // Get current saved events and saved_events_all_time from Supabase
       const { data: userData, error } = await supabase
         .from('all_users')
-        .select('saved_events')
+        .select('saved_events, saved_events_all_time')
         .eq('email', user.email)
         .maybeSingle();
 
@@ -388,14 +423,36 @@ class GlobalDataManager extends EventEmitter {
         }
       }
 
-      // Add new event ID if not already present
+      // Parse current saved_events_all_time
+      let savedEventsAllTime: number[] = [];
+      if (userData?.saved_events_all_time) {
+        if (Array.isArray(userData.saved_events_all_time)) {
+          savedEventsAllTime = userData.saved_events_all_time;
+        } else if (typeof userData.saved_events_all_time === 'string' && userData.saved_events_all_time) {
+          savedEventsAllTime = userData.saved_events_all_time
+            .replace(/[{}"']+/g, '')
+            .split(',')
+            .map((s: string) => parseInt(s.trim(), 10))
+            .filter(Boolean);
+        }
+      }
+
+      // Add new event ID if not already present in current saved events
       if (!savedEventIds.includes(eventId)) {
         savedEventIds.push(eventId);
 
-        // Update Supabase
+        // Also add to saved_events_all_time if not already present
+        if (!savedEventsAllTime.includes(eventId)) {
+          savedEventsAllTime.push(eventId);
+        }
+
+        // Update Supabase with both arrays
         await supabase
           .from('all_users')
-          .update({ saved_events: savedEventIds })
+          .update({ 
+            saved_events: savedEventIds,
+            saved_events_all_time: savedEventsAllTime
+          })
           .eq('email', user.email);
 
         // Fetch the full event object
@@ -516,7 +573,7 @@ class GlobalDataManager extends EventEmitter {
 
       console.log(`🗑️ Starting clear all saved events for user ${user.email}`);
 
-      // Clear from Supabase first with detailed error checking
+      // Clear only saved_events from Supabase (NOT saved_events_all_time)
       const { data: updateData, error: updateError } = await supabase
         .from('all_users')
         .update({ saved_events: [] })
@@ -780,6 +837,7 @@ class GlobalDataManager extends EventEmitter {
   }
 
   // Remove an event from the saved_events field in AsyncStorage and Supabase
+  // Note: This only removes from saved_events, NOT from saved_events_all_time (permanent history)
   async removeEventFromSavedEvents(eventId: number) {
     try {
       const user = this.currentUser;

@@ -16,11 +16,22 @@ TICKET_MASTER_API_KEY = os.getenv('TICKET_MASTER_API')
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_ANON_KEY')
 
+# Toronto Open Data Portal Configuration
+TORONTO_OPEN_DATA_BASE_URL = "https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action"
+
 
 # Food & Drink, Outdoor / Nature, Leisure & Social, Games & Entertainment, Arts & Culture, Nightlife & Parties, Wellness & Low-Energy, Experiences & Activities, Travel & Discovery
 
 # Initialize Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+try:
+    if SUPABASE_URL and SUPABASE_KEY:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    else:
+        supabase = None
+        print("Warning: Supabase credentials not found. Database operations will be disabled.")
+except Exception as e:
+    print(f"Warning: Failed to initialize Supabase client: {e}")
+    supabase = None
 
 class TorontoActivityScraper:
     def __init__(self):
@@ -77,6 +88,13 @@ class TorontoActivityScraper:
 
         # Event ID counter
         self.next_event_id = 1
+        
+        # Toronto Open Data datasets for parks and recreation - using correct names
+        self.toronto_open_data_datasets = {
+            'parks': ['green-spaces'],  # Updated to current dataset name
+            'recreation': ['recreation', 'registered-programs-and-drop-in-courses-offering'],
+            'projects': ['park-and-recreation-facility-projects', 'park-and-recreation-facility-study-areas']
+        }
 
     def get_google_places(self, place_type: str, max_results: int = 60) -> List[Dict]:
         """Fetch places from Google Places API"""
@@ -190,6 +208,10 @@ class TorontoActivityScraper:
 
     def upload_to_supabase_storage(self, image_data: bytes, event_id: int, image_index: int = 0) -> Optional[str]:
         """Upload image to Supabase Storage in event-specific folder and return public URL"""
+        if not supabase:
+            print("Supabase not initialized - skipping image upload")
+            return None
+            
         try:
             # Create folder structure: event_id/image_index.jpg
             filename = f"{event_id}/{image_index}.jpg"
@@ -300,6 +322,192 @@ class TorontoActivityScraper:
             print(f"TicketMaster API error: {e}")
             if hasattr(e.response, 'text'):
                 print(f"Error response: {e.response.text}")
+            return []
+
+    def get_toronto_open_data_packages(self) -> List[Dict]:
+        """Fetch available packages from Toronto Open Data Portal"""
+        url = f"{TORONTO_OPEN_DATA_BASE_URL}/package_list"
+        
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get('success') and data.get('result'):
+                return data['result']
+            return []
+        except requests.RequestException as e:
+            print(f"Toronto Open Data API error: {e}")
+            return []
+
+    def get_toronto_open_data_package_info(self, package_name: str) -> Dict:
+        """Get detailed information about a specific package"""
+        url = f"{TORONTO_OPEN_DATA_BASE_URL}/package_show"
+        params = {'id': package_name}
+        
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get('success') and data.get('result'):
+                return data['result']
+            return {}
+        except requests.RequestException as e:
+            print(f"Error getting package info for {package_name}: {e}")
+            return {}
+
+    def get_toronto_parks_and_recreation(self, limit: int = 100) -> List[Dict]:
+        """Fetch parks and recreation data from Toronto Open Data Portal"""
+        all_facilities = []
+        
+        # Use the correct dataset names prioritizing nature/parks/trails
+        priority_datasets = [
+            'green-spaces',  # Primary parks dataset - WORKING ✅
+            'multi-use-trail-entrances',  # Trail entrances - from available list
+            'park-and-recreation-facility-projects',  # Park facility projects - from available list
+            'park-and-recreation-facility-study-areas',  # Park facility study areas - from available list
+            'registered-programs-and-drop-in-courses-offering',  # Program data with locations - WORKING ✅
+            'forest-and-land-cover',  # Forest and land cover data - from available list
+            'cultural-spaces',  # Cultural spaces that might include outdoor venues
+        ]
+        
+        for dataset_name in priority_datasets:
+            try:
+                print(f"Processing Toronto Open Data package: {dataset_name}")
+                package_info = self.get_toronto_open_data_package_info(dataset_name)
+                
+                if not package_info:
+                    print(f"No package info found for {dataset_name}")
+                    continue
+                
+                # Look for CSV, JSON, or GeoJSON resources
+                resources = package_info.get('resources', [])
+                processed_data = []
+                
+                # Prioritize CSV format as it's most reliable
+                for resource in resources:
+                    format_type = resource.get('format', '').lower()
+                    resource_name = resource.get('name', '').lower()
+                    
+                    # Skip if it's not a data file or is cached/deprecated
+                    if any(skip_word in resource_name for skip_word in ['readme', 'metadata', 'cache']):
+                        continue
+                    
+                    if format_type == 'csv' and '4326' in resource_name:  # Prefer WGS84 coordinate system
+                        resource_url = resource.get('url')
+                        if resource_url:
+                            print(f"  Found CSV resource: {resource_name}")
+                            facility_data = self.fetch_toronto_resource_data(resource_url, format_type)
+                            if facility_data:
+                                processed_data.extend(facility_data)
+                                break  # Use first successful CSV
+                
+                # If no CSV worked, try JSON
+                if not processed_data:
+                    for resource in resources:
+                        format_type = resource.get('format', '').lower()
+                        resource_name = resource.get('name', '').lower()
+                        
+                        if format_type in ['json', 'geojson'] and not any(skip_word in resource_name for skip_word in ['readme', 'metadata', 'cache']):
+                            resource_url = resource.get('url')
+                            if resource_url:
+                                print(f"  Found JSON resource: {resource_name}")
+                                facility_data = self.fetch_toronto_resource_data(resource_url, format_type)
+                                if facility_data:
+                                    processed_data.extend(facility_data)
+                                    break  # Use first successful JSON
+                
+                if processed_data:
+                    print(f"  Successfully processed {len(processed_data)} records from {dataset_name}")
+                    all_facilities.extend(processed_data[:limit//len(priority_datasets)])
+                else:
+                    print(f"  No valid data found in {dataset_name}")
+                
+                time_module.sleep(1)  # Rate limiting
+                
+            except Exception as e:
+                print(f"Error processing {dataset_name}: {e}")
+                continue
+        
+        return all_facilities[:limit]
+
+    def fetch_toronto_resource_data(self, resource_url: str, format_type: str) -> List[Dict]:
+        """Fetch and parse data from a Toronto Open Data resource"""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (compatible; ActivityScraper/1.0)',
+                'Accept': 'application/json, text/csv, text/plain, */*'
+            }
+            
+            print(f"    Fetching data from: {resource_url}")
+            response = requests.get(resource_url, timeout=30, headers=headers)
+            response.raise_for_status()
+            
+            # Check if we actually got data
+            if not response.content:
+                print(f"    Empty response from {resource_url}")
+                return []
+            
+            if format_type == 'json' or format_type == 'geojson':
+                try:
+                    data = response.json()
+                except ValueError as e:
+                    print(f"    Invalid JSON response from {resource_url}: {e}")
+                    return []
+                
+                # Handle GeoJSON format
+                if format_type == 'geojson' and 'features' in data:
+                    features = data.get('features', [])
+                    return [feature.get('properties', {}) for feature in features if feature.get('properties')]
+                
+                # Handle regular JSON - could be array or object with array
+                if isinstance(data, list):
+                    return data[:100]  # Limit to prevent memory issues
+                elif isinstance(data, dict):
+                    # Look for common array keys
+                    for key in ['data', 'results', 'features', 'items', 'records']:
+                        if key in data and isinstance(data[key], list):
+                            return data[key][:100]  # Limit to prevent memory issues
+                    return [data]  # Single object
+                
+            elif format_type == 'csv':
+                import csv
+                import io
+                
+                try:
+                    # Handle potential encoding issues
+                    text_content = response.text
+                    if not text_content.strip():
+                        print(f"    Empty CSV content from {resource_url}")
+                        return []
+                    
+                    # Parse CSV data
+                    facilities = []
+                    csv_reader = csv.DictReader(io.StringIO(text_content))
+                    
+                    for i, row in enumerate(csv_reader):
+                        if i >= 100:  # Limit to prevent memory issues
+                            break
+                        # Filter out empty rows
+                        if any(value.strip() for value in row.values() if value):
+                            facilities.append(dict(row))
+                    
+                    print(f"    Successfully parsed {len(facilities)} CSV rows")
+                    return facilities
+                    
+                except Exception as csv_error:
+                    print(f"    Error parsing CSV from {resource_url}: {csv_error}")
+                    return []
+            
+            print(f"    Unsupported format: {format_type}")
+            return []
+            
+        except requests.exceptions.RequestException as e:
+            print(f"    Request error fetching {resource_url}: {e}")
+            return []
+        except Exception as e:
+            print(f"    Unexpected error fetching {resource_url}: {e}")
             return []
 
     def transform_google_place(self, place: Dict, event_type: str) -> Dict:
@@ -499,6 +707,346 @@ class TorontoActivityScraper:
             '_temp_image_data': temp_image_data
         }
 
+    def transform_toronto_open_data_facility(self, facility: Dict) -> Dict:
+        """Transform Toronto Open Data facility to match Supabase schema"""
+        
+        # Debug: Print the available fields (only for first few to avoid spam)
+        debug_this_facility = facility.get('_id') in ['1', '2', '3', '4', '5', '6', 1, 2, 3, 4, 5, 6]
+        
+        # Identify dataset types FIRST - before any other logic
+        is_green_space_dataset = 'AREA_NAME' in facility and 'AREA_CLASS' in facility
+        is_recreation_facility_dataset = 'Asset Name' in facility and 'Facility Type (Display Name)' in facility
+        
+        # Extract coordinates - handle various coordinate field names
+        latitude = None
+        longitude = None
+        
+        # Handle geometry field (GeoJSON format in green-spaces dataset)
+        if 'geometry' in facility and facility['geometry']:
+            try:
+                import json
+                geometry = json.loads(facility['geometry']) if isinstance(facility['geometry'], str) else facility['geometry']
+                
+                # Extract first coordinate from MultiPolygon, Polygon, MultiPoint, or Point
+                if geometry.get('type') == 'MultiPolygon':
+                    coords = geometry['coordinates'][0][0][0]  # First polygon, first ring, first point
+                    longitude, latitude = coords[0], coords[1]
+                elif geometry.get('type') == 'Polygon':
+                    coords = geometry['coordinates'][0][0]  # First ring, first point
+                    longitude, latitude = coords[0], coords[1]
+                elif geometry.get('type') == 'MultiPoint':
+                    coords = geometry['coordinates'][0]  # First point in MultiPoint
+                    longitude, latitude = coords[0], coords[1]
+                elif geometry.get('type') == 'Point':
+                    longitude, latitude = geometry['coordinates'][0], geometry['coordinates'][1]
+                else:
+                    # Handle case where geometry doesn't have explicit type but has coordinates
+                    if 'coordinates' in geometry and geometry['coordinates']:
+                        coords_data = geometry['coordinates']
+                        # Try to extract from nested coordinate structure
+                        if isinstance(coords_data, list) and len(coords_data) > 0:
+                            if isinstance(coords_data[0], list) and len(coords_data[0]) > 0:
+                                if isinstance(coords_data[0][0], list) and len(coords_data[0][0]) > 0:
+                                    # MultiPolygon-like structure
+                                    first_coord = coords_data[0][0][0]
+                                    if len(first_coord) >= 2:
+                                        longitude, latitude = first_coord[0], first_coord[1]
+            except (ValueError, TypeError, KeyError, IndexError, json.JSONDecodeError):
+                pass
+        
+        # If geometry extraction failed, try common coordinate field names
+        if latitude is None or longitude is None:
+            coord_fields = [
+                ('latitude', 'longitude'),
+                ('lat', 'lon'),
+                ('LAT', 'LONG'), 
+                ('LATITUDE', 'LONGITUDE'),
+                ('y', 'x'),  # Sometimes coordinates are stored as x,y
+                ('Y', 'X')
+            ]
+            
+            for lat_field, lng_field in coord_fields:
+                if lat_field in facility and lng_field in facility:
+                    try:
+                        latitude = float(facility[lat_field])
+                        longitude = float(facility[lng_field])
+                        break
+                    except (ValueError, TypeError):
+                        continue
+        
+        # Extract facility name - handle Toronto Open Data specific fields
+        name = ""
+        
+        # For Green Spaces dataset, use AREA_NAME directly
+        if 'AREA_NAME' in facility and facility['AREA_NAME']:
+            name = str(facility['AREA_NAME']).strip()
+        
+        # For Recreation Facilities dataset, extract park name from Asset Name
+        elif 'Asset Name' in facility and facility['Asset Name']:
+            asset_name = str(facility['Asset Name']).strip()
+            # Extract park name from "ASHBRIDGES BAY PARK - Drinking Water Source (  1)" format
+            if ' - ' in asset_name:
+                park_name = asset_name.split(' - ')[0].strip()
+                if park_name and park_name != "None":
+                    name = park_name
+            else:
+                name = asset_name
+        
+        # For Park Projects and Study Areas datasets, use project_name
+        elif 'project_name' in facility and facility['project_name']:
+            project_name = str(facility['project_name']).strip()
+            if project_name and project_name != "None":
+                name = project_name
+        
+        # Fallback to other fields if needed
+        if not name:
+            fallback_fields = [
+                'Facility Type (Display Name)',     # Recreation facilities dataset
+                'LocationName',                     # Recreation programs dataset  
+                'name', 'NAME', 
+                'facility_name', 'FACILITY_NAME', 
+                'park_name', 'PARK_NAME', 
+                'title', 'TITLE'
+            ]
+            for field in fallback_fields:
+                if field in facility and facility[field]:
+                    candidate_name = str(facility[field]).strip()
+                    if candidate_name and candidate_name != "None":
+                        name = candidate_name
+                        break
+        
+        if not name:
+            # Try to build name from area description or class
+            desc_fields = ['AREA_DESC', 'AREA_CLASS', 'Description']
+            for field in desc_fields:
+                if field in facility and facility[field] and str(facility[field]).strip() != "None":
+                    name = str(facility[field]).strip()
+                    break
+        
+        if not name:
+            name = "Toronto Parks & Recreation Facility"
+            
+        # Debug output after name extraction
+        if debug_this_facility:
+            print(f"DEBUG: Extracted name: '{name}'")
+            print(f"DEBUG: Available fields: {list(facility.keys())}")
+            print(f"DEBUG: Sample values: {dict(list(facility.items())[:3])}")
+            print(f"DEBUG: Extracted coordinates: lat={latitude}, lng={longitude}")
+            if 'geometry' in facility:
+                print(f"DEBUG: Geometry field present: {str(facility['geometry'])[:100]}...")
+            print("---")
+        
+        # Extract address/location
+        address_fields = [
+            'AREA_DESC',        # Green spaces often have location info in description
+            'address', 'ADDRESS', 
+            'location', 'LOCATION', 
+            'full_address', 'FULL_ADDRESS'
+        ]
+        location = ""
+        for field in address_fields:
+            if field in facility and facility[field]:
+                candidate_location = str(facility[field]).strip()
+                # Use AREA_DESC only if it looks like a location (contains street/area names)
+                if field == 'AREA_DESC':
+                    if any(indicator in candidate_location.lower() for indicator in ['street', 'avenue', 'road', 'park', 'area', 'district']):
+                        location = candidate_location
+                        break
+                else:
+                    location = candidate_location
+                    break
+        
+        # If no specific address, try to build from components or use park name
+        if not location:
+            location_parts = []
+            component_fields = ['street_number', 'street_name', 'district', 'ward']
+            for field in component_fields:
+                if field in facility and facility[field]:
+                    location_parts.append(str(facility[field]).strip())
+            
+            if location_parts:
+                location = ", ".join(location_parts) + ", Toronto, ON"
+            elif is_recreation_facility_dataset and 'PARK' in name:
+                # For park facilities, use the park name as location
+                location = f"{name}, Toronto, ON"
+            else:
+                location = "Toronto, ON"
+        
+        # Determine facility type and category
+        facility_type_fields = [
+            'AREA_CLASS',                       # Green spaces dataset
+            'AREA_DESC',                        # Green spaces dataset description
+            'Facility Type (Display Name)',     # Recreation facilities dataset
+            'FacilityType',                     # Recreation facilities dataset
+            'type', 'TYPE', 
+            'facility_type', 'FACILITY_TYPE', 
+            'category', 'CATEGORY'
+        ]
+        facility_type = ""
+        for field in facility_type_fields:
+            if field in facility and facility[field]:
+                facility_type = str(facility[field]).lower()
+                break
+        
+        # Filter out unwanted facility types (cemeteries, etc.)
+        excluded_types = [
+            'cemetery', 'other_cemetery', 'graveyard', 'burial', 'memorial'
+        ]
+        
+        # Only include parks, trails, lakes, waterfronts, and nature areas
+        included_types = [
+            'park', 'parks', 'green_space', 'greenspace', 'greenway',
+            'trail', 'trails', 'pathway', 'walkway', 'bikeway', 'multi-use trail',
+            'lake', 'pond', 'water', 'waterfront', 'beach', 'shoreline',
+            'nature', 'conservation', 'forest', 'woods', 'ravine',
+            'recreation', 'playground', 'sports_field', 'playing field',
+            'community centre', 'community center', 'arena', 'pool'
+        ]
+        
+        # Exclude small facilities/amenities that aren't destinations
+        excluded_small_facilities = [
+            'fountain', 'drinking fountain', 'dog fountain', 'water fountain',
+            'bench', 'picnic table', 'trash bin', 'garbage',
+            'light', 'lighting', 'sign', 'signage'
+        ]
+        
+        # Check if facility should be excluded (cemeteries first)
+        if any(excluded in facility_type for excluded in excluded_types):
+            return None  # Skip this facility
+            
+        # Also check name for cemetery terms
+        if name and any(excluded in name.lower() for excluded in excluded_types):
+            return None  # Skip this facility
+        
+        # Special handling for recreation facilities - they might have small facility types but be from parks
+        if is_recreation_facility_dataset:
+            asset_name = facility.get('Asset Name', '').upper()
+            if 'PARK' in asset_name:
+                if debug_this_facility:
+                    print(f"DEBUG: Recreation facility from park - keeping: {name}")
+                # Skip small facility filtering for park amenities - they're valid
+            else:
+                if debug_this_facility:
+                    print(f"DEBUG: Recreation facility not from park - excluding: {name}")
+                return None  # Skip non-park facilities
+        else:
+            # For non-recreation datasets, apply small facility filtering
+            # Check if this is a small facility/amenity that should be excluded
+            if any(excluded in facility_type for excluded in excluded_small_facilities):
+                return None  # Skip small amenities
+                
+            # Also check name for small facilities
+            if name and any(excluded in name.lower() for excluded in excluded_small_facilities):
+                return None  # Skip small amenities
+        
+        # Check if facility matches our desired types
+        facility_matches = any(included in facility_type for included in included_types)
+        
+        # Also check facility name for additional filtering
+        name_matches = False
+        if name:
+            name_lower = name.lower()
+            name_matches = any(included in name_lower for included in included_types)
+        
+        # Apply inclusion criteria based on dataset type
+        if is_green_space_dataset:
+            # For green spaces, most should be included unless specifically excluded (already done above)
+            if debug_this_facility:
+                print(f"DEBUG: Green space dataset facility - keeping: {name}")
+        elif is_recreation_facility_dataset:
+            # Recreation facility logic already handled above
+            pass
+        else:
+            # For other datasets, require positive matching
+            if not (facility_matches or name_matches):
+                # Additional check for generic green spaces
+                if 'green' not in facility_type and 'space' not in facility_type and 'area' not in facility_type:
+                    if debug_this_facility:
+                        print(f"DEBUG: Other dataset facility doesn't match criteria - excluding: {name}")
+                    return None  # Skip this facility
+        
+        # Map facility types to our categories based on what user wants
+        event_type_categories = ['Outdoor / Nature']  # Default for parks/recreation
+        
+        if any(keyword in facility_type for keyword in ['trail', 'bike', 'cycling', 'path', 'walkway']):
+            event_type_categories = ['Outdoor / Nature', 'Wellness & Low-Energy']
+        elif any(keyword in facility_type for keyword in ['water', 'lake', 'pond', 'beach', 'waterfront', 'shoreline']):
+            event_type_categories = ['Outdoor / Nature', 'Travel & Discovery']
+        elif any(keyword in facility_type for keyword in ['forest', 'woods', 'conservation', 'ravine', 'nature']):
+            event_type_categories = ['Outdoor / Nature', 'Travel & Discovery']
+        elif any(keyword in facility_type for keyword in ['recreation', 'playground', 'play']):
+            event_type_categories = ['Outdoor / Nature', 'Leisure & Social']
+        elif any(keyword in facility_type for keyword in ['park', 'green', 'space']):
+            event_type_categories = ['Outdoor / Nature']
+        
+        # Build description from available fields
+        description_parts = []
+        
+        description_fields = ['description', 'DESCRIPTION', 'amenities', 'AMENITIES', 'features', 'FEATURES']
+        for field in description_fields:
+            if field in facility and facility[field]:
+                description_parts.append(str(facility[field]).strip())
+        
+        # Add facility type to description if available
+        if facility_type:
+            description_parts.append(f"Facility type: {facility_type.title()}")
+        
+        # Add ward/district info if available
+        ward_fields = ['ward', 'WARD', 'district', 'DISTRICT']
+        for field in ward_fields:
+            if field in facility and facility[field]:
+                description_parts.append(f"Ward/District: {facility[field]}")
+                break
+        
+        description = " | ".join(description_parts) if description_parts else f"Beautiful {facility_type or 'green space'} in Toronto perfect for outdoor activities and nature enjoyment"
+        
+        # Create link - try to find website or create Google Maps link
+        link = None
+        website_fields = ['website', 'WEBSITE', 'url', 'URL', 'web_site', 'WEB_SITE']
+        for field in website_fields:
+            if field in facility and facility[field]:
+                link = str(facility[field]).strip()
+                if link and not link.startswith('http'):
+                    link = f"https://{link}"
+                break
+        
+        # If no website, create Google Maps link using coordinates or address
+        if not link and latitude and longitude:
+            link = f"https://maps.google.com/maps?q={latitude},{longitude}"
+        elif not link and location:
+            encoded_location = location.replace(' ', '+').replace(',', '%2C')
+            link = f"https://maps.google.com/maps?q={encoded_location}"
+        
+        # Extract opening hours if available
+        hours_fields = ['hours', 'HOURS', 'operating_hours', 'OPERATING_HOURS', 'open_hours', 'OPEN_HOURS']
+        times = None
+        for field in hours_fields:
+            if field in facility and facility[field]:
+                # This would need more sophisticated parsing
+                # For now, we'll leave it as None and let the Google Places API fill it in later
+                break
+        
+        return {
+            'name': name,
+            'organization': 'City of Toronto Parks & Recreation',
+            'event_type': event_type_categories,
+            'start_date': None,  # Parks/facilities are ongoing
+            'end_date': None,
+            'location': location,
+            'cost': 0.0,  # Most Toronto parks/facilities are free
+            'age_restriction': None,
+            'reservation': None,  # Most don't require reservations
+            'description': description,
+            'image': None,  # Will be processed later
+            'occurrence': 'ongoing',
+            'latitude': latitude,
+            'longitude': longitude,
+            'days_of_the_week': None,  # Would need to be parsed from hours
+            'times': times,
+            'link': link,
+            '_temp_image_data': []  # No images from open data, will try to get from Google Places
+        }
+
     def map_price_level(self, price_level) -> Optional[float]:
         """Convert Google price level to estimated cost"""
         if price_level is None:
@@ -675,6 +1223,118 @@ class TorontoActivityScraper:
         # For now, return None as the basic search API doesn't typically include opening hours
         return None
 
+    def enhance_toronto_facility_with_google_places(self, facility: Dict) -> Dict:
+        """Enhance Toronto Open Data facility with Google Places information"""
+        if not self.google_api_key:
+            return facility
+            
+        # If we have coordinates, use nearby search
+        if facility.get('latitude') and facility.get('longitude'):
+            return self._enhance_with_coordinates(facility)
+        
+        # If no coordinates, try text search by name
+        elif facility.get('name'):
+            return self._enhance_with_text_search(facility)
+        
+        return facility
+    
+    def _enhance_with_coordinates(self, facility: Dict) -> Dict:
+        """Enhance facility using coordinate-based nearby search"""
+        
+        try:
+            # Search for nearby places using coordinates
+            url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+            params = {
+                'location': f"{facility['latitude']},{facility['longitude']}",
+                'radius': 100,  # Small radius to find exact match
+                'keyword': facility['name'],
+                'key': self.google_api_key
+            }
+            
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data['status'] == 'OK' and data.get('results'):
+                return self._process_google_place_result(facility, data['results'][0])
+            
+            time_module.sleep(0.1)  # Rate limiting
+            return facility
+            
+        except Exception as e:
+            print(f"Error enhancing facility with coordinates: {e}")
+            return facility
+    
+    def _enhance_with_text_search(self, facility: Dict) -> Dict:
+        """Enhance facility using text-based search when coordinates are missing"""
+        try:
+            # Use text search to find the place by name
+            url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+            
+            # Build search query - include "Toronto" to narrow results
+            search_query = f"{facility['name']} Toronto park"
+            
+            params = {
+                'query': search_query,
+                'key': self.google_api_key
+            }
+            
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data['status'] == 'OK' and data.get('results'):
+                place = data['results'][0]  # Use first result
+                
+                # Update facility with coordinates from Google Places
+                if place.get('geometry', {}).get('location'):
+                    location = place['geometry']['location']
+                    facility['latitude'] = location.get('lat')
+                    facility['longitude'] = location.get('lng')
+                
+                return self._process_google_place_result(facility, place)
+            
+            time_module.sleep(0.1)  # Rate limiting
+            return facility
+            
+        except Exception as e:
+            print(f"Error enhancing facility with text search: {e}")
+            return facility
+    
+    def _process_google_place_result(self, facility: Dict, place: Dict) -> Dict:
+        """Process Google Places result and enhance facility data"""
+        try:
+            place_id = place.get('place_id')
+            
+            if place_id:
+                # Get detailed information including photos
+                details = self.get_google_place_details(place_id)
+                if details:
+                    # Extract photos for image processing
+                    photo_refs = [photo.get('photo_reference') for photo in details.get('photos', [])[:5] if photo.get('photo_reference')]
+                    if photo_refs:
+                        facility['_temp_image_data'] = photo_refs
+                    
+                    # Update times if available and not already set
+                    if not facility.get('times') and details.get('opening_hours'):
+                        facility['times'] = self.extract_opening_times(details.get('opening_hours', {}))
+                    
+                    # Update rating info in description
+                    if place.get('rating'):
+                        rating_info = f"Google Rating: {place.get('rating')}/5"
+                        if rating_info not in facility['description']:
+                            facility['description'] += f" | {rating_info}"
+                    
+                    # Update website link if available and better than current
+                    if details.get('website') and (not facility.get('link') or 'maps.google.com' in facility.get('link', '')):
+                        facility['link'] = details.get('website')
+            
+            return facility
+            
+        except Exception as e:
+            print(f"Error processing Google Places result: {e}")
+            return facility
+
     def extract_ticketmaster_times(self, event: Dict) -> Optional[Dict]:
         """Extract times from TicketMaster event data
         
@@ -736,6 +1396,11 @@ class TorontoActivityScraper:
 
     def save_to_supabase(self, activities: List[Dict]):
         """Save activities to Supabase database"""
+        if not supabase:
+            print("Supabase not initialized - skipping database save")
+            print(f"Would have saved {len(activities)} activities")
+            return
+            
         try:
             print(f"\nPreparing to save {len(activities)} activities to Supabase")
             
@@ -856,7 +1521,7 @@ class TorontoActivityScraper:
             print(f"\nScraping {event_type}...")
             for place_type in place_types:
                 print(f"  - Getting {place_type} places...")
-                places = self.get_google_places(place_type, max_results=1)
+                places = self.get_google_places(place_type, max_results=100)
                 print(f"    Found {len(places)} places")
                 for place in places:
                     activity = self.transform_google_place(place, event_type)
@@ -867,7 +1532,7 @@ class TorontoActivityScraper:
         yelp_categories = ['restaurants', 'bars', 'coffee', 'shopping', 'arts']
         for category in yelp_categories:
             print(f"\nScraping {category}...")
-            businesses = self.get_yelp_businesses(category, limit=1)
+            businesses = self.get_yelp_businesses(category, limit=100)
             print(f"  Found {len(businesses)} businesses")
             for business in businesses:
                 activity = self.transform_yelp_business(business, category)
@@ -875,11 +1540,25 @@ class TorontoActivityScraper:
             time_module.sleep(1)  # Rate limiting
         
         print("\n=== Starting TicketMaster Scrape ===")
-        events = self.get_ticket_master_events(limit=1)
+        events = self.get_ticket_master_events(limit=100)
         print(f"Found {len(events)} events from TicketMaster")
         for event in events:
             activity = self.transform_ticket_master_event(event)
             all_activities.append(activity)
+        
+        print("\n=== Starting Toronto Open Data Scrape ===")
+        toronto_facilities = self.get_toronto_parks_and_recreation(limit=500)  # Get more since we'll filter some out
+        print(f"Found {len(toronto_facilities)} facilities from Toronto Open Data")
+        processed_count = 0
+        for facility in toronto_facilities:
+            activity = self.transform_toronto_open_data_facility(facility)
+            if activity is not None:  # Only process facilities that pass our filter
+                # Enhance with Google Places data for images and additional info
+                activity = self.enhance_toronto_facility_with_google_places(activity)
+                all_activities.append(activity)
+                processed_count += 1
+                time_module.sleep(0.5)  # Rate limiting for Google Places enhancement
+        print(f"After filtering, included {processed_count} Toronto parks and nature facilities")
         
         print(f"\nTotal activities collected: {len(all_activities)}")
         
@@ -1072,6 +1751,58 @@ class TorontoActivityScraper:
         
         return merged
 
+    def test_toronto_open_data(self, limit: int = 3):
+        """Test method to verify Toronto Open Data functionality"""
+        print("\n=== Testing Toronto Open Data Integration ===")
+        
+        try:
+            # Test getting packages
+            print("Testing package list retrieval...")
+            packages = self.get_toronto_open_data_packages()
+            print(f"Found {len(packages)} packages available")
+            
+            # Test getting facilities
+            print("\nTesting facility data retrieval...")
+            facilities = self.get_toronto_parks_and_recreation(limit=limit)
+            print(f"Retrieved {len(facilities)} facilities")
+            
+            # Test transformation
+            transformed_facilities = []
+            filtered_count = 0
+            for facility in facilities:
+                try:
+                    transformed = self.transform_toronto_open_data_facility(facility)
+                    
+                    if transformed is None:
+                        filtered_count += 1
+                        print(f"Filtered out facility (likely cemetery or non-park): {facility.get('AREA_NAME', facility.get('name', 'Unknown'))}")
+                        continue
+                    
+                    print(f"Transformed: {transformed.get('name', 'Unknown')}")
+                    
+                    # Test enhancement with Google Places (optional)
+                    if self.google_api_key:
+                        enhanced = self.enhance_toronto_facility_with_google_places(transformed)
+                        print(f"Enhanced with Google Places data")
+                        transformed_facilities.append(enhanced)
+                    else:
+                        print("No Google API key - skipping enhancement")
+                        transformed_facilities.append(transformed)
+                    
+                except Exception as e:
+                    print(f"Error transforming facility: {e}")
+                    continue
+            
+            print(f"Filtered out {filtered_count} facilities (cemeteries and non-parks)")
+            print(f"Kept {len(transformed_facilities)} parks and nature facilities")
+            
+            print(f"\nSuccessfully processed {len(transformed_facilities)} Toronto facilities")
+            return transformed_facilities
+            
+        except Exception as e:
+            print(f"Error testing Toronto Open Data: {e}")
+            return []
+
 # Usage example
 if __name__ == "__main__":
     # Set up your environment variables first:
@@ -1082,6 +1813,11 @@ if __name__ == "__main__":
     # export SUPABASE_KEY="your_supabase_anon_key"
     
     scraper = TorontoActivityScraper()
+    
+    # Uncomment the line below to test only Toronto Open Data functionality
+    # test_results = scraper.test_toronto_open_data(limit=2)
+    
+    # Run full scrape including Toronto Open Data
     activities = scraper.run_full_scrape()
     
     print("Scraping completed!")

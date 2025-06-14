@@ -70,7 +70,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
 
   // Get current image URL
   const getCurrentImageUrl = () => {
-    if (!event?.id) return event?.image || null;
+    if (!event?.id || currentImageIndex === -1) return event?.image || null;
     
     // If event has allImages array, use it
     if (event.allImages && event.allImages.length > 0) {
@@ -328,10 +328,23 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             <Image 
               source={{ uri: getCurrentImageUrl() }} 
               style={styles.imageExpanded}
+              onError={(e) => {
+                console.log('Image failed to load in modal, trying next image');
+                // If current image fails, try to move to next image
+                if (event && event.allImages && event.allImages.length > 1 && currentImageIndex < event.allImages.length - 1) {
+                  navigateImage('next');
+                } else {
+                  // If no more images to try, set current image to null to show placeholder
+                  setCurrentImageIndex(-1);
+                }
+              }}
             />
           ) : (
             <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-              <Ionicons name="image-outline" size={40} color="#666" />
+              <Ionicons name="image-outline" size={60} color="#666" />
+              <Text style={{ color: '#666', marginTop: 12, fontSize: 16, textAlign: 'center' }}>
+                No Image Found
+              </Text>
             </View>
           )}
           

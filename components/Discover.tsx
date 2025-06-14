@@ -17,6 +17,8 @@ const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 const ITEMS_PER_PAGE = 10;
 
+// We'll show a "No Image Found" placeholder instead of a default image
+
 // Extend EventCard to include isLiked
 interface ExtendedEventCard extends EventCard {
   isLiked?: boolean;
@@ -104,7 +106,7 @@ export default function Discover() {
           const eventsWithLikes = events
             .filter(event => !savedEventIds.has(event.id))
             .map(event => {
-              // Randomly select one of the 5 images (0-4)
+              // Randomly select one of the 5 images (0-4) or leave null if no ID
               const randomImageIndex = Math.floor(Math.random() * 5);
               const imageUrl = event.id ? 
                 `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
@@ -263,7 +265,7 @@ export default function Discover() {
       const newEvents = eventsData
         .filter(event => !loadedEventIds.has(event.id) && !savedEventIds.has(event.id))
         .map(event => {
-          // Randomly select one of the 5 images (0-4)
+          // Randomly select one of the 5 images (0-4) or leave null if no ID
           const randomImageIndex = Math.floor(Math.random() * 5);
           const imageUrl = event.id ? 
             `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
@@ -663,14 +665,21 @@ export default function Discover() {
                     source={{ uri: event.image }}
                     style={styles.cardImage}
                     onError={(e) => {
-                      console.error('Image failed to load:', e.nativeEvent.error);
-                      // Set a default image or show placeholder
-                      event.image = null;
+                      console.log('Image failed to load, showing placeholder');
+                      // Update the event to remove the broken image URL
+                      setEvents(prevEvents => 
+                        prevEvents.map(evt => 
+                          evt.id === event.id ? { ...evt, image: null } : evt
+                        )
+                      );
                     }}
                   />
                 ) : (
                   <View style={[styles.cardImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                    <Ionicons name="image-outline" size={40} color="#666" />
+                    <Ionicons name="image-outline" size={32} color="#666" />
+                    <Text style={{ color: '#666', marginTop: 8, fontSize: 12, textAlign: 'center' }}>
+                      No Image Found
+                    </Text>
                   </View>
                 )}
                 <TouchableOpacity 

@@ -23,6 +23,8 @@ const TOP_BUTTONS_HEIGHT = 60; // Space for top buttons
 const ACTION_BUTTONS_HEIGHT = 80; // Space for action buttons
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 
+// We'll show a "No Image Found" placeholder instead of a default image
+
 const DAYS_OF_WEEK = [
   'Monday',
   'Tuesday',
@@ -219,17 +221,24 @@ export default function SuggestedEvents() {
 
       // Process events to add random image selection
       const processedEvents = eventsData.events.map((event: EventCard) => {
-        // Randomly select one of the 5 images (0-4)
-        const randomImageIndex = Math.floor(Math.random() * 5);
-        const imageUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg`;
+        // Only generate image URLs if the event has an ID, otherwise leave null
+        let imageUrl = null;
+        let allImages: string[] = [];
+        
+        if (event.id) {
+          // Randomly select one of the 5 images (0-4)
+          const randomImageIndex = Math.floor(Math.random() * 5);
+          imageUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg`;
+          // Store all 5 image URLs for use in EventDetailModal
+          allImages = Array.from({ length: 5 }, (_, i) => 
+            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
+          );
+        }
         
         return {
           ...event,
           image: imageUrl,
-          // Store all 5 image URLs for use in EventDetailModal
-          allImages: Array.from({ length: 5 }, (_, i) => 
-            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
-          )
+          allImages: allImages
         };
       });
 
@@ -761,16 +770,27 @@ export default function SuggestedEvents() {
                           isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
                         ]}>
                             {eventImageUrl ? (
-                            <Image 
+                              <Image 
                                 source={{ uri: eventImageUrl }}
-                              style={styles.image} 
-                                onError={(e) => console.error('Image failed to load:', e.nativeEvent.error)}
-                            />
-                          ) : (
+                                style={styles.image} 
+                                onError={(e) => {
+                                  console.log('Image failed to load, showing placeholder');
+                                  // Update the event to remove the broken image URL
+                                  setEVENTS(prevEvents => 
+                                    prevEvents.map(event => 
+                                      event.id === card.id ? { ...event, image: null } : event
+                                    )
+                                  );
+                                }}
+                              />
+                            ) : (
                               <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
                                 <Ionicons name="image-outline" size={40} color="#666" />
+                                <Text style={{ color: '#666', marginTop: 8, fontSize: 12, textAlign: 'center' }}>
+                                  No Image Found
+                                </Text>
                               </View>
-                          )}
+                            )}
                           <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
                             {/* Distance Display */}
                             {typeof card.distance === 'number' && (

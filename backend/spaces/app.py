@@ -83,7 +83,7 @@ class EventRecommendationSystem:
         """Fetch user data from Supabase"""
         try:
             result = self.Client.table("all_users").select(
-                "preferences, travel-distance, saved_events, rejected_events, start-time, end-time, birthday, gender, preferred_days"
+                "preferences, travel-distance, saved_events, saved_events_all_time, rejected_events, start-time, end-time, birthday, gender, preferred_days"
             ).eq("email", email).maybe_single().execute()
             return result.data
         except Exception as e:
@@ -367,18 +367,165 @@ class EventRecommendationSystem:
         return all_events_filtered
     
     def build_interactions(self, users):
-        """Build user interactions - implement your logic"""
+        """Build user interactions using saved_events_all_time for richer interaction history"""
         interactions = []
+        total_users_with_interactions = 0
+        
         for user in users:
             user_name = user.get("email")
-            saved_events = user.get("saved_events", [])
-            # Ensure saved_events is always a list
-            if not saved_events:
+            if not user_name:
                 continue
-            if isinstance(saved_events, str):
-                saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
-            for event_id in saved_events:
-                interactions.append((user_name, event_id, 1))
+            
+            # Use saved_events_all_time for comprehensive interaction history
+            saved_events_all_time = user.get("saved_events_all_time", [])
+            
+            # Fallback to saved_events if saved_events_all_time is not available
+            if not saved_events_all_time:
+                saved_events_all_time = user.get("saved_events", [])
+            
+            # Ensure saved_events_all_time is not None and is iterable
+            if saved_events_all_time is None:
+                saved_events_all_time = []
+            elif isinstance(saved_events_all_time, str):
+                try:
+                    saved_events_all_time = [int(e.strip()) for e in saved_events_all_time.strip('{}').split(',') if e.strip()]
+                except (ValueError, AttributeError):
+                    saved_events_all_time = []
+            elif not isinstance(saved_events_all_time, (list, tuple)):
+                saved_events_all_time = []
+            
+            # Skip users with no interactions
+            if not saved_events_all_time:
+                continue
+                
+            total_users_with_interactions += 1
+            
+            # Get current saved events for weighting
+            current_saved_events = user.get("saved_events", [])
+            if current_saved_events is None:
+                current_saved_events = []
+            elif isinstance(current_saved_events, str):
+                try:
+                    current_saved_events = [int(e.strip()) for e in current_saved_events.strip('{}').split(',') if e.strip()]
+                except (ValueError, AttributeError):
+                    current_saved_events = []
+            elif not isinstance(current_saved_events, (list, tuple)):
+                current_saved_events = []
+            
+            current_saved_set = set(current_saved_events)
+            
+            # Create weighted interactions
+            for event_id in saved_events_all_time:
+                try:
+                    event_id = int(event_id)
+                    # Give higher weight (2.0) to currently saved events, normal weight (1.0) to historical likes
+                    weight = 2.0 if event_id in current_saved_set else 1.0
+                    interactions.append((user_name, event_id, weight))
+                except (ValueError, TypeError):
+                    # Skip invalid event IDs
+                    continue
+                
+        print(f"Built {len(interactions)} interactions from {total_users_with_interactions} users with saved_events_all_time data")
+        
+        # Log some statistics for debugging
+        if interactions:
+            unique_users = len(set(interaction[0] for interaction in interactions))
+            unique_events = len(set(interaction[1] for interaction in interactions))
+            avg_interactions_per_user = len(interactions) / unique_users if unique_users > 0 else 0
+            print(f"Interaction stats: {unique_users} unique users, {unique_events} unique events, {avg_interactions_per_user:.2f} avg interactions per user")
+        
+        return interactions
+    
+    def build_enhanced_interactions(self, users):
+        """Build enhanced interactions including both positive (saved) and negative (rejected) interactions"""
+        interactions = []
+        total_users_with_interactions = 0
+        
+        for user in users:
+            user_name = user.get("email")
+            if not user_name:
+                continue
+            
+            user_has_interactions = False
+            
+            # Positive interactions from saved_events_all_time
+            saved_events_all_time = user.get("saved_events_all_time", [])
+            if not saved_events_all_time:
+                saved_events_all_time = user.get("saved_events", [])
+            
+            # Ensure saved_events_all_time is not None and is iterable
+            if saved_events_all_time is None:
+                saved_events_all_time = []
+            elif isinstance(saved_events_all_time, str):
+                try:
+                    saved_events_all_time = [int(e.strip()) for e in saved_events_all_time.strip('{}').split(',') if e.strip()]
+                except (ValueError, AttributeError):
+                    saved_events_all_time = []
+            elif not isinstance(saved_events_all_time, (list, tuple)):
+                saved_events_all_time = []
+            
+            # Get current saved events for weighting
+            current_saved_events = user.get("saved_events", [])
+            if current_saved_events is None:
+                current_saved_events = []
+            elif isinstance(current_saved_events, str):
+                try:
+                    current_saved_events = [int(e.strip()) for e in current_saved_events.strip('{}').split(',') if e.strip()]
+                except (ValueError, AttributeError):
+                    current_saved_events = []
+            elif not isinstance(current_saved_events, (list, tuple)):
+                current_saved_events = []
+            
+            current_saved_set = set(current_saved_events)
+            
+            # Add positive interactions
+            for event_id in saved_events_all_time:
+                try:
+                    event_id = int(event_id)
+                    # Higher weight for currently saved events
+                    weight = 2.0 if event_id in current_saved_set else 1.0
+                    interactions.append((user_name, event_id, weight))
+                    user_has_interactions = True
+                except (ValueError, TypeError):
+                    continue
+            
+            # Negative interactions from rejected_events (with negative weights)
+            rejected_events = user.get("rejected_events", [])
+            if rejected_events is None:
+                rejected_events = []
+            elif isinstance(rejected_events, str):
+                try:
+                    rejected_events = [int(e.strip()) for e in rejected_events.strip('{}').split(',') if e.strip()]
+                except (ValueError, AttributeError):
+                    rejected_events = []
+            elif not isinstance(rejected_events, (list, tuple)):
+                rejected_events = []
+            
+            # Add negative interactions with negative weight
+            for event_id in rejected_events:
+                try:
+                    event_id = int(event_id)
+                    # Negative weight for rejected events
+                    interactions.append((user_name, event_id, -0.5))
+                    user_has_interactions = True
+                except (ValueError, TypeError):
+                    continue
+            
+            if user_has_interactions:
+                total_users_with_interactions += 1
+                
+        print(f"Built {len(interactions)} enhanced interactions (positive + negative) from {total_users_with_interactions} users")
+        
+        # Log statistics
+        if interactions:
+            positive_interactions = [i for i in interactions if i[2] > 0]
+            negative_interactions = [i for i in interactions if i[2] < 0]
+            unique_users = len(set(interaction[0] for interaction in interactions))
+            unique_events = len(set(interaction[1] for interaction in interactions))
+            
+            print(f"Enhanced interaction stats: {len(positive_interactions)} positive, {len(negative_interactions)} negative")
+            print(f"Users: {unique_users}, Events: {unique_events}")
+        
         return interactions
     
     def build_user_features(self, users):
@@ -562,13 +709,34 @@ class EventRecommendationSystem:
 
             # 4. ML Recommendation logic
             try:
-                all_users_result = self.Client.table("all_users").select("*").execute()
+                # Fetch all users with their interaction history
+                all_users_result = self.Client.table("all_users").select(
+                    "email, preferences, travel-distance, saved_events, saved_events_all_time, rejected_events, start-time, end-time, birthday, gender, preferred_days"
+                ).execute()
                 all_users = all_users_result.data
                 print(f"Users fetched: {len(all_users)}")
             
                 user_emails = [user.get("email") for user in all_users if user.get("email")]
-                interactions = self.build_interactions(all_users)
-                print(f"Interactions built: {len(interactions)}")
+                
+                # Choose interaction method based on data availability
+                # Use enhanced interactions that include both positive (saved_events_all_time) and negative (rejected) interactions
+                use_enhanced_interactions = True  # Can be made configurable
+                
+                if use_enhanced_interactions:
+                    interactions = self.build_enhanced_interactions(all_users)
+                    print(f"Enhanced interactions built: {len(interactions)}")
+                else:
+                    interactions = self.build_interactions(all_users)
+                    print(f"Basic interactions built: {len(interactions)}")
+                
+                # Debug: Show sample interactions
+                if interactions:
+                    print(f"Debug: Sample interactions: {interactions[:5]}")
+                    positive_interactions = [i for i in interactions if i[2] > 0]
+                    negative_interactions = [i for i in interactions if i[2] < 0]
+                    print(f"Debug: Positive interactions: {len(positive_interactions)}, Negative: {len(negative_interactions)}")
+                else:
+                    print("Warning: No interactions found for training!")
 
                 user_feature_tuples = self.build_user_features(all_users)
                 print(f"User features built: {len(user_feature_tuples)}")

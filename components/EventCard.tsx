@@ -36,7 +36,10 @@ export default function EventCard({ event, onPress, onLike, isLiked, userLocatio
           />
         ) : (
           <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-            <Ionicons name="image-outline" size={40} color="#666" />
+            <Ionicons name="image-outline" size={32} color="#666" />
+            <Text style={{ color: '#666', marginTop: 8, fontSize: 12, textAlign: 'center' }}>
+              No Image Found
+            </Text>
           </View>
         )}
         <TouchableOpacity
