@@ -52,6 +52,100 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
   const [isClosing, setIsClosing] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  // Helper function to get current day name
+  const getCurrentDayName = () => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[new Date().getDay()];
+  };
+
+  // Helper function to format opening hours
+  const formatOpeningHours = (times: { [key: string]: string | [string, string] } | undefined) => {
+    if (!times || Object.keys(times).length === 0) {
+      return { display: 'Hours not available', status: null };
+    }
+
+    const currentDay = getCurrentDayName();
+    const todayHours = times[currentDay];
+
+    if (!todayHours) {
+      return { display: 'Closed today', status: 'closed' };
+    }
+
+    if (todayHours === 'all_day') {
+      return { display: 'Open 24 hours', status: 'open_24h' };
+    }
+
+    if (Array.isArray(todayHours) && todayHours.length === 2) {
+      const [openTime, closeTime] = todayHours;
+      const now = new Date();
+      const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes
+
+      // Parse open and close times
+      const parseTime = (timeStr: string) => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
+      };
+
+      const openMinutes = parseTime(openTime);
+      const closeMinutes = parseTime(closeTime);
+
+      // Check if currently open
+      let isOpen = false;
+      if (closeMinutes > openMinutes) {
+        // Normal hours (e.g., 9:00 - 17:00)
+        isOpen = currentTime >= openMinutes && currentTime < closeMinutes;
+      } else {
+        // Overnight hours (e.g., 22:00 - 2:00)
+        isOpen = currentTime >= openMinutes || currentTime < closeMinutes;
+      }
+
+      const formatTime = (timeStr: string) => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        const period = hours >= 12 ? 'PM' : 'AM';
+        const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+        return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+      };
+
+      const status = isOpen ? 'open' : 'closed';
+      const statusText = isOpen ? `Open until ${formatTime(closeTime)}` : `Closed • Opens ${formatTime(openTime)}`;
+      
+      return {
+        display: `${formatTime(openTime)} - ${formatTime(closeTime)}`,
+        status,
+        statusText
+      };
+    }
+
+    return { display: 'Hours not available', status: null };
+  };
+
+  // Helper function to get all week hours for display
+  const getWeeklyHours = (times: { [key: string]: string | [string, string] } | undefined) => {
+    if (!times || Object.keys(times).length === 0) {
+      return [];
+    }
+
+    const formatTime = (timeStr: string) => {
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      const period = hours >= 12 ? 'PM' : 'AM';
+      const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+      return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+    };
+
+    return DAYS_OF_WEEK.map(day => {
+      const dayHours = times[day];
+      let hoursText = 'Closed';
+      
+      if (dayHours === 'all_day') {
+        hoursText = 'Open 24 hours';
+      } else if (Array.isArray(dayHours) && dayHours.length === 2) {
+        hoursText = `${formatTime(dayHours[0])} - ${formatTime(dayHours[1])}`;
+      }
+      
+      return { day, hours: hoursText };
+    });
+  };
   
   // Simplified animation values for better performance
   const expandScale = useRef(new Animated.Value(0.3)).current;
@@ -468,51 +562,113 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             </View>
 
             <View style={styles.infoSection}>
-              <View style={styles.infoRow}>
-                <LinearGradient
-                  colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  locations={[0, 0.3, 0.7, 1]}
-                  style={styles.infoIconContainer}
-                >
-                  <Ionicons name="calendar-outline" size={20} color="white" />
-                </LinearGradient>
-                <View style={styles.infoTextContainer}>
-                  {Array.isArray(event.days_of_the_week) && event.days_of_the_week.length > 0 ? (
-                    <>
-                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 4 }]}>Days of the Week</Text>
-                      <View style={styles.dayButtonContainer}>
-                        {DAYS_OF_WEEK.map((day) => (
-                          <View
-                            key={day}
-                            style={[
-                              styles.dayCircleButton,
-                              event.days_of_the_week?.includes(day) && styles.dayCircleButtonSelected
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.dayCircleButtonText,
-                                { color: event.days_of_the_week?.includes(day) ? '#F45B5B' : 'white' }
-                              ]}
-                            >
-                              {day.slice(0, 1)}
-                            </Text>
+              {/* Opening Hours Section */}
+              {event.times && Object.keys(event.times).length > 0 ? (
+                <View style={styles.infoRow}>
+                  <LinearGradient
+                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={styles.infoIconContainer}
+                  >
+                    <Ionicons name="time-outline" size={20} color="white" />
+                  </LinearGradient>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Hours Today</Text>
+                    <View style={styles.hoursContainer}>
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {formatOpeningHours(event.times).display}
+                      </Text>
+                      {formatOpeningHours(event.times).statusText && (
+                        <View style={[
+                          styles.statusBadge,
+                          { backgroundColor: formatOpeningHours(event.times).status === 'open' ? '#4CAF50' : 
+                                           formatOpeningHours(event.times).status === 'open_24h' ? '#2196F3' : '#F44336' }
+                        ]}>
+                          <Text style={styles.statusText}>
+                            {formatOpeningHours(event.times).statusText}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    
+                    {/* Weekly Hours */}
+                    <View style={styles.weeklyHoursContainer}>
+                      {getWeeklyHours(event.times).map(({ day, hours }) => (
+                        <View key={day} style={[
+                          styles.dayHoursRow,
+                          { backgroundColor: day === getCurrentDayName() ? 
+                            (colorScheme === 'dark' ? 'rgba(158, 149, 189, 0.2)' : 'rgba(158, 149, 189, 0.1)') : 
+                            'transparent' 
+                          }
+                        ]}>
+                          <Text style={[
+                            styles.dayText,
+                            { 
+                              color: Colors[colorScheme ?? 'light'].text,
+                              fontWeight: day === getCurrentDayName() ? 'bold' : 'normal'
+                            }
+                          ]}>
+                            {day.slice(0, 3)}
+                          </Text>
+                          <Text style={[
+                            styles.hoursText,
+                            { 
+                              color: Colors[colorScheme ?? 'light'].text,
+                              fontWeight: day === getCurrentDayName() ? 'bold' : 'normal'
+                            }
+                          ]}>
+                            {hours}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                Array.isArray(event.days_of_the_week) && event.days_of_the_week.length > 0 ? (
+                  <View style={styles.infoRow}>
+                    <LinearGradient
+                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.3, 0.7, 1]}
+                      style={styles.infoIconContainer}
+                    >
+                      <Ionicons name="calendar-outline" size={20} color="white" />
+                    </LinearGradient>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Days of the Week</Text>
+                      <View style={styles.daysContainer}>
+                        {event.days_of_the_week.map((day, index) => (
+                          <View key={day} style={styles.dayPill}>
+                            <Text style={styles.dayPillText}>{day}</Text>
                           </View>
                         ))}
                       </View>
-                    </>
-                  ) : (
-                    <>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.infoRow}>
+                    <LinearGradient
+                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.3, 0.7, 1]}
+                      style={styles.infoIconContainer}
+                    >
+                      <Ionicons name="calendar-outline" size={20} color="white" />
+                    </LinearGradient>
+                    <View style={styles.infoTextContainer}>
                       <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date</Text>
                       <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold', marginTop: 2 }]}> 
                         {event.start_date ? new Date(event.start_date).toLocaleDateString() : "please check organizer's page"}
                       </Text>
-                    </>
-                  )}
-                </View>
-              </View>
+                    </View>
+                  </View>
+                )
+              )}
 
               <View style={styles.infoRow}>
                 <LinearGradient
@@ -605,6 +761,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   </Text>
                 </View>
               </View>
+
+
             </View>
 
             <View style={styles.descriptionSection}>
@@ -969,5 +1127,62 @@ const styles = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  hoursContainer: {
+    marginTop: 4,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  statusText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  weeklyHoursContainer: {
+    marginTop: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  dayHoursRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  dayText: {
+    fontSize: 14,
+    minWidth: 40,
+  },
+  hoursText: {
+    fontSize: 14,
+    flex: 1,
+    textAlign: 'right',
+  },
+  daysContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    gap: 8,
+  },
+  dayPill: {
+    backgroundColor: '#FF1493',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginRight: 4,
+    marginBottom: 4,
+  },
+  dayPillText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 13,
   },
 }); 
