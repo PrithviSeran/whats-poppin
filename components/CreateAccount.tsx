@@ -28,7 +28,8 @@ type RootStackParamList = {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png');
+const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
+const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 const CreateAccount = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -103,24 +104,10 @@ const CreateAccount = () => {
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
             <Image
-              source={BALLOON_IMAGE}
-              style={styles.balloons}
+              source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+              style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
               resizeMode="contain"
             />
-            <MaskedView
-              maskElement={
-                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
-              }
-            >
-              <LinearGradient
-                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
-              >
-                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
-              </LinearGradient>
-            </MaskedView>
           </View>
         </View>
 
@@ -239,6 +226,15 @@ const styles = StyleSheet.create({
     width: width * 0.22, // bigger balloon
     height: width * 0.22,
     marginRight: -6, // tighter spacing
+  },
+  logo: {
+    width: width * 0.9,
+    height: width * 0.5,
+  },
+  logoLight: {
+    width: width * 0.6,
+    height: width * 0.33,
+    marginTop: 40,
   },
   title: {
     fontSize: 32, // bigger text

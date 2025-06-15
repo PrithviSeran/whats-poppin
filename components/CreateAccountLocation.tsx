@@ -24,7 +24,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import MaskedView from '@react-native-masked-view/masked-view';
 
 const { width } = Dimensions.get('window');
-const BALLOON_IMAGE = require('../assets/images/balloons.png');
+const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
+const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 type RootStackParamList = {
   'user-preferences': { userData: string };
@@ -115,22 +116,10 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
       <View style={styles.headerContainer}>
         <View style={styles.headerRow}>
           <Image
-            source={BALLOON_IMAGE}
-            style={styles.balloons}
+            source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+            style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
             resizeMode="contain"
           />
-          <MaskedView
-            maskElement={<Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>}
-          >
-            <LinearGradient
-              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
-            >
-              <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
-            </LinearGradient>
-          </MaskedView>
         </View>
       </View>
 
@@ -230,6 +219,15 @@ const styles = StyleSheet.create({
     width: width * 0.22,
     height: width * 0.22,
     marginRight: -6,
+  },
+  logo: {
+    width: width * 0.9,
+    height: width * 0.5,
+  },
+  logoLight: {
+    width: width * 0.6,
+    height: width * 0.33,
+    marginTop: 40,
   },
   title: {
     fontSize: 32,

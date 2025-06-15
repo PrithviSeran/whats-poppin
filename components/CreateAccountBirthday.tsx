@@ -16,10 +16,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MaskedView from '@react-native-masked-view/masked-view';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png');
+const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
+const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 type RootStackParamList = {
   'create-account-gender': { userData: string };
@@ -34,53 +36,43 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRouteProp }) => {
   const [birthday, setBirthday] = useState('');
   const [birthdayError, setBirthdayError] = useState('');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
-  const formatBirthday = (input: string): string => {
-    const digits = input.replace(/\D/g, '');
-    const parts = [
-      digits.slice(0, 2),
-      digits.slice(2, 4),
-      digits.slice(4, 8)
-    ].filter(Boolean);
-    
-    return parts.join('/');
+  const formatBirthday = (date: Date): string => {
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const yyyy = date.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
   };
 
-  const validateBirthday = (text: string) => {
-    const dateRegex = /^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/;
-    if (!text.trim()) {
-      setBirthdayError('Birthday is required');
-      return false;
-    }
-    if (!dateRegex.test(text)) {
-      setBirthdayError('Please enter a valid date (MM/DD/YYYY)');
-      return false;
-    }
-    
-    const [month, day, year] = text.split('/').map(Number);
-    const date = new Date(year, month - 1, day);
+  const validateBirthday = (date: Date) => {
     const today = new Date();
     const age = today.getFullYear() - date.getFullYear();
-    
-    if (age < 13) {
+    if (age < 13 || (age === 13 && today < new Date(date.getFullYear() + 13, date.getMonth(), date.getDate()))) {
       setBirthdayError('You must be at least 13 years old');
       return false;
     }
-    
     if (age > 100) {
       setBirthdayError('Please enter a valid age');
       return false;
     }
-
     setBirthdayError('');
     return true;
   };
 
+  const handleDateChange = (event: any, date?: Date) => {
+    if (date) {
+      setSelectedDate(date);
+      setBirthday(formatBirthday(date));
+      validateBirthday(date);
+    }
+  };
+
   const handleNext = () => {
-    if (validateBirthday(birthday)) {
+    if (selectedDate && validateBirthday(selectedDate)) {
       navigation.navigate('create-account-gender', {
         userData: JSON.stringify({ ...userData, birthday }),
       });
@@ -108,47 +100,21 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
             <Image
-              source={BALLOON_IMAGE}
-              style={styles.balloons}
+              source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+              style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
               resizeMode="contain"
             />
-            <MaskedView
-              maskElement={
-                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
-              }
-            >
-              <LinearGradient
-                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
-              >
-                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
-              </LinearGradient>
-            </MaskedView>
           </View>
         </View>
 
         <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>My birthday is</Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                borderBottomColor: birthdayError ? '#FF3B30' : colorScheme === 'dark' ? '#555' : '#ddd',
-                color: Colors[colorScheme ?? 'light'].text,
-              },
-            ]}
-            value={birthday}
-            onChangeText={(text) => {
-              const formatted = formatBirthday(text);
-              setBirthday(formatted);
-              validateBirthday(formatted);
-            }}
-            placeholder="MM/DD/YYYY"
-            placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
-            keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
-            maxLength={10}
+          <DateTimePicker
+            value={selectedDate || new Date(2000, 0, 1)}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+            onChange={handleDateChange}
+            maximumDate={new Date()}
           />
           {birthdayError ? (
             <Text style={styles.errorText}>{birthdayError}</Text>
@@ -162,7 +128,7 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
         <View style={styles.buttonGroup}>
           <TouchableOpacity
             onPress={handleNext}
-            disabled={!birthday.trim() || !!birthdayError}
+            disabled={!birthday || !!birthdayError}
           >
             <LinearGradient
               colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -171,7 +137,7 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
               locations={[0, 0.3, 0.7, 1]}
               style={[
                 styles.socialButton,
-                (!birthday.trim() || !!birthdayError) && styles.disabledButton,
+                (!birthday || !!birthdayError) && styles.disabledButton,
               ]}
             >
               <Text style={styles.socialButtonText}>Next</Text>
@@ -254,6 +220,15 @@ const styles = StyleSheet.create({
     width: width * 0.22,
     height: width * 0.22,
     marginRight: -6,
+  },
+  logo: {
+    width: width * 0.9,
+    height: width * 0.5,
+  },
+  logoLight: {
+    width: width * 0.6,
+    height: width * 0.33,
+    marginTop: 40,
   },
   title: {
     fontSize: 32,

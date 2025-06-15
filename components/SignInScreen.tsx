@@ -28,7 +28,8 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const { width } = Dimensions.get('window');
 
-const LOGO_IMAGE = require('../assets/images/logo.png');
+const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
+const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 const CATCH_PHRASES = [
   "Any Plans Tonight?",
@@ -79,8 +80,8 @@ const SignInScreen = () => {
       <View style={styles.centerContent}>
         <View style={styles.headerContainer}>
           <Image
-            source={LOGO_IMAGE}
-            style={styles.logo}
+            source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+            style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
             resizeMode="contain"
           />
         </View>
@@ -146,6 +147,11 @@ const styles = StyleSheet.create({
   logo: {
     width: width * 0.9,
     height: width * 0.5,
+  },
+  logoLight: {
+    width: width * 0.6,
+    height: width * 0.33,
+    marginTop: 40,
   },
   textContainer: {
     marginTop: 20,
