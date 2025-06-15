@@ -81,25 +81,89 @@ class GlobalDataManager extends EventEmitter {
   }
 
   async initialize() {
-    if (this.isInitialized || this.isInitializing) return;
+    if (this.isInitialized || this.isInitializing) {
+      console.log('Initialize called but already initialized/initializing:', {
+        isInitialized: this.isInitialized,
+        isInitializing: this.isInitializing
+      });
+      return;
+    }
     
     this.isInitializing = true;
+    
     try {
-      // Set current user from Supabase
-      await Promise.all([
-        this.fetchAndStoreUserProfile(),
-        this.fetchAndStoreSavedEvents(),
-        this.fetchAndStoreRejectedEvents()
-      ]);
+      console.log('🚀 Starting GlobalDataManager initialization...');
+      console.log('📧 Current user:', this.currentUser?.email || 'No user set');
+      
+      // Add timeout protection
+      const initializationPromise = this.performInitialization();
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Initialization timeout after 30 seconds')), 30000);
+      });
+      
+      await Promise.race([initializationPromise, timeoutPromise]);
       
       this.isInitialized = true;
       this.emit('dataInitialized');
-      console.log('Global data initialized successfully');
+      console.log('✅ Global data initialized successfully - isInitialized:', this.isInitialized);
+      
     } catch (error) {
-      console.error('Error initializing global data:', error);
+      console.error('❌ Error initializing global data:', error);
+      this.isInitialized = false;
+      
+      // Add retry logic for development
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (__DEV__ && !errorMessage.includes('timeout')) {
+        console.log('🔄 Development mode: Will retry initialization in 2 seconds...');
+        setTimeout(() => {
+          this.isInitializing = false;
+          this.initialize();
+        }, 2000);
+        return;
+      }
+      
       throw error;
     } finally {
       this.isInitializing = false;
+    }
+  }
+
+  private async performInitialization() {
+    // Wait for user to be properly set
+    if (!this.currentUser) {
+      console.log('⏳ Waiting for user to be set...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!this.currentUser) {
+        throw new Error('No user set after waiting');
+      }
+    }
+
+    // Initialize each method individually with better error handling and retries
+    await this.initializeWithRetry('fetchAndStoreUserProfile', () => this.fetchAndStoreUserProfile());
+    await this.initializeWithRetry('fetchAndStoreSavedEvents', () => this.fetchAndStoreSavedEvents());
+    await this.initializeWithRetry('fetchAndStoreRejectedEvents', () => this.fetchAndStoreRejectedEvents());
+  }
+
+  private async initializeWithRetry(methodName: string, method: () => Promise<void>, maxRetries = 3) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📋 ${methodName} (attempt ${attempt}/${maxRetries})...`);
+        await method();
+        console.log(`✅ ${methodName} completed successfully`);
+        return;
+      } catch (error) {
+        console.error(`❌ ${methodName} failed (attempt ${attempt}/${maxRetries}):`, error);
+        
+        if (attempt === maxRetries) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          throw new Error(`${methodName} failed after ${maxRetries} attempts: ${errorMessage}`);
+        }
+        
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        console.log(`⏳ Retrying ${methodName} in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
   }
 
@@ -122,15 +186,32 @@ class GlobalDataManager extends EventEmitter {
   private async fetchAndStoreUserProfile() {
     try {
       const user = this.currentUser;
-      if (!user) return;
+      console.log('fetchAndStoreUserProfile - user:', user?.email || 'No user');
+      
+      if (!user) {
+        console.log('No current user set, skipping user profile fetch');
+        return;
+      }
 
+      if (!user.email) {
+        console.log('User has no email, skipping user profile fetch');
+        return;
+      }
+
+      console.log('Querying all_users table for email:', user.email);
       const { data: profile, error } = await supabase
         .from('all_users')
         .select('*')
         .eq('email', user.email)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase query error:', error);
+        throw error;
+      }
+      
+      console.log('Profile query result:', profile ? 'Found profile' : 'No profile found');
+      
       if (profile) {
         // Create folder path using user's email
         const userFolder = user.email?.replace(/[^a-zA-Z0-9]/g, '_') || user.id;
@@ -153,6 +234,10 @@ class GlobalDataManager extends EventEmitter {
 
         await AsyncStorage.setItem('userProfile', JSON.stringify(profileWithImages));
         console.log('User profile stored successfully with image URLs');
+      } else {
+        // Store empty profile if none found
+        await AsyncStorage.setItem('userProfile', JSON.stringify(null));
+        console.log('No profile found, stored null');
       }
     } catch (error) {
       console.error('Error fetching and storing user profile:', error);
@@ -163,7 +248,13 @@ class GlobalDataManager extends EventEmitter {
   private async fetchAndStoreSavedEvents() {
     try {
       const user = this.currentUser;
-      if (!user) return;
+      console.log('fetchAndStoreSavedEvents - user:', user?.email || 'No user');
+      
+      if (!user) {
+        console.log('No current user set, storing empty saved events');
+        await AsyncStorage.setItem('savedEvents', JSON.stringify([]));
+        return;
+      }
 
       // Fetch saved_events IDs from user profile
       const { data: userData, error } = await supabase
@@ -233,7 +324,13 @@ class GlobalDataManager extends EventEmitter {
   private async fetchAndStoreRejectedEvents() {
     try {
       const user = this.currentUser;
-      if (!user || !user.email) return;
+      console.log('fetchAndStoreRejectedEvents - user:', user?.email || 'No user');
+      
+      if (!user || !user.email) {
+        console.log('No current user set, storing empty rejected events');
+        await AsyncStorage.setItem('rejectedEvents', JSON.stringify([]));
+        return;
+      }
       const { data: userData, error } = await supabase
         .from('all_users')
         .select('rejected_events')

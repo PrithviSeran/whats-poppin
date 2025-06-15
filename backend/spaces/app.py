@@ -60,6 +60,8 @@ class RecommendationRequest(BaseModel):
     longitude: Optional[float] = None
     filter_distance: bool = True
     rejected_events: Union[List[int], str] = []
+    use_calendar_filter: bool = False
+    selected_dates: Optional[List[str]] = None
 
 class RecommendationResponse(BaseModel):
     summary: str
@@ -304,6 +306,69 @@ class EventRecommendationSystem:
             
         return filtered_events
     
+    def filter_by_dates(self, events, selected_dates):
+        """Filter events by specific calendar dates"""
+        if not selected_dates:
+            return events
+            
+        from datetime import datetime, timedelta
+        
+        # Parse selected dates
+        parsed_dates = []
+        for date_str in selected_dates:
+            try:
+                parsed_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                parsed_dates.append(parsed_date)
+            except ValueError:
+                print(f"Invalid date format: {date_str}")
+                continue
+        
+        if not parsed_dates:
+            return events
+            
+        filtered_events = []
+        
+        for event in events:
+            occurrence = event.get("occurrence", "")
+            
+            if occurrence == "single" or occurrence == "one-time":
+                # For single events, check if the event date matches any selected date
+                event_start_date = event.get("start_date")
+                if event_start_date:
+                    try:
+                        if isinstance(event_start_date, str):
+                            event_date = datetime.strptime(event_start_date, '%Y-%m-%d').date()
+                        else:
+                            event_date = event_start_date
+                        
+                        if event_date in parsed_dates:
+                            filtered_events.append(event)
+                    except (ValueError, TypeError):
+                        print(f"Invalid event date format: {event_start_date}")
+                        continue
+                        
+            elif occurrence == "ongoing" or occurrence == "Weekly":
+                # For ongoing/weekly events, check if any selected date falls on the event's operating days
+                event_days = self.parse_days(event.get("days_of_the_week", []))
+                
+                if event_days:
+                    # Check if any selected date falls on the event's operating days
+                    for selected_date in parsed_dates:
+                        day_name = selected_date.strftime('%A')  # Get day name (Monday, Tuesday, etc.)
+                        if day_name in event_days:
+                            filtered_events.append(event)
+                            break  # Found a match, no need to check other dates for this event
+                else:
+                    # If no specific days are set for ongoing events, include them
+                    # (assuming they're available on all selected dates)
+                    filtered_events.append(event)
+            else:
+                # For other occurrence types, include the event
+                filtered_events.append(event)
+        
+        print(f"Date filtering: {len(events)} -> {len(filtered_events)} events")
+        return filtered_events
+
     def filter_by_occurrence(self, events, preferred_days):
         """Filter events by occurrence days - implement your logic"""
         user_preferred_days = self.parse_days(preferred_days)
@@ -597,7 +662,7 @@ class EventRecommendationSystem:
         r = 6371  # Radius of earth in kilometers
         return c * r
     
-    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None):
+    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None, use_calendar_filter=False, selected_dates=None):
         """Main recommendation function"""
         try:
             print(f"Starting recommendation process for email: {email}")
@@ -670,9 +735,16 @@ class EventRecommendationSystem:
                 if user_start_time and user_end_time:
                     all_events_raw = self.filter_by_time(all_events_raw, user_start_time, user_end_time)
 
-                user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
-                all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
-                print(f"Events after occurrence filter: {len(all_events_raw)}")
+                # Apply date/day filtering based on calendar mode
+                if use_calendar_filter and selected_dates:
+                    print(f"Applying calendar date filter with {len(selected_dates)} selected dates: {selected_dates}")
+                    all_events_raw = self.filter_by_dates(all_events_raw, selected_dates)
+                    print(f"Events after calendar date filter: {len(all_events_raw)}")
+                else:
+                    # Use traditional day preference filtering
+                    user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
+                    all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
+                    print(f"Events after day preference filter: {len(all_events_raw)}")
                 
                 all_events_filtered = self.apply_distance_filter(
                     all_events_raw, latitude, longitude, 
@@ -819,26 +891,46 @@ async def get_recommendations(request_data: RecommendationRequest, request: Requ
         latitude=request_data.latitude,
         longitude=request_data.longitude,
         filter_distance=request_data.filter_distance,
-        rejected_events=request_data.rejected_events
+        rejected_events=request_data.rejected_events,
+        use_calendar_filter=request_data.use_calendar_filter,
+        selected_dates=request_data.selected_dates
     )
     
     return RecommendationResponse(**result)
 
 @app.get("/recommend")
 async def get_recommendations_get(
+    request: Request,
     email: str = Query(..., description="User email"),
     latitude: Optional[float] = Query(None, description="User latitude"),
     longitude: Optional[float] = Query(None, description="User longitude"),
     filter_distance: bool = Query(True, description="Whether to filter by distance"),
-    rejected_events: str = Query("", description="Comma-separated rejected event IDs")
+    rejected_events: str = Query("", description="Comma-separated rejected event IDs"),
+    use_calendar_filter: bool = Query(False, description="Whether to use calendar date filtering"),
+    selected_dates: str = Query("", description="Comma-separated selected dates in YYYY-MM-DD format")
 ):
     """Get event recommendations via GET request"""
+    # Get token from Authorization header
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return {"error": "No valid token provided"}
+
+    token = auth_header.split(' ')[1]
+    
+    # Parse selected_dates from comma-separated string
+    parsed_selected_dates = None
+    if use_calendar_filter and selected_dates:
+        parsed_selected_dates = [date.strip() for date in selected_dates.split(',') if date.strip()]
+    
     result = recommender.recommend_events(
+        token=token,
         email=email,
         latitude=latitude,
         longitude=longitude,
         filter_distance=filter_distance,
-        rejected_events=rejected_events
+        rejected_events=rejected_events,
+        use_calendar_filter=use_calendar_filter,
+        selected_dates=parsed_selected_dates
     )
     
     return result

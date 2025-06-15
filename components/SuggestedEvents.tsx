@@ -192,19 +192,47 @@ export default function SuggestedEvents() {
           rejected_events: Array.isArray(rejectedEventIds) ? rejectedEventIds.join(',') : rejectedEventIds
       });*/
 
+      // Get calendar preferences from AsyncStorage
+      const isCalendarMode = await AsyncStorage.getItem('isCalendarMode') === 'true';
+      const selectedDatesStr = await AsyncStorage.getItem('selectedDates');
+      let selectedDates: string[] = [];
+      
+      if (isCalendarMode && selectedDatesStr) {
+        try {
+          selectedDates = JSON.parse(selectedDatesStr);
+        } catch (e) {
+          console.error('Error parsing selected dates:', e);
+          selectedDates = [];
+        }
+      }
+
+      console.log('📅 Calendar filtering info:');
+      console.log('  - Is calendar mode:', isCalendarMode);
+      console.log('  - Selected dates:', selectedDates);
+
+      const requestBody: any = {
+        email: currentUserEmail,
+        latitude: userLatitude,
+        longitude: userLongitude,
+        rejected_events: excludedEventIds,
+        filter_distance: filterByDistance
+      };
+
+      // Add calendar filtering if in calendar mode
+      if (isCalendarMode && selectedDates.length > 0) {
+        requestBody.selected_dates = selectedDates;
+        requestBody.use_calendar_filter = true;
+      } else {
+        requestBody.use_calendar_filter = false;
+      }
+
       const response = await fetch('https://iamtheprince-whats-poppin.hf.space/recommend', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`
         },
-        body: JSON.stringify({
-          email: currentUserEmail,
-          latitude: userLatitude,
-          longitude: userLongitude,
-          rejected_events: excludedEventIds,
-          filter_distance: filterByDistance
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {

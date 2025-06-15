@@ -564,66 +564,55 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             <View style={styles.infoSection}>
               {/* Opening Hours Section */}
               {event.times && Object.keys(event.times).length > 0 ? (
-                <View style={styles.infoRow}>
-                  <LinearGradient
-                    colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={styles.infoIconContainer}
-                  >
-                    <Ionicons name="time-outline" size={20} color="white" />
-                  </LinearGradient>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Hours Today</Text>
-                    <View style={styles.hoursContainer}>
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {formatOpeningHours(event.times).display}
-                      </Text>
-                      {formatOpeningHours(event.times).statusText && (
-                        <View style={[
-                          styles.statusBadge,
-                          { backgroundColor: formatOpeningHours(event.times).status === 'open' ? '#4CAF50' : 
-                                           formatOpeningHours(event.times).status === 'open_24h' ? '#2196F3' : '#F44336' }
-                        ]}>
-                          <Text style={styles.statusText}>
-                            {formatOpeningHours(event.times).statusText}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    
-                    {/* Weekly Hours */}
-                    <View style={styles.weeklyHoursContainer}>
-                      {getWeeklyHours(event.times).map(({ day, hours }) => (
-                        <View key={day} style={[
-                          styles.dayHoursRow,
-                          { backgroundColor: day === getCurrentDayName() ? 
-                            (colorScheme === 'dark' ? 'rgba(158, 149, 189, 0.2)' : 'rgba(158, 149, 189, 0.1)') : 
-                            'transparent' 
+                <View style={styles.hoursSection}>
+                  <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 8 }]}>Hours Today</Text>
+                  <View style={styles.hoursContainer}>
+                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {formatOpeningHours(event.times).display}
+                    </Text>
+                    {formatOpeningHours(event.times).statusText && (
+                      <View style={[
+                        styles.statusBadge,
+                        { backgroundColor: formatOpeningHours(event.times).status === 'open' ? '#4CAF50' : 
+                                         formatOpeningHours(event.times).status === 'open_24h' ? '#2196F3' : '#F44336' }
+                      ]}>
+                        <Text style={styles.statusText}>
+                          {formatOpeningHours(event.times).statusText}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  
+                  {/* Weekly Hours */}
+                  <View style={styles.weeklyHoursContainer}>
+                    {getWeeklyHours(event.times).map(({ day, hours }) => (
+                      <View key={day} style={[
+                        styles.dayHoursRow,
+                        { backgroundColor: day === getCurrentDayName() ? 
+                          (colorScheme === 'dark' ? 'rgba(158, 149, 189, 0.2)' : 'rgba(158, 149, 189, 0.1)') : 
+                          'transparent' 
+                        }
+                      ]}>
+                        <Text style={[
+                          styles.dayText,
+                          { 
+                            color: Colors[colorScheme ?? 'light'].text,
+                            fontWeight: day === getCurrentDayName() ? 'bold' : 'normal'
                           }
                         ]}>
-                          <Text style={[
-                            styles.dayText,
-                            { 
-                              color: Colors[colorScheme ?? 'light'].text,
-                              fontWeight: day === getCurrentDayName() ? 'bold' : 'normal'
-                            }
-                          ]}>
-                            {day.slice(0, 3)}
-                          </Text>
-                          <Text style={[
-                            styles.hoursText,
-                            { 
-                              color: Colors[colorScheme ?? 'light'].text,
-                              fontWeight: day === getCurrentDayName() ? 'bold' : 'normal'
-                            }
-                          ]}>
-                            {hours}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
+                          {day.slice(0, 3)}
+                        </Text>
+                        <Text style={[
+                          styles.hoursText,
+                          { 
+                            color: Colors[colorScheme ?? 'light'].text,
+                            fontWeight: day === getCurrentDayName() ? 'bold' : 'normal'
+                          }
+                        ]}>
+                          {hours}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
                 </View>
               ) : (
@@ -1184,5 +1173,13 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
     fontSize: 13,
+  },
+  hoursSection: {
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.3)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
   },
 }); 

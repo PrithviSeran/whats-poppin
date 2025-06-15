@@ -61,6 +61,11 @@ const DAYS_OF_WEEK = [
   'Sunday'
 ];
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 export default function EventFilterOverlay({ visible, onClose, setLoading, fetchTokenAndCallBackend }: EventFilterOverlayProps) {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [selectedDayPreferences, setSelectedDayPreferences] = useState<string[]>([]);
@@ -76,6 +81,12 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const [filterByDistance, setFilterByDistance] = useState(true);
   const [locationBubbleAnim] = useState(new Animated.Value(filterByDistance ? 1 : 0));
   const [bubbleHeight, setBubbleHeight] = useState(0);
+  
+  // Calendar state
+  const [isCalendarMode, setIsCalendarMode] = useState(false);
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
 
   const dataManager = GlobalDataManager.getInstance();
 
@@ -104,17 +115,36 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       setManualLocation(prefs.location || '');
       // Set travel distance
       setTravelDistance(prefs['travel-distance'] || 8);
-      // Set day preferences
-      let days: string[] = [];
-      if (Array.isArray(prefs.preferred_days)) {
-        days = prefs.preferred_days;
-      } else if (typeof prefs.preferred_days === 'string' && prefs.preferred_days.length > 0) {
-        days = prefs.preferred_days.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+      
+      // Load calendar preferences from AsyncStorage
+      const calendarModeStr = await AsyncStorage.getItem('isCalendarMode');
+      const savedSelectedDates = await AsyncStorage.getItem('selectedDates');
+      
+      if (calendarModeStr === 'true') {
+        setIsCalendarMode(true);
+        if (savedSelectedDates) {
+          try {
+            const dates = JSON.parse(savedSelectedDates);
+            setSelectedDates(Array.isArray(dates) ? dates : []);
+          } catch (e) {
+            console.error('Error parsing saved dates:', e);
+            setSelectedDates([]);
+          }
+        }
+      } else {
+        setIsCalendarMode(false);
+        // Set day preferences only if not in calendar mode
+        let days: string[] = [];
+        if (Array.isArray(prefs.preferred_days)) {
+          days = prefs.preferred_days;
+        } else if (typeof prefs.preferred_days === 'string' && prefs.preferred_days.length > 0) {
+          days = prefs.preferred_days.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+        }
+        setSelectedDayPreferences(days.length > 0 ? days : DAYS_OF_WEEK);
       }
-      setSelectedDayPreferences(days.length > 0 ? days : DAYS_OF_WEEK);
+      
       // Load filter by distance preference
       const filterByDistanceStr = await dataManager.getIsFilterByDistance();
-      //AsyncStorage.getItem('filterByDistance');
       setFilterByDistance(filterByDistanceStr);
     } catch (error) {
       console.error('Error in fetchUserPreferences:', error);
@@ -175,6 +205,147 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     );
   };
 
+  // Calendar helper functions
+  const getDaysInMonth = (month: number, year: number) => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (month: number, year: number) => {
+    return new Date(year, month, 1).getDay();
+  };
+
+  const formatDateString = (day: number, month: number, year: number) => {
+    return `${year}-${(month + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+  };
+
+  const toggleDateSelection = async (dateString: string) => {
+    const newSelectedDates = selectedDates.includes(dateString)
+      ? selectedDates.filter(d => d !== dateString)
+      : [...selectedDates, dateString];
+    
+    setSelectedDates(newSelectedDates);
+    
+    // Save to AsyncStorage
+    try {
+      await AsyncStorage.setItem('selectedDates', JSON.stringify(newSelectedDates));
+    } catch (error) {
+      console.error('Error saving selected dates:', error);
+    }
+  };
+
+  const handleCalendarModeToggle = async (isCalendar: boolean) => {
+    setIsCalendarMode(isCalendar);
+    
+    // Save calendar mode preference
+    try {
+      await AsyncStorage.setItem('isCalendarMode', isCalendar.toString());
+      
+      // If switching to calendar mode and no dates selected, clear any existing dates
+      if (isCalendar && selectedDates.length === 0) {
+        await AsyncStorage.setItem('selectedDates', JSON.stringify([]));
+      }
+      // If switching to days mode, we don't need to clear anything as days are stored in user profile
+    } catch (error) {
+      console.error('Error saving calendar mode preference:', error);
+    }
+  };
+
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      if (currentMonth === 0) {
+        setCurrentMonth(11);
+        setCurrentYear(currentYear - 1);
+      } else {
+        setCurrentMonth(currentMonth - 1);
+      }
+    } else {
+      if (currentMonth === 11) {
+        setCurrentMonth(0);
+        setCurrentYear(currentYear + 1);
+      } else {
+        setCurrentMonth(currentMonth + 1);
+      }
+    }
+  };
+
+  const renderCalendar = () => {
+    const daysInMonth = getDaysInMonth(currentMonth, currentYear);
+    const firstDay = getFirstDayOfMonth(currentMonth, currentYear);
+    const today = new Date();
+    const todayString = formatDateString(today.getDate(), today.getMonth(), today.getFullYear());
+    
+    const calendarDays = [];
+    
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < firstDay; i++) {
+      calendarDays.push(
+        <View key={`empty-${i}`} style={styles.calendarDay} />
+      );
+    }
+    
+    // Add days of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateString = formatDateString(day, currentMonth, currentYear);
+      const isSelected = selectedDates.includes(dateString);
+      const isToday = dateString === todayString;
+      const isPast = new Date(currentYear, currentMonth, day) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      calendarDays.push(
+        <TouchableOpacity
+          key={day}
+          style={[
+            styles.calendarDay,
+            styles.calendarDayButton,
+            isSelected && styles.calendarDaySelected,
+            isToday && styles.calendarDayToday,
+            isPast && styles.calendarDayPast
+          ]}
+          onPress={() => !isPast && toggleDateSelection(dateString)}
+          disabled={isPast}
+        >
+          <Text
+            style={[
+              styles.calendarDayText,
+              isSelected && styles.calendarDayTextSelected,
+              isToday && styles.calendarDayTextToday,
+              isPast && styles.calendarDayTextPast
+            ]}
+          >
+            {day}
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    
+    return (
+               <View style={styles.calendarContainer}>
+           <View style={styles.calendarHeader}>
+             <TouchableOpacity onPress={() => navigateMonth('prev')} style={styles.calendarNavButton}>
+               <Ionicons name="chevron-back" size={24} color={Colors[colorScheme ?? 'light'].text} />
+             </TouchableOpacity>
+             <Text style={[styles.calendarHeaderText, { color: Colors[colorScheme ?? 'light'].text }]}>
+               {MONTH_NAMES[currentMonth]} {currentYear}
+             </Text>
+             <TouchableOpacity onPress={() => navigateMonth('next')} style={styles.calendarNavButton}>
+               <Ionicons name="chevron-forward" size={24} color={Colors[colorScheme ?? 'light'].text} />
+             </TouchableOpacity>
+           </View>
+           
+           <View style={styles.calendarWeekHeader}>
+             {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dayLetter, index) => (
+               <Text key={index} style={[styles.calendarWeekHeaderText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                 {dayLetter}
+               </Text>
+             ))}
+           </View>
+        
+        <View style={styles.calendarGrid}>
+          {calendarDays}
+        </View>
+      </View>
+    );
+  };
+
   const formatTimeString = (minutes: number) => {
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
@@ -184,9 +355,6 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const handleApply = async () => {
     const start = formatTimeString(startTime);
     const end = formatTimeString(endTime);
-
-    // If no days are selected, use all days
-    const daysToSave = selectedDayPreferences.length > 0 ? selectedDayPreferences : DAYS_OF_WEEK;
 
     const userProfile = await dataManager.getUserProfile();
 
@@ -201,11 +369,29 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     userProfile['end-time'] = end;
     userProfile.location = manualLocation;
     userProfile['travel-distance'] = travelDistance;
-    userProfile.preferred_days = daysToSave;
+
+    // Save calendar mode and preferences
+    try {
+      await AsyncStorage.setItem('isCalendarMode', isCalendarMode.toString());
+      
+      if (isCalendarMode) {
+        // In calendar mode, save selected dates and clear preferred_days
+        await AsyncStorage.setItem('selectedDates', JSON.stringify(selectedDates));
+        userProfile.preferred_days = []; // Clear days when using calendar mode
+        console.log('Saving calendar mode with dates:', selectedDates);
+      } else {
+        // In days mode, save preferred days and clear selected dates
+        const daysToSave = selectedDayPreferences.length > 0 ? selectedDayPreferences : DAYS_OF_WEEK;
+        userProfile.preferred_days = daysToSave;
+        await AsyncStorage.setItem('selectedDates', JSON.stringify([])); // Clear dates when using days mode
+        console.log('Saving days mode with days:', daysToSave);
+      }
+    } catch (error) {
+      console.error('Error saving calendar preferences:', error);
+    }
 
     // Save filter by distance preference
     await dataManager.setIsFilterByDistance(filterByDistance);
-    //await AsyncStorage.setItem('filterByDistance', filterByDistance.toString());
 
     await dataManager.setUserProfile(userProfile);
 
@@ -227,6 +413,17 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     setEndTime(3 * 60);
     setTravelDistance(8);
     setManualLocation('');
+    
+    // Reset calendar preferences
+    setIsCalendarMode(false);
+    setSelectedDates([]);
+    
+    try {
+      await AsyncStorage.setItem('isCalendarMode', 'false');
+      await AsyncStorage.setItem('selectedDates', JSON.stringify([]));
+    } catch (error) {
+      console.error('Error resetting calendar preferences:', error);
+    }
     
     // Reset filter by distance preference
     await dataManager.setIsFilterByDistance(false);
@@ -340,36 +537,95 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
             </View>
 
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Day Preference</Text>
-              <LinearGradient
-                colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.25, 0.5, 0.75, 1]}
-                style={styles.dayGradientContainer}
-              >
-                <View style={styles.dayButtonContainer}>
-                  {DAYS_OF_WEEK.map((day) => (
-                    <TouchableOpacity
-                      key={day}
-                      style={[
-                        styles.dayCircleButton,
-                        selectedDayPreferences.includes(day) && styles.dayCircleButtonSelected
-                      ]}
-                      onPress={() => toggleDayPreference(day)}
-                    >
-                      <Text
-                        style={[
-                          styles.dayCircleButtonText,
-                          { color: selectedDayPreferences.includes(day) ? '#F45B5B' : 'white' }
-                        ]}
-                      >
-                        {day.slice(0, 1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+              <View style={styles.dayPreferenceHeader}>
+                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Day Preference</Text>
+                <View style={styles.dayPreferenceToggle}>
+                  <TouchableOpacity
+                    style={[
+                      styles.dayToggleButton,
+                      !isCalendarMode && styles.dayToggleButtonActive,
+                      { backgroundColor: !isCalendarMode ? '#FF0005' : 'transparent' }
+                    ]}
+                    onPress={() => handleCalendarModeToggle(false)}
+                  >
+                    <Text style={[
+                      styles.dayToggleButtonText,
+                      { color: !isCalendarMode ? 'white' : Colors[colorScheme ?? 'light'].text }
+                    ]}>
+                      Days
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.dayToggleButton,
+                      isCalendarMode && styles.dayToggleButtonActive,
+                      { backgroundColor: isCalendarMode ? '#FF0005' : 'transparent' }
+                    ]}
+                    onPress={() => handleCalendarModeToggle(true)}
+                  >
+                    <Text style={[
+                      styles.dayToggleButtonText,
+                      { color: isCalendarMode ? 'white' : Colors[colorScheme ?? 'light'].text }
+                    ]}>
+                      Dates
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              </LinearGradient>
+              </View>
+              
+              {!isCalendarMode ? (
+                <LinearGradient
+                  colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  locations={[0, 0.25, 0.5, 0.75, 1]}
+                  style={styles.dayGradientContainer}
+                >
+                  <View style={styles.dayButtonContainer}>
+                    {DAYS_OF_WEEK.map((day) => (
+                      <TouchableOpacity
+                        key={day}
+                        style={[
+                          styles.dayCircleButton,
+                          selectedDayPreferences.includes(day) && styles.dayCircleButtonSelected
+                        ]}
+                        onPress={() => toggleDayPreference(day)}
+                      >
+                        <Text
+                          style={[
+                            styles.dayCircleButtonText,
+                            { color: selectedDayPreferences.includes(day) ? '#F45B5B' : 'white' }
+                          ]}
+                        >
+                          {day.slice(0, 1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </LinearGradient>
+              ) : (
+                renderCalendar()
+              )}
+              
+              {isCalendarMode && selectedDates.length > 0 && (
+                <View style={styles.selectedDatesContainer}>
+                  <Text style={[styles.selectedDatesLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Selected Dates ({selectedDates.length}):
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selectedDatesScroll}>
+                    {selectedDates.map((dateString) => (
+                      <View key={dateString} style={styles.selectedDateChip}>
+                        <Text style={styles.selectedDateChipText}>
+                          {new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </Text>
+                        <TouchableOpacity onPress={() => toggleDateSelection(dateString)}>
+                          <Ionicons name="close-circle" size={16} color="white" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </View>
 
             <View style={styles.section}>
@@ -835,5 +1091,144 @@ const styles = StyleSheet.create({
   locationToggleLabel: {
     fontSize: 16,
     fontWeight: '500',
+  },
+  // Day Preference Header and Toggle Styles
+  dayPreferenceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  dayPreferenceToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    padding: 2,
+  },
+  dayToggleButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 18,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  dayToggleButtonActive: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  dayToggleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Calendar Styles
+  calendarContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 15,
+    padding: 15,
+    marginTop: 10,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  calendarHeaderText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  calendarNavButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  calendarWeekHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 10,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  calendarWeekHeaderText: {
+    fontSize: 14,
+    fontWeight: '600',
+    opacity: 0.7,
+    width: 40,
+    textAlign: 'center',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-around',
+  },
+  calendarDay: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  calendarDayButton: {
+    borderRadius: 20,
+    backgroundColor: 'transparent',
+  },
+  calendarDaySelected: {
+    backgroundColor: '#FF0005',
+  },
+  calendarDayToday: {
+    borderWidth: 2,
+    borderColor: '#FF0005',
+  },
+  calendarDayPast: {
+    opacity: 0.3,
+  },
+  calendarDayText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  calendarDayTextSelected: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  calendarDayTextToday: {
+    fontWeight: 'bold',
+  },
+  calendarDayTextPast: {
+    opacity: 0.5,
+  },
+  // Selected Dates Display Styles
+  selectedDatesContainer: {
+    marginTop: 15,
+    padding: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+  },
+  selectedDatesLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 10,
+    opacity: 0.8,
+  },
+  selectedDatesScroll: {
+    maxHeight: 40,
+  },
+  selectedDateChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF0005',
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    gap: 6,
+  },
+  selectedDateChipText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 
