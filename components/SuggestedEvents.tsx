@@ -796,7 +796,7 @@ export default function SuggestedEvents() {
                         <Animated.View style={[
                           styles.card,
                           isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                        ]}>
+                                                ]}>
                             {eventImageUrl ? (
                               <Image 
                                 source={{ uri: eventImageUrl }}
@@ -817,6 +817,21 @@ export default function SuggestedEvents() {
                                 <Text style={{ color: '#666', marginTop: 8, fontSize: 12, textAlign: 'center' }}>
                                   No Image Found
                                 </Text>
+                              </View>
+                            )}
+                            
+                            {/* Featured Badge */}
+                            {card.featured && (
+                              <View style={styles.featuredBadge}>
+                                <LinearGradient
+                                  colors={['#FFD700', '#FFA500']}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 1 }}
+                                  style={styles.featuredBadgeContainer}
+                                >
+                                  <Ionicons name="star" size={16} color="white" />
+                                  <Text style={styles.featuredText}>Featured</Text>
+                                </LinearGradient>
                               </View>
                             )}
                           <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
@@ -933,6 +948,7 @@ export default function SuggestedEvents() {
         }}
         setLoading={setLoading}
         fetchTokenAndCallBackend={fetchTokenAndCallBackend}
+        onStartLoading={() => setLoading(true)}
       />
 
       {/* Expanded Card Overlay */}
@@ -1171,7 +1187,7 @@ export default function SuggestedEvents() {
                   <View style={styles.infoTextContainer}>
                     <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Age Restriction</Text>
                     <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {expandedSavedActivity.age_restriction}+
+                      {expandedSavedActivity.age_restriction ? `${expandedSavedActivity.age_restriction}+` : 'None'}
                     </Text>
                   </View>
                 </View>
@@ -1764,5 +1780,29 @@ const styles = StyleSheet.create({
   reloadButton: {
     borderColor: '#9E95BD',
     borderWidth: 2,
+  },
+  featuredBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 2,
+  },
+  featuredBadgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  featuredText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
 });

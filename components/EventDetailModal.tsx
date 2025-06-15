@@ -728,7 +728,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 <View style={styles.infoTextContainer}>
                   <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Age Restriction</Text>
                   <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    {event.age_restriction}+
+                    {event.age_restriction ? `${event.age_restriction}+` : 'None'}
                   </Text>
                 </View>
               </View>

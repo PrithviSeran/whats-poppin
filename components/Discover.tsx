@@ -682,6 +682,21 @@ export default function Discover() {
                     </Text>
                   </View>
                 )}
+                
+                {/* Featured Badge */}
+                {event.featured && (
+                  <View style={styles.featuredBadge}>
+                    <LinearGradient
+                      colors={['#FFD700', '#FFA500']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.featuredBadgeContainer}
+                    >
+                      <Ionicons name="star" size={14} color="white" />
+                      <Text style={styles.featuredText}>Featured</Text>
+                    </LinearGradient>
+                  </View>
+                )}
                 <TouchableOpacity 
                   style={styles.likeButton}
                   onPress={() => toggleLike(event)}
@@ -942,5 +957,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 10,
     opacity: 0.7,
+  },
+  featuredBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 2,
+  },
+  featuredBadgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  featuredText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginLeft: 3,
   },
 }); 

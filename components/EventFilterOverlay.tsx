@@ -34,9 +34,11 @@ interface EventFilterOverlayProps {
   onClose: () => void;
   setLoading: (loading: boolean) => void;
   fetchTokenAndCallBackend: () => void;
+  onStartLoading: () => void;
 }
 
 const EVENT_TYPES = [
+  'Featured Events',
   'Food & Drink',
   'Outdoor / Nature',
   'Leisure & Social',
@@ -66,7 +68,7 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-export default function EventFilterOverlay({ visible, onClose, setLoading, fetchTokenAndCallBackend }: EventFilterOverlayProps) {
+export default function EventFilterOverlay({ visible, onClose, setLoading, fetchTokenAndCallBackend, onStartLoading }: EventFilterOverlayProps) {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [selectedDayPreferences, setSelectedDayPreferences] = useState<string[]>([]);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
@@ -353,6 +355,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   };
 
   const handleApply = async () => {
+    // Start loading animation immediately for smooth user experience
+    onStartLoading();
+    
     const start = formatTimeString(startTime);
     const end = formatTimeString(endTime);
 
@@ -400,9 +405,25 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     console.log('EventFilterOverlay: Refreshing data before applying filters');
     await dataManager.refreshAllDataImmediate();
 
-    onClose();
-    setLoading(true);
-    fetchTokenAndCallBackend();
+    // Play the same closing animation as the close button
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      })
+    ]).start(() => {
+      setIsAnimating(false);
+      onClose();
+      // Fetch new events after the modal has closed
+      fetchTokenAndCallBackend();
+    });
   };
 
    const handleReset = async () => {

@@ -178,10 +178,21 @@ class EventRecommendationSystem:
             query = self.Client.table("all_events").select("*")
             
             if user_preferences:
-                # Filter by events that have any overlap with user preferences
-                # Convert to proper PostgreSQL array format
-                preferences_array = '{' + ','.join(f'"{pref}"' for pref in user_preferences) + '}'
-                query = query.filter('event_type', 'ov', preferences_array)
+                # Check if "Featured Events" is in user preferences
+                if "Featured Events" in user_preferences:
+                    # If only "Featured Events" is selected, return only featured events
+                    if len(user_preferences) == 1:
+                        query = query.eq('featured', True)
+                    else:
+                        # If "Featured Events" plus other categories, combine filters
+                        other_preferences = [pref for pref in user_preferences if pref != "Featured Events"]
+                        preferences_array = '{' + ','.join(f'"{pref}"' for pref in other_preferences) + '}'
+                        # Use OR logic: either featured OR matches other event types
+                        query = query.or_(f'featured.eq.true,event_type.ov.{preferences_array}')
+                else:
+                    # Normal filtering by event types only
+                    preferences_array = '{' + ','.join(f'"{pref}"' for pref in user_preferences) + '}'
+                    query = query.filter('event_type', 'ov', preferences_array)
             
             result = query.execute()
             return result.data
@@ -834,13 +845,8 @@ class EventRecommendationSystem:
                     # Find the full event object from all_events_filtered
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
-                        # Get the public URL for the event's image
-                        try:
-                            image_url = self.Client.storage.from_("event-images").get_public_url(f"{eid}.jpg")
-                            event_obj["image"] = image_url
-                        except Exception as e:
-                            print(f"Error getting image URL for event {eid}: {e}")
-                            event_obj["image"] = None
+                        # Don't set image URL here - let frontend handle image URL generation
+                        # since images are stored in folder structure: event_id/image_index.jpg
                         recommended_events.append(event_obj)
                 
                 return {

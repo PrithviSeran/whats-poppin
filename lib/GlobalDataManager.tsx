@@ -31,6 +31,7 @@ export interface EventCard {
   times?: { [key: string]: string | [string, string] };  // New times field replacing start_time/end_time
   allImages?: string[];  // Array of all 5 image URLs for the event
   link?: string;  // Source URL for the event/activity
+  featured?: boolean;  // Whether the event is featured
 };
 
 export interface UserProfile {
