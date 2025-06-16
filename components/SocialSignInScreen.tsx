@@ -22,6 +22,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
+import MaskedView from '@react-native-masked-view/masked-view';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -33,7 +34,8 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png');
+const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
+const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 const CATCH_PHRASES = [
   "Any Plans Tonight?",
@@ -160,11 +162,10 @@ const SocialSignInScreen = () => {
 
             <View style={styles.headerContainer}>
               <Image
-                source={BALLOON_IMAGE}
-                style={styles.balloons}
+                source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+                style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
                 resizeMode="contain"
               />
-              <Text style={styles.title}>{`What's Poppin?`}</Text>
             </View>
             
             <View style={styles.buttonGroup}>
@@ -263,27 +264,19 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
     width: '100%',
-    paddingRight: 50,
+    marginTop: 20,
+    alignItems: 'center',
   },
-  balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
+  logo: {
+    width: width * 0.8,
+    height: width * 0.4,
+    marginTop: 20,
   },
-  title: {
-    fontSize: 25,
-    fontWeight: 'bold',
-    color: '#F45B5B',
-    textAlign: 'left',
-    textShadowColor: 'rgba(0,0,0,0.18)',
-    textShadowOffset: { width: 4, height: 4 },
-    textShadowRadius: 6,
-    marginLeft: -50,
-    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
+  logoLight: {
+    width: width * 0.6,
+    height: width * 0.3,
+    marginTop: 20,
   },
   buttonGroup: {
     width: '100%',

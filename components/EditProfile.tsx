@@ -5,6 +5,7 @@ import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 interface UserProfile {
   id: number;
@@ -28,6 +29,7 @@ type RootStackParamList = {
   };
   'edit-profile': { currentProfile: UserProfile };
   'edit-images': { currentProfile: UserProfile };
+  'me': { updatedProfile?: UserProfile };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -42,6 +44,7 @@ export default function EditProfile() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
   const params = route.params as RouteParams;
+  const dataManager = GlobalDataManager.getInstance();
 
   React.useEffect(() => {
     if (params?.currentProfile) {
@@ -68,10 +71,9 @@ export default function EditProfile() {
         .update({
           name: editedProfile.name,
           birthday: editedProfile.birthday,
-          gender: editedProfile.gender,
-          updated_at: new Date().toISOString(),
+          gender: editedProfile.gender
         })
-        .eq('email', user.email)
+        .eq('id', editedProfile.id)
         .select();
 
       if (updateError) {
@@ -82,13 +84,21 @@ export default function EditProfile() {
 
       console.log('Profile updated successfully:', updateData);
 
-      // Navigate back to profile with updated data
-      navigation.navigate('(tabs)', {
-        screen: 'profile',
-        params: {
-          updatedProfile: editedProfile
-        }
-      });
+      // Refresh GlobalDataManager to update cached data
+      await dataManager.refreshAllData();
+
+      // Navigate back to the Me profile page with updated data
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        // Fallback if we can't go back
+        navigation.navigate('(tabs)', {
+          screen: 'me',
+          params: {
+            updatedProfile: editedProfile
+          }
+        });
+      }
 
     } catch (error) {
       console.error('Error saving profile:', error);
@@ -97,7 +107,15 @@ export default function EditProfile() {
   };
 
   const handleCancel = () => {
-    navigation.goBack();
+    // Simply go back to the previous screen (Me.tsx)
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      // Fallback if we can't go back
+      navigation.navigate('(tabs)', {
+        screen: 'me'
+      });
+    }
   };
 
   if (!editedProfile) {
@@ -162,17 +180,47 @@ export default function EditProfile() {
           <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
             Gender
           </Text>
-          <TextInput
-            style={[styles.input, { 
-              color: Colors[colorScheme ?? 'light'].text,
-              backgroundColor: Colors[colorScheme ?? 'light'].background,
-              borderColor: Colors[colorScheme ?? 'light'].text + '40'
-            }]}
-            value={editedProfile.gender}
-            onChangeText={(text) => setEditedProfile({ ...editedProfile, gender: text })}
-            placeholder="Enter your gender"
-            placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
-          />
+          <View style={styles.genderButtonGroup}>
+            <TouchableOpacity
+              style={[
+                styles.genderButton,
+                editedProfile.gender === 'Male' && styles.genderButtonSelected,
+                {
+                  borderColor: '#FF0005',
+                  backgroundColor: editedProfile.gender === 'Male'
+                    ? '#FF0005'
+                    : Colors[colorScheme ?? 'light'].background,
+                },
+              ]}
+              onPress={() => setEditedProfile({ ...editedProfile, gender: 'Male' })}
+            >
+              <Text style={[
+                styles.genderButtonText,
+                editedProfile.gender === 'Male' && styles.genderButtonTextSelected,
+                { color: editedProfile.gender === 'Male' ? 'white' : '#FF0005' },
+              ]}>Male</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.genderButton,
+                editedProfile.gender === 'Female' && styles.genderButtonSelected,
+                {
+                  borderColor: '#FF0005',
+                  backgroundColor: editedProfile.gender === 'Female'
+                    ? '#FF0005'
+                    : Colors[colorScheme ?? 'light'].background,
+                },
+              ]}
+              onPress={() => setEditedProfile({ ...editedProfile, gender: 'Female' })}
+            >
+              <Text style={[
+                styles.genderButtonText,
+                editedProfile.gender === 'Female' && styles.genderButtonTextSelected,
+                { color: editedProfile.gender === 'Female' ? 'white' : '#FF0005' },
+              ]}>Female</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -233,5 +281,37 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
+  },
+  genderButtonGroup: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 10,
+    gap: 20,
+  },
+  genderButton: {
+    borderWidth: 2,
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    marginHorizontal: 10,
+    shadowColor: '#FF0005',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  genderButtonSelected: {
+    backgroundColor: '#FF0005',
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  genderButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  genderButtonTextSelected: {
+    color: 'white',
   },
 });

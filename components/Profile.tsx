@@ -64,7 +64,25 @@ export default function Profile() {
   // Refresh profile data when screen is focused (handles user changes)
   useFocusEffect(
     React.useCallback(() => {
-      fetchUserProfile();
+      const refreshProfile = async () => {
+        try {
+          // First try to get fresh data from GlobalDataManager
+          const freshProfile = await dataManager.getUserProfile();
+          if (freshProfile) {
+            setProfile(freshProfile);
+            setEditedProfile(freshProfile);
+          } else {
+            // If no fresh data, fetch from database
+            await fetchUserProfile();
+          }
+        } catch (error) {
+          console.error('Error refreshing profile:', error);
+          // Fallback to fetching from database
+          await fetchUserProfile();
+        }
+      };
+
+      refreshProfile();
     }, [])
   );
 
