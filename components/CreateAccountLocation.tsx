@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
   Platform,
   Dimensions,
   Image,
+  ScrollView,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,13 +24,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import MaskedView from '@react-native-masked-view/masked-view';
+import CreateAccountProgressBar from './CreateAccountProgressBar';
 
 const { width } = Dimensions.get('window');
 const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
 const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 type RootStackParamList = {
-  'user-preferences': { userData: string };
+  'create-account-finished': { userData: string };
 };
 
 type CreateAccountLocationRouteProp = RouteProp<{
@@ -42,9 +45,11 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
   const [manualLocation, setManualLocation] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<string | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
+  const inputScaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     checkLocationPermission();
@@ -88,8 +93,17 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
         location: locationPermission ? currentLocation : manualLocation,
       };
       await AsyncStorage.setItem('userLocation', JSON.stringify(locationData));
-      navigation.navigate('user-preferences', {
-        userData: JSON.stringify({ ...userData, location: locationData }),
+      // Include default preferences since we're skipping the preferences step
+      const defaultPreferences = {
+        eventTypes: ['Food & Drink', 'Outdoor / Nature', 'Leisure & Social', 'Games & Entertainment', 'Arts & Culture', 'Nightlife & Parties', 'Wellness & Low-Energy', 'Experiences & Activities', 'Travel & Discovery'],
+        timePreferences: { start: '9:00', end: '22:00' },
+        locationPreferences: [],
+        travelDistance: 10,
+        dayPreferences: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      };
+      
+      navigation.navigate('create-account-finished', {
+        userData: JSON.stringify({ ...userData, location: locationData, preferences: defaultPreferences }),
       });
     } catch (error) {
       console.error('Error saving location:', error);
@@ -101,7 +115,28 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
 
   const handlePermissionChange = async (allow: boolean) => {
     setLocationPermission(allow);
-    if (allow) await getCurrentLocation();
+    if (allow) {
+      await getCurrentLocation();
+    } else {
+      setCurrentLocation(null);
+      setManualLocation('');
+    }
+  };
+
+  const handleInputFocus = () => {
+    setInputFocused(true);
+    Animated.spring(inputScaleAnim, {
+      toValue: 1.02,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleInputBlur = () => {
+    setInputFocused(false);
+    Animated.spring(inputScaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
   };
 
   return (
@@ -110,89 +145,225 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
         style={styles.backButton}
         onPress={() => navigation.goBack()}
       >
-        <Text style={styles.backIcon}>{'←'}</Text>
+        <Ionicons name="chevron-back" size={28} color="#9E95BD" />
       </TouchableOpacity>
 
-      <View style={styles.headerContainer}>
-        <View style={styles.headerRow}>
-          <Image
-            source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
-            style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
-            resizeMode="contain"
-          />
-        </View>
-      </View>
+      <CreateAccountProgressBar
+        currentStep={6}
+        totalSteps={6}
+        stepLabels={['Name', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+      />
 
-      <KeyboardAvoidingView style={styles.content}>
-        <View style={styles.header}>
-          <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>Almost there!</Text>
-          <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>Help us personalize your experience</Text>
-        </View>
-
-        <View style={styles.locationSection}>
-          <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Location Access</Text>
-          <Text style={[styles.sectionDescription, { color: Colors[colorScheme ?? 'light'].text }]}>Allow location access to find events near you and get personalized recommendations.</Text>
-
-          <View style={styles.permissionButtons}>
-            <TouchableOpacity
-              style={[styles.permissionButton, locationPermission === true && styles.permissionButtonSelected]}
-              onPress={() => handlePermissionChange(true)}
-            >
-              <Ionicons name="location" size={24} color={locationPermission === true ? '#fff' : Colors[colorScheme ?? 'light'].text} />
-              <Text style={[styles.permissionButtonText, { color: locationPermission === true ? '#fff' : Colors[colorScheme ?? 'light'].text }]}>Allow</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.permissionButton, locationPermission === false && styles.permissionButtonSelected]}
-              onPress={() => handlePermissionChange(false)}
-            >
-              <Ionicons name="location-off" size={24} color={locationPermission === false ? '#fff' : Colors[colorScheme ?? 'light'].text} />
-              <Text style={[styles.permissionButtonText, { color: locationPermission === false ? '#fff' : Colors[colorScheme ?? 'light'].text }]}>Don't Allow</Text>
-            </TouchableOpacity>
-          </View>
-
-          {locationPermission === false && (
-            <View style={styles.manualLocationContainer}>
-              <Text style={[styles.manualLocationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Enter your location</Text>
-              <TextInput
-                style={[
-                  styles.manualLocationInput,
-                  {
-                    backgroundColor: Colors[colorScheme ?? 'light'].card,
-                    color: Colors[colorScheme ?? 'light'].text,
-                    borderColor: Colors[colorScheme ?? 'light'].border,
-                  },
-                ]}
-                placeholder="e.g., New York, NY"
-                placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
-                value={manualLocation}
-                onChangeText={setManualLocation}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardContainer}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.headerContainer}>
+            <View style={styles.headerRow}>
+              <Image
+                source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+                style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
+                resizeMode="contain"
               />
             </View>
-          )}
+          </View>
 
-          {isLoading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#FF1493" />
+          <View style={styles.contentContainer}>
+            <View style={styles.titleContainer}>
+              <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Almost there!
+              </Text>
+              <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Help us find events near you
+              </Text>
             </View>
-          )}
-        </View>
 
-        <TouchableOpacity
-          style={styles.continueButton}
-          onPress={handleContinue}
-          disabled={isLoading || (locationPermission === false && !manualLocation)}
-        >
-          <LinearGradient
-            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            locations={[0, 0.3, 0.7, 1]}
-            style={styles.gradientButton}
-          >
-            <Text style={styles.continueButtonText}>{isLoading ? 'Setting up...' : 'Complete Setup'}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+            <View style={styles.locationSection}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="location-outline" size={24} color="#9E95BD" />
+                <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Location Access
+                </Text>
+              </View>
+              
+              <Text style={[styles.sectionDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Allow location access to discover exciting events nearby and get personalized recommendations.
+              </Text>
+
+              <View style={styles.permissionOptions}>
+                <TouchableOpacity
+                  style={[
+                    styles.permissionOption,
+                    {
+                      backgroundColor: Colors[colorScheme ?? 'light'].card,
+                      borderColor: locationPermission === true ? '#9E95BD' : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                    }
+                  ]}
+                  onPress={() => handlePermissionChange(true)}
+                >
+                  <View style={[
+                    styles.permissionIconContainer,
+                    { backgroundColor: locationPermission === true ? '#9E95BD' : 'transparent' }
+                  ]}>
+                    <Ionicons 
+                      name="location" 
+                      size={24} 
+                      color={locationPermission === true ? 'white' : '#9E95BD'} 
+                    />
+                  </View>
+                  <View style={styles.permissionContent}>
+                    <Text style={[
+                      styles.permissionTitle,
+                      { 
+                        color: locationPermission === true ? '#9E95BD' : Colors[colorScheme ?? 'light'].text,
+                        fontWeight: locationPermission === true ? '600' : '500',
+                      }
+                    ]}>
+                      Use my location
+                    </Text>
+                    <Text style={[styles.permissionDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Get personalized event recommendations
+                    </Text>
+                  </View>
+                  {locationPermission === true && (
+                    <Ionicons name="checkmark-circle" size={24} color="#9E95BD" />
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.permissionOption,
+                    {
+                      backgroundColor: Colors[colorScheme ?? 'light'].card,
+                      borderColor: locationPermission === false ? '#9E95BD' : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                    }
+                  ]}
+                  onPress={() => handlePermissionChange(false)}
+                >
+                  <View style={[
+                    styles.permissionIconContainer,
+                    { backgroundColor: locationPermission === false ? '#9E95BD' : 'transparent' }
+                  ]}>
+                    <Ionicons 
+                      name="location-outline" 
+                      size={24} 
+                      color={locationPermission === false ? 'white' : '#9E95BD'} 
+                    />
+                  </View>
+                  <View style={styles.permissionContent}>
+                    <Text style={[
+                      styles.permissionTitle,
+                      { 
+                        color: locationPermission === false ? '#9E95BD' : Colors[colorScheme ?? 'light'].text,
+                        fontWeight: locationPermission === false ? '600' : '500',
+                      }
+                    ]}>
+                      Enter manually
+                    </Text>
+                    <Text style={[styles.permissionDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Type your city or area
+                    </Text>
+                  </View>
+                  {locationPermission === false && (
+                    <Ionicons name="checkmark-circle" size={24} color="#9E95BD" />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {locationPermission === false && (
+                <Animated.View 
+                  style={[
+                    styles.manualLocationContainer,
+                    { transform: [{ scale: inputScaleAnim }] }
+                  ]}
+                >
+                  <View style={[
+                    styles.inputWrapper,
+                    {
+                      backgroundColor: Colors[colorScheme ?? 'light'].card,
+                      borderColor: inputFocused ? '#9E95BD' : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                      shadowColor: inputFocused ? '#9E95BD' : '#000',
+                      shadowOpacity: inputFocused ? 0.2 : 0.1,
+                    }
+                  ]}>
+                    <Ionicons 
+                      name="location-outline" 
+                      size={22} 
+                      color={inputFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={[
+                        styles.manualLocationInput,
+                        { color: Colors[colorScheme ?? 'light'].text },
+                      ]}
+                      placeholder="e.g., San Francisco, CA"
+                      placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                      value={manualLocation}
+                      onChangeText={setManualLocation}
+                      onFocus={handleInputFocus}
+                      onBlur={handleInputBlur}
+                      returnKeyType="done"
+                      onSubmitEditing={handleContinue}
+                    />
+                  </View>
+                </Animated.View>
+              )}
+
+              {isLoading && locationPermission === true && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#9E95BD" />
+                  <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Getting your location...
+                  </Text>
+                </View>
+              )}
+
+              {currentLocation && locationPermission === true && (
+                <View style={styles.currentLocationContainer}>
+                  <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
+                  <Text style={[styles.currentLocationText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Found: {currentLocation}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              onPress={handleContinue}
+              disabled={isLoading || (locationPermission === false && !manualLocation.trim()) || locationPermission === null}
+              style={styles.buttonWrapper}
+            >
+              <LinearGradient
+                colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.25, 0.5, 0.75, 1]}
+                style={[
+                  styles.continueButton,
+                  (isLoading || (locationPermission === false && !manualLocation.trim()) || locationPermission === null) && styles.disabledButton,
+                ]}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Text style={styles.continueButtonText}>Continue</Text>
+                    <Ionicons name="chevron-forward" size={20} color="white" style={styles.buttonIcon} />
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -201,145 +372,196 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 20,
+  },
+  keyboardContainer: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
     paddingBottom: 40,
-  },
-  headerContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  balloons: {
-    width: width * 0.22,
-    height: width * 0.22,
-    marginRight: -6,
-  },
-  logo: {
-    width: width * 0.9,
-    height: width * 0.5,
-  },
-  logoLight: {
-    width: width * 0.6,
-    height: width * 0.33,
-    marginTop: 40,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#F45B5B',
-    textAlign: 'left',
-    textShadowColor: 'rgba(0,0,0,0.18)',
-    textShadowOffset: { width: 4, height: 4 },
-    textShadowRadius: 6,
-    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
   },
   backButton: {
     position: 'absolute',
     top: 50,
     left: 20,
     zIndex: 10,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    borderRadius: 20,
-    padding: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  backIcon: {
-    fontSize: 28,
-    color: '#FF1493',
+  headerContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 40,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logo: {
+    width: width * 0.7,
+    height: width * 0.4,
+  },
+  logoLight: {
+    width: width * 0.5,
+    height: width * 0.27,
+    marginTop: 10,
+  },
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 400,
+  },
+  titleContainer: {
+    alignItems: 'center',
+    marginBottom: 50,
   },
   titleLarge: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 30,
-    marginTop: 40,
-  },
-  content: {
-    flex: 1,
-    padding: 20,
-  },
-  header: {
-    marginTop: 40,
-    marginBottom: 40,
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 16,
+    textAlign: 'center',
     opacity: 0.7,
+    fontWeight: '400',
   },
   locationSection: {
-    marginBottom: 30,
+    marginBottom: 40,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
+    fontSize: 20,
+    fontWeight: '600',
+    marginLeft: 8,
   },
   sectionDescription: {
     fontSize: 16,
     opacity: 0.7,
+    lineHeight: 24,
+    marginBottom: 30,
+  },
+  permissionOptions: {
+    gap: 16,
     marginBottom: 20,
   },
-  permissionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  permissionButton: {
-    flex: 1,
+  permissionOption: {
     flexDirection: 'row',
     alignItems: 'center',
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  permissionIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
     justifyContent: 'center',
-    padding: 15,
+    marginRight: 16,
+  },
+  permissionContent: {
+    flex: 1,
+  },
+  permissionTitle: {
+    fontSize: 18,
+    marginBottom: 4,
+  },
+  permissionDescription: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  manualLocationContainer: {
+    marginTop: 16,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  manualLocationInput: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '500',
+    paddingVertical: 16,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    opacity: 0.7,
+  },
+  currentLocationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
     borderRadius: 12,
-    marginHorizontal: 5,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#ddd',
   },
-  permissionButtonSelected: {
-    backgroundColor: '#F45B5B',
-    borderColor: '#FF1493',
-  },
-  permissionButtonText: {
+  currentLocationText: {
     marginLeft: 8,
     fontSize: 16,
     fontWeight: '500',
   },
-  manualLocationContainer: {
-    marginTop: 20,
-  },
-  manualLocationLabel: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  manualLocationInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 15,
-    fontSize: 16,
-  },
-  loadingContainer: {
-    marginTop: 20,
+  buttonContainer: {
+    marginTop: 40,
     alignItems: 'center',
+  },
+  buttonWrapper: {
+    width: '100%',
   },
   continueButton: {
-    marginTop: 'auto',
-    marginBottom: 20,
-  },
-  gradientButton: {
-    paddingVertical: 15,
-    borderRadius: 25,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    paddingVertical: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
   },
   continueButtonText: {
-    color: '#fff',
+    color: 'white',
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  buttonIcon: {
+    marginLeft: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });

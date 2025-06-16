@@ -10,14 +10,18 @@ import {
   Platform,
   Animated,
   Image,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { Ionicons } from '@expo/vector-icons';
 import 'react-native-url-polyfill/auto';
 import MaskedView from '@react-native-masked-view/masked-view';
+import CreateAccountProgressBar from './CreateAccountProgressBar';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -36,7 +40,9 @@ const CreateAccount = () => {
   const colorScheme = useColorScheme();
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const inputScaleAnim = useRef(new Animated.Value(1)).current;
 
   const validateName = (text: string) => {
     if (text.trim().length < 2) {
@@ -58,6 +64,22 @@ const CreateAccount = () => {
         userData: JSON.stringify(userDataToSend),
       });
     }
+  };
+
+  const handleInputFocus = () => {
+    setIsFocused(true);
+    Animated.spring(inputScaleAnim, {
+      toValue: 1.02,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleInputBlur = () => {
+    setIsFocused(false);
+    Animated.spring(inputScaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
   };
 
   useEffect(() => {
@@ -86,95 +108,135 @@ const CreateAccount = () => {
       ]}
     >
       <TouchableOpacity
-        style={{
-          position: 'absolute',
-          top: 50,
-          left: 20,
-          zIndex: 10,
-          backgroundColor: 'rgba(0,0,0,0.1)',
-          borderRadius: 20,
-          padding: 8,
-        }}
+        style={styles.backButton}
         onPress={() => navigation.goBack()}
       >
-        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+        <Ionicons name="chevron-back" size={28} color="#9E95BD" />
       </TouchableOpacity>
 
-      <View style={styles.centerContent}>
-        <View style={styles.headerContainer}>
-          <View style={styles.headerRow}>
-            <Image
-              source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
-              style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
-              resizeMode="contain"
-            />
+      <CreateAccountProgressBar
+        currentStep={1}
+        totalSteps={6}
+        stepLabels={['Name', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+      />
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardContainer}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.headerContainer}>
+            <View style={styles.headerRow}>
+              <Image
+                source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+                style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
+                resizeMode="contain"
+              />
+            </View>
           </View>
-        </View>
 
-        <View style={styles.inputSection}>
-          <Text
-            style={[
-              styles.titleLarge,
-              { color: Colors[colorScheme ?? 'light'].text },
-            ]}
-          >
-            My name is
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                borderBottomColor: nameError
-                  ? '#FF3B30'
-                  : colorScheme === 'dark'
-                  ? '#555'
-                  : '#ddd',
-                color: Colors[colorScheme ?? 'light'].text,
-              },
-            ]}
-            value={name}
-            onChangeText={(text) => {
-              setName(text);
-              validateName(text);
-            }}
-            placeholder="Enter your name"
-            placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#bbb'}
-            autoCapitalize="words"
-          />
-          {nameError ? (
-            <Text style={styles.errorText}>{nameError}</Text>
-          ) : (
-            <Text
+          <View style={styles.contentContainer}>
+            <View style={styles.titleContainer}>
+              <Text
+                style={[
+                  styles.titleLarge,
+                  { color: Colors[colorScheme ?? 'light'].text },
+                ]}
+              >
+                What's your name?
+              </Text>
+              <Text
+                style={[
+                  styles.subtitle,
+                  { color: Colors[colorScheme ?? 'light'].text },
+                ]}
+              >
+                This is how you'll appear to others
+              </Text>
+            </View>
+
+            <Animated.View 
               style={[
-                styles.helperText,
-                { color: colorScheme === 'dark' ? '#aaa' : '#888' },
+                styles.inputContainer,
+                { transform: [{ scale: inputScaleAnim }] }
               ]}
             >
-              This is how it will appear in the app
-            </Text>
-          )}
-        </View>
+              <View style={[
+                styles.inputWrapper,
+                {
+                  backgroundColor: Colors[colorScheme ?? 'light'].card,
+                  borderColor: nameError 
+                    ? '#FF3B30' 
+                    : isFocused 
+                      ? '#9E95BD' 
+                      : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                  shadowColor: isFocused ? '#9E95BD' : '#000',
+                  shadowOpacity: isFocused ? 0.2 : 0.1,
+                }
+              ]}>
+                <Ionicons 
+                  name="person-outline" 
+                  size={22} 
+                  color={isFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={[
+                    styles.input,
+                    { color: Colors[colorScheme ?? 'light'].text },
+                  ]}
+                  value={name}
+                  onChangeText={(text) => {
+                    setName(text);
+                    validateName(text);
+                  }}
+                  onFocus={handleInputFocus}
+                  onBlur={handleInputBlur}
+                  placeholder="Enter your full name"
+                  placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  returnKeyType="next"
+                  onSubmitEditing={handleNext}
+                />
+              </View>
+              {nameError ? (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={16} color="#FF3B30" />
+                  <Text style={styles.errorText}>{nameError}</Text>
+                </View>
+              ) : null}
+            </Animated.View>
+          </View>
 
-        <View style={styles.buttonGroup}>
-          <TouchableOpacity
-            onPress={handleNext}
-            disabled={!name.trim() || !!nameError}
-          >
-            <LinearGradient
-              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
-              style={[
-                styles.nextButton,
-                (!name.trim() || !!nameError) && styles.disabledButton,
-              ]}
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              onPress={handleNext}
+              disabled={!name.trim() || !!nameError}
+              style={styles.buttonWrapper}
             >
-              <Text style={styles.nextButtonText}>Next</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </View>
+              <LinearGradient
+                colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.25, 0.5, 0.75, 1]}
+                style={[
+                  styles.nextButton,
+                  (!name.trim() || !!nameError) && styles.disabledButton,
+                ]}
+              >
+                <Text style={styles.nextButtonText}>Continue</Text>
+                <Ionicons name="chevron-forward" size={20} color="white" style={styles.buttonIcon} />
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -182,104 +244,129 @@ const CreateAccount = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 20,
+  },
+  keyboardContainer: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
     paddingBottom: 40,
   },
-  centerContent: {
-    flex: 1,
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
-  },
-  inputSection: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-  },
-  titleLarge: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  input: {
-    width: '80%',
-    height: 50,
-    fontSize: 18,
-    borderBottomWidth: 1,
-    paddingVertical: 10,
-    textAlign: 'center',
   },
   headerContainer: {
-    width: '100%',
     alignItems: 'center',
     marginTop: 20,
+    marginBottom: 40,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  balloons: {
-    width: width * 0.22, // bigger balloon
-    height: width * 0.22,
-    marginRight: -6, // tighter spacing
-  },
   logo: {
-    width: width * 0.9,
-    height: width * 0.5,
+    width: width * 0.7,
+    height: width * 0.4,
   },
   logoLight: {
-    width: width * 0.6,
-    height: width * 0.33,
-    marginTop: 40,
+    width: width * 0.5,
+    height: width * 0.27,
+    marginTop: 10,
   },
-  title: {
-    fontSize: 32, // bigger text
-    fontWeight: 'bold',
-    color: '#F45B5B',
-    textAlign: 'left',
-    textShadowColor: 'rgba(0,0,0,0.18)',
-    textShadowOffset: { width: 4, height: 4 },
-    textShadowRadius: 6,
-    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 300,
   },
-  helperText: {
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-    width: '80%',
-  },
-  buttonGroup: {
-    width: '100%',
+  titleContainer: {
     alignItems: 'center',
     marginBottom: 40,
   },
-  nextButton: {
-    borderRadius: 30,
-    width: width * 0.8,
-    paddingVertical: 13,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
+  titleLarge: {
+    fontSize: 28,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
-  nextButtonText: {
-    color: '#FFF',
+  subtitle: {
     fontSize: 16,
-    fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
+    textAlign: 'center',
+    opacity: 0.7,
+    fontWeight: '400',
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  input: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '500',
+    paddingVertical: 16,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingHorizontal: 16,
   },
   errorText: {
     color: '#FF3B30',
     fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-    width: '80%',
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  buttonContainer: {
+    marginTop: 40,
+    alignItems: 'center',
+  },
+  buttonWrapper: {
+    width: '100%',
+  },
+  nextButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    paddingVertical: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  nextButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  buttonIcon: {
+    marginLeft: 8,
   },
   disabledButton: {
     opacity: 0.5,

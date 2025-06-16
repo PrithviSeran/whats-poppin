@@ -95,7 +95,7 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
     <View style={styles.container}>
       {/* Large circular gradient background */}
       <LinearGradient
-        colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                    colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
         style={styles.gradientCircle}
         start={{ x: 0.1, y: 0.1 }}
         end={{ x: 0.9, y: 0.9 }}
@@ -131,7 +131,7 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FF1493',
+    backgroundColor: '#9E95BD',
     alignItems: 'center',
     justifyContent: 'center',
   },

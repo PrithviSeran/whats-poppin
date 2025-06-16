@@ -89,7 +89,7 @@ const SignInScreen = () => {
         <View style={styles.textContainer}>
           <AnimatedGradientText
             phrases={CATCH_PHRASES}
-            colors={['#9E95BD', '#9E95BD', '#FF0005', '#9E95BD'] as const}
+            colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD'] as const}
           />
         </View>
 
@@ -99,10 +99,10 @@ const SignInScreen = () => {
           </Text>
           <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
             <LinearGradient
-              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+              colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
+              locations={[0, 0.25, 0.5, 0.75, 1]}
               style={styles.loginButton}
             >
               <Text style={styles.loginButtonText}>Sign In</Text>
@@ -110,10 +110,10 @@ const SignInScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('create-account')}>
             <LinearGradient
-              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+              colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
+              locations={[0, 0.25, 0.5, 0.75, 1]}
               style={styles.signupButton}
             >
               <Text style={styles.signupButtonText}>Create Account</Text>
@@ -145,16 +145,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logo: {
-    width: width * 0.9,
-    height: width * 0.5,
+    width: width * 0.7,
+    height: width * 0.4,
   },
   logoLight: {
-    width: width * 0.6,
-    height: width * 0.33,
-    marginTop: 40,
+    width: width * 0.5,
+    height: width * 0.27,
+    marginTop: 10,
   },
   textContainer: {
-    marginTop: 20,
+    marginTop: -40,
     marginBottom: 20,
     width: '100%',
   },

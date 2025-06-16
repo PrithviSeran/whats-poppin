@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -11,49 +11,43 @@ import {
   Animated,
   TextInput,
   KeyboardAvoidingView,
-  TouchableWithoutFeedback,
-  Keyboard,
+  ScrollView,
   Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import AnimatedGradientText from './GradientAnimatedText';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
   'suggested-events': undefined;
   'forgot-password': undefined;
+  'create-account': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const { width } = Dimensions.get('window');
 
-const BALLOON_IMAGE = require('../assets/images/balloons.png');
-
-const CATCH_PHRASES = [
-  "Any Plans Tonight?",
-  "What's the Motive?",
-  "Where We Linking?",
-  "Plans or Nah?",
-  "Where's the Spot?",
-  "Wagwan Cro?"
-];
+const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
+const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 const SocialSignInScreen = () => {
   const navigation = useNavigation<NavigationProp>();
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
   const colorScheme = useColorScheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isEmailValid, setIsEmailValid] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const emailScaleAnim = useRef(new Animated.Value(1)).current;
+  const passwordScaleAnim = useRef(new Animated.Value(1)).current;
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -74,7 +68,7 @@ const SocialSignInScreen = () => {
   };
 
   const handleSignIn = async () => {
-    if (!isEmailValid) {
+    if (!validateEmail(email)) {
       setError('Please enter a valid email address');
       return;
     }
@@ -106,141 +100,267 @@ const SocialSignInScreen = () => {
     }
   };
 
+  const handleEmailFocus = () => {
+    setEmailFocused(true);
+    Animated.spring(emailScaleAnim, {
+      toValue: 1.02,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleEmailBlur = () => {
+    setEmailFocused(false);
+    Animated.spring(emailScaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePasswordFocus = () => {
+    setPasswordFocused(true);
+    Animated.spring(passwordScaleAnim, {
+      toValue: 1.02,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePasswordBlur = () => {
+    setPasswordFocused(false);
+    Animated.spring(passwordScaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
+  };
+
   const handleOpenTerms = () => {
-    const termsUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'; // Replace with your PDF URL
+    const termsUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
     Linking.openURL(termsUrl).catch(err => console.error('An error occurred', err));
   };
 
   const handleOpenPrivacyPolicy = () => {
-    const privacyPolicyUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'; // Replace with your PDF URL
+    const privacyPolicyUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
     Linking.openURL(privacyPolicyUrl).catch(err => console.error('An error occurred', err));
   };
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }).start(() => {
-        setCurrentIndex((prevIndex) => (prevIndex + 1) % CATCH_PHRASES.length);
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }).start();
-      });
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
+  const isFormValid = validateEmail(email) && password.trim().length > 0;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardAvoidingView}
+    <SafeAreaView style={[
+      styles.container,
+      { backgroundColor: Colors[colorScheme ?? 'light'].background }
+    ]}>
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => navigation.goBack()}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.centerContent}>
-            <TouchableOpacity
-              style={{
-                position: 'absolute',
-                top: 50,
-                left: 20,
-                zIndex: 10,
-                backgroundColor: 'rgba(0,0,0,0.1)',
-                borderRadius: 20,
-                padding: 8,
-              }}
-              onPress={() => navigation.goBack()}
-            >
-              <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
-            </TouchableOpacity>
+        <Ionicons name="chevron-back" size={28} color="#9E95BD" />
+      </TouchableOpacity>
 
-            <View style={styles.headerContainer}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardContainer}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <View style={styles.contentWrapper}>
+          <View style={styles.headerContainer}>
+            <View style={styles.headerRow}>
               <Image
-                source={BALLOON_IMAGE}
-                style={styles.balloons}
+                source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+                style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
                 resizeMode="contain"
               />
-              <Text style={styles.title}>{`What's Poppin?`}</Text>
             </View>
-            
-            <View style={styles.buttonGroup}>
-              <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink} onPress={handleOpenTerms}>Terms of Service</Text> and <Text style={styles.termsLink} onPress={handleOpenPrivacyPolicy}>Privacy Policy</Text>.
-              </Text>
+          </View>
 
-              {error && (
-                <View style={styles.errorContainer}>
-                  <Text style={styles.errorText}>{error}</Text>
-                </View>
-              )}
-
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={[styles.input, { color: '#333' }]}
-                  placeholder="Email"
-                  placeholderTextColor="#999"
-                  value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    setError(null);
-                    setIsEmailValid(validateEmail(text));
-                  }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  editable={!isLoading}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={[styles.input, { color: '#333' }]}
-                  placeholder="Password"
-                  placeholderTextColor="#999"
-                  value={password}
-                  onChangeText={(text) => {
-                    setPassword(text);
-                    setError(null);
-                  }}
-                  secureTextEntry
-                  editable={!isLoading}
-                />
-              </View>
-
-              <TouchableOpacity 
+          <View style={styles.contentContainer}>
+            <View style={styles.titleContainer}>
+              <Text
                 style={[
-                  styles.signInButton, 
-                  (!isEmailValid || isLoading) && styles.disabledButton
-                ]} 
-                onPress={handleSignIn}
-                disabled={!isEmailValid || isLoading}
+                  styles.titleLarge,
+                  { color: Colors[colorScheme ?? 'light'].text },
+                ]}
               >
-                <LinearGradient
-                  colors={isEmailValid && !isLoading ? ['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD'] : ['#ccc', '#ccc']}
-                  start={{x: 0, y: 0}}
-                  end={{x: 1, y: 1}}
-                  locations={[0, 0.3, 0.7, 1]}
-                  style={styles.gradientButton}
-                >
-                  <Text style={styles.signInButtonText}>
-                    {isLoading ? 'Signing in...' : 'Sign In'}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
+                Welcome back!
+              </Text>
+              <Text
+                style={[
+                  styles.subtitle,
+                  { color: Colors[colorScheme ?? 'light'].text },
+                ]}
+              >
+                Sign in to continue exploring events
+              </Text>
+            </View>
 
-              <Text style={styles.troubleText}>
-                <TouchableOpacity onPress={() => navigation.navigate('forgot-password')}>
-                  <Text style={[styles.troubleText, { color: '#FF1493' }]}>
-                    Trouble signing in?
-                  </Text>
-                </TouchableOpacity>
+            {error && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={16} color="#FF3B30" />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+
+            <View style={styles.inputsContainer}>
+              <Animated.View 
+                style={[
+                  styles.inputContainer,
+                  { transform: [{ scale: emailScaleAnim }] }
+                ]}
+              >
+                <View style={[
+                  styles.inputWrapper,
+                  {
+                    backgroundColor: Colors[colorScheme ?? 'light'].card,
+                    borderColor: error && !validateEmail(email) && email.length > 0
+                      ? '#FF3B30' 
+                      : emailFocused 
+                        ? '#9E95BD' 
+                        : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                    shadowColor: emailFocused ? '#9E95BD' : '#000',
+                    shadowOpacity: emailFocused ? 0.2 : 0.1,
+                  }
+                ]}>
+                  <Ionicons 
+                    name="mail-outline" 
+                    size={22} 
+                    color={emailFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={[
+                      styles.input,
+                      { color: Colors[colorScheme ?? 'light'].text },
+                    ]}
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      setError(null);
+                    }}
+                    onFocus={handleEmailFocus}
+                    onBlur={handleEmailBlur}
+                    placeholder="Enter your email address"
+                    placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    returnKeyType="next"
+                    editable={!isLoading}
+                  />
+                </View>
+              </Animated.View>
+
+              <Animated.View 
+                style={[
+                  styles.inputContainer,
+                  { transform: [{ scale: passwordScaleAnim }] }
+                ]}
+              >
+                <View style={[
+                  styles.inputWrapper,
+                  {
+                    backgroundColor: Colors[colorScheme ?? 'light'].card,
+                    borderColor: passwordFocused 
+                      ? '#9E95BD' 
+                      : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                    shadowColor: passwordFocused ? '#9E95BD' : '#000',
+                    shadowOpacity: passwordFocused ? 0.2 : 0.1,
+                  }
+                ]}>
+                  <Ionicons 
+                    name="lock-closed-outline" 
+                    size={22} 
+                    color={passwordFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={[
+                      styles.input,
+                      { color: Colors[colorScheme ?? 'light'].text },
+                    ]}
+                    value={password}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      setError(null);
+                    }}
+                    onFocus={handlePasswordFocus}
+                    onBlur={handlePasswordBlur}
+                    placeholder="Enter your password"
+                    placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                    secureTextEntry={!showPassword}
+                    returnKeyType="done"
+                    onSubmitEditing={handleSignIn}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggle}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    <Ionicons 
+                      name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                      size={22} 
+                      color={Colors[colorScheme ?? 'light'].icon} 
+                    />
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.forgotPasswordButton}
+              onPress={() => navigation.navigate('forgot-password')}
+            >
+              <Text style={[styles.forgotPasswordText, { color: '#9E95BD' }]}>
+                Forgot your password?
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.termsContainer}>
+              <Text style={[styles.termsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                By signing in, you agree to our{' '}
+                <Text style={styles.termsLink} onPress={handleOpenTerms}>
+                  Terms of Service
+                </Text>
+                {' '}and{' '}
+                <Text style={styles.termsLink} onPress={handleOpenPrivacyPolicy}>
+                  Privacy Policy
+                </Text>
               </Text>
             </View>
           </View>
-        </TouchableWithoutFeedback>
+
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              onPress={handleSignIn}
+              disabled={!isFormValid || isLoading}
+              style={styles.buttonWrapper}
+            >
+              <LinearGradient
+                colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.25, 0.5, 0.75, 1]}
+                style={[
+                  styles.signInButton,
+                  (!isFormValid || isLoading) && styles.disabledButton,
+                ]}
+              >
+                <Text style={styles.signInButtonText}>
+                  {isLoading ? 'Signing in...' : 'Sign In'}
+                </Text>
+                {!isLoading && (
+                  <Ionicons name="chevron-forward" size={20} color="white" style={styles.buttonIcon} />
+                )}
+                {isLoading && (
+                  <View style={styles.loadingContainer}>
+                    <Ionicons name="refresh" size={20} color="white" style={styles.spinningIcon} />
+                  </View>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+
+
+          </View>
+
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -249,194 +369,182 @@ const SocialSignInScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
   },
-  keyboardAvoidingView: {
+  keyboardContainer: {
     flex: 1,
   },
-  centerContent: {
+  contentWrapper: {
     flex: 1,
-    alignItems: 'center',
+    paddingHorizontal: 24,
     justifyContent: 'space-between',
-    width: '100%',
-    paddingTop: 20,
-    paddingBottom: 40,
+  },
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerContainer: {
+    alignItems: 'center',
+    marginTop: 80,
+    marginBottom: 40,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logo: {
+    width: width * 0.7,
+    height: width * 0.4,
+  },
+  logoLight: {
+    width: width * 0.5,
+    height: width * 0.27,
+    marginTop: 10,
+  },
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    marginBottom: 40,
+  },
+  titleContainer: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  titleLarge: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    opacity: 0.7,
+    lineHeight: 24,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  errorText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
+  },
+  inputsContainer: {
+    marginBottom: 20,
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    borderRadius: 16,
+    borderWidth: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 16,
+    fontWeight: '500',
+  },
+  passwordToggle: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  forgotPasswordButton: {
+    alignSelf: 'center',
+    paddingVertical: 8,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  buttonContainer: {
+    marginTop: 20,
+  },
+  buttonWrapper: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+    marginBottom: 24,
+  },
+  signInButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
-    paddingRight: 50,
-  },
-  balloons: {
-    width: width * 0.4,
-    height: width * 0.2,
-  },
-  title: {
-    fontSize: 25,
-    fontWeight: 'bold',
-    color: '#F45B5B',
-    textAlign: 'left',
-    textShadowColor: 'rgba(0,0,0,0.18)',
-    textShadowOffset: { width: 4, height: 4 },
-    textShadowRadius: 6,
-    marginLeft: -50,
-    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
-  },
-  buttonGroup: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: -20,
-  },
-  termsLink: {
-    color: '#F45B5B',
-    textDecorationLine: 'underline',
-  },
-  welcomeText: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    marginHorizontal: 20,
-    marginBottom: 30,
-    lineHeight: 24,
-    zIndex: 1,
-  },
-  inputContainer: {
-    width: width * 0.8,
-    marginBottom: 15,
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  input: {
-    height: 46,
-    paddingHorizontal: 20,
-    fontSize: 16,
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
-  },
-  signInButton: {
-    width: width * 0.8,
-    height: 46,
-    marginBottom: 20,
-    borderRadius: 30,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  gradientButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 24,
   },
   signInButtonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    fontFamily: 'Gotham Rounded',
+    marginRight: 8,
   },
-  troubleText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginHorizontal: 20,
-    marginTop: 15,
+  buttonIcon: {
+    marginLeft: 4,
   },
-  gradientTextContainer: {
-    marginTop: 10,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
+  loadingContainer: {
+    marginLeft: 8,
+  },
+  spinningIcon: {
+    transform: [{ rotate: '0deg' }],
   },
   disabledButton: {
+    opacity: 0.6,
+  },
+  createAccountButton: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  createAccountText: {
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  termsContainer: {
+    marginTop: 16,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+  },
+  termsText: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
     opacity: 0.7,
   },
-  errorContainer: {
-    backgroundColor: 'rgba(255, 107, 107, 0.1)',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 15,
-    width: width * 0.8,
-    borderWidth: 1,
-    borderColor: '#FF6B6B',
-  },
-  errorText: {
-    color: '#FF6B6B',
-    fontSize: 14,
-    textAlign: 'center',
+  termsLink: {
+    color: '#9E95BD',
+    fontWeight: '500',
   },
 });
 
-export default SocialSignInScreen; 
-
-
-
-{/*
-          <View style={styles.dividerContainer}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          <TouchableOpacity>
-            <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
-            >
-              <View style={styles.iconContainer}>
-                <Image 
-                  source={require('../assets/images/google-logo.webp')}
-                  style={styles.socialIcon}
-                />
-              </View>
-              <Text style={styles.socialButtonText}>Sign In with Google</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <TouchableOpacity>
-            <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
-            >
-              <View style={styles.iconContainer}>
-                <Image 
-                  source={require('../assets/images/meta-logo.png')}
-                  style={styles.socialIcon}
-                />
-              </View>
-              <Text style={styles.socialButtonText}>Sign In with Facebook</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <TouchableOpacity>
-            <LinearGradient
-              colors={['#FF6B6B', '#FF1493', '#B388EB', '#FF6B6B']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
-            >
-              <View style={styles.iconContainer}>
-                <Image 
-                  source={require('../assets/images/phone-logo.png')}
-                  style={styles.socialIcon}
-                />
-              </View>
-              <Text style={styles.socialButtonText}>Sign In with Number</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          */}
+export default SocialSignInScreen;

@@ -5,18 +5,20 @@ import {
   Text,
   StyleSheet,
   SafeAreaView,
-  TextInput,
   Dimensions,
   Platform,
   Image,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { Ionicons } from '@expo/vector-icons';
 import MaskedView from '@react-native-masked-view/masked-view';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import CreateAccountProgressBar from './CreateAccountProgressBar';
 
 const { width } = Dimensions.get('window');
 
@@ -82,21 +84,22 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <TouchableOpacity
-        style={{
-          position: 'absolute',
-          top: 50,
-          left: 20,
-          zIndex: 10,
-          backgroundColor: 'rgba(0,0,0,0.1)',
-          borderRadius: 20,
-          padding: 8,
-        }}
+        style={styles.backButton}
         onPress={() => navigation.goBack()}
       >
-        <Text style={{ fontSize: 28, color: '#FF1493' }}>{'←'}</Text>
+        <Ionicons name="chevron-back" size={28} color="#9E95BD" />
       </TouchableOpacity>
 
-      <View style={styles.centerContent}>
+      <CreateAccountProgressBar
+        currentStep={3}
+        totalSteps={6}
+        stepLabels={['Name', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+      />
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
             <Image
@@ -107,44 +110,75 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
           </View>
         </View>
 
-        <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>My birthday is</Text>
-          <DateTimePicker
-            value={selectedDate || new Date(2000, 0, 1)}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
-            onChange={handleDateChange}
-            maximumDate={new Date()}
-          />
-          {birthdayError ? (
-            <Text style={styles.errorText}>{birthdayError}</Text>
-          ) : (
-            <Text style={[styles.helperText, { color: colorScheme === 'dark' ? '#aaa' : '#888' }]}>
-              Your age will be public
+        <View style={styles.contentContainer}>
+          <View style={styles.titleContainer}>
+            <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>
+              When's your birthday?
             </Text>
-          )}
+            <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+              Your age will be visible to others
+            </Text>
+          </View>
+
+          <View style={styles.datePickerContainer}>
+            <View style={[
+              styles.datePickerWrapper,
+              {
+                backgroundColor: Colors[colorScheme ?? 'light'].card,
+                borderColor: birthdayError 
+                  ? '#FF3B30' 
+                  : '#9E95BD',
+              }
+            ]}>
+              <View style={styles.datePickerIconContainer}>
+                <Ionicons 
+                  name="calendar-outline" 
+                  size={24} 
+                  color="#9E95BD" 
+                />
+              </View>
+              <DateTimePicker
+                value={selectedDate || new Date(2000, 0, 1)}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'compact' : 'calendar'}
+                onChange={handleDateChange}
+                maximumDate={new Date()}
+                style={styles.datePicker}
+                textColor={Colors[colorScheme ?? 'light'].text}
+              />
+            </View>
+            
+            {birthdayError ? (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={16} color="#FF3B30" />
+                <Text style={styles.errorText}>{birthdayError}</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        <View style={styles.buttonGroup}>
+        <View style={styles.buttonContainer}>
           <TouchableOpacity
             onPress={handleNext}
             disabled={!birthday || !!birthdayError}
+            style={styles.buttonWrapper}
           >
             <LinearGradient
-              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+              colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
+              locations={[0, 0.25, 0.5, 0.75, 1]}
               style={[
-                styles.socialButton,
+                styles.nextButton,
                 (!birthday || !!birthdayError) && styles.disabledButton,
               ]}
             >
-              <Text style={styles.socialButtonText}>Next</Text>
+              <Text style={styles.nextButtonText}>Continue</Text>
+              <Ionicons name="chevron-forward" size={20} color="white" style={styles.buttonIcon} />
             </LinearGradient>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -152,100 +186,129 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 20,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
     paddingBottom: 40,
   },
-  centerContent: {
-    flex: 1,
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  titleLarge: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 30,
-    marginTop: 40,
-  },
-  input: {
-    width: '80%',
-    fontSize: 22,
-    borderBottomWidth: 2,
-    paddingVertical: 8,
-    textAlign: 'left',
-    marginBottom: 10,
-  },
-  helperText: {
-    fontSize: 13,
-    marginTop: 2,
-    marginBottom: 10,
-    textAlign: 'left',
-    width: '80%',
-  },
-  buttonGroup: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  socialButton: {
-    borderRadius: 30,
-    width: width * 0.8,
-    paddingVertical: 13,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  socialButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
+    justifyContent: 'center',
   },
   headerContainer: {
-    width: '100%',
     alignItems: 'center',
     marginTop: 20,
+    marginBottom: 40,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  balloons: {
-    width: width * 0.22,
-    height: width * 0.22,
-    marginRight: -6,
-  },
   logo: {
-    width: width * 0.9,
-    height: width * 0.5,
+    width: width * 0.7,
+    height: width * 0.4,
   },
   logoLight: {
-    width: width * 0.6,
-    height: width * 0.33,
-    marginTop: 40,
+    width: width * 0.5,
+    height: width * 0.27,
+    marginTop: 10,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#F45B5B',
-    textAlign: 'left',
-    textShadowColor: 'rgba(0,0,0,0.18)',
-    textShadowOffset: { width: 4, height: 4 },
-    textShadowRadius: 6,
-    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 400,
+  },
+  titleContainer: {
+    alignItems: 'center',
+    marginBottom: 60,
+  },
+  titleLarge: {
+    fontSize: 28,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    opacity: 0.7,
+    fontWeight: '400',
+  },
+  datePickerContainer: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  datePickerWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    minWidth: width * 0.8,
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  datePickerIconContainer: {
+    marginRight: 12,
+  },
+  datePicker: {
+    flex: 1,
+    height: Platform.OS === 'ios' ? 40 : undefined,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingHorizontal: 16,
   },
   errorText: {
     color: '#FF3B30',
     fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-    width: '80%',
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  buttonContainer: {
+    marginTop: 40,
+    alignItems: 'center',
+  },
+  buttonWrapper: {
+    width: '100%',
+  },
+  nextButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    paddingVertical: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  nextButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  buttonIcon: {
+    marginLeft: 8,
   },
   disabledButton: {
     opacity: 0.5,
