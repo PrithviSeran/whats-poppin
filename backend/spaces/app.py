@@ -62,6 +62,8 @@ class RecommendationRequest(BaseModel):
     rejected_events: Union[List[int], str] = []
     use_calendar_filter: bool = False
     selected_dates: Optional[List[str]] = None
+    user_start_time: Optional[str] = None
+    user_end_time: Optional[str] = None
 
 class RecommendationResponse(BaseModel):
     summary: str
@@ -112,6 +114,32 @@ class EventRecommendationSystem:
             return start <= t < end
         else:  # Over midnight
             return t >= start or t < end
+    
+    def time_ranges_overlap(self, user_start, user_end, event_start, event_end):
+        """Check if two time ranges overlap, handling overnight periods correctly"""
+        if user_start is None or user_end is None or event_start is None or event_end is None:
+            return False
+        
+        # Handle normal day ranges (no midnight crossing)
+        if user_start <= user_end and event_start <= event_end:
+            # Standard overlap check: ranges overlap if start1 < end2 and start2 < end1
+            return user_start < event_end and event_start < user_end
+        
+        # Handle overnight ranges
+        elif user_start > user_end and event_start <= event_end:
+            # User range crosses midnight, event range is normal
+            # User time is either [user_start, 23:59] OR [00:00, user_end]
+            return (user_start < event_end) or (event_start < user_end)
+        
+        elif user_start <= user_end and event_start > event_end:
+            # Event range crosses midnight, user range is normal
+            # Event time is either [event_start, 23:59] OR [00:00, event_end]
+            return (event_start < user_end) or (user_start < event_end)
+        
+        else:
+            # Both ranges cross midnight
+            # If both cross midnight, they overlap (both include some part of late night/early morning)
+            return True
         
     def get_time_tag(self, start_time_str, end_time_str):
         print(start_time_str, end_time_str)
@@ -274,23 +302,56 @@ class EventRecommendationSystem:
             return events
 
         def extract_times_from_event(event):
-            """Extract time ranges from the new times field"""
-            times_data = event.get('times', {})
-            if not times_data or not isinstance(times_data, dict):
-                return []
-            
+            """Extract time ranges from various possible event time fields"""
             time_ranges = []
-            for day, time_info in times_data.items():
-                if time_info == 'all_day':
-                    # 24-hour businesses are always available
-                    time_ranges.append((datetime.strptime('00:00', '%H:%M').time(), 
-                                      datetime.strptime('23:59', '%H:%M').time()))
-                elif isinstance(time_info, (list, tuple)) and len(time_info) == 2:
-                    start_str, end_str = time_info
-                    start_t = parse_time_str(start_str)
-                    end_t = parse_time_str(end_str)
+            
+            # Try the new 'times' field first
+            times_data = event.get('times', {})
+            if times_data and isinstance(times_data, dict):
+                for day, time_info in times_data.items():
+                    if time_info == 'all_day':
+                        # 24-hour businesses are always available
+                        time_ranges.append((datetime.strptime('00:00', '%H:%M').time(), 
+                                          datetime.strptime('23:59', '%H:%M').time()))
+                    elif isinstance(time_info, (list, tuple)) and len(time_info) == 2:
+                        start_str, end_str = time_info
+                        start_t = parse_time_str(start_str)
+                        end_t = parse_time_str(end_str)
+                        if start_t and end_t:
+                            time_ranges.append((start_t, end_t))
+            
+            # Fallback: try legacy fields
+            if not time_ranges:
+                # Try start_time and end_time fields
+                start_time = event.get('start_time') or event.get('startTime')
+                end_time = event.get('end_time') or event.get('endTime')
+                
+                if start_time and end_time:
+                    start_t = parse_time_str(start_time)
+                    end_t = parse_time_str(end_time)
                     if start_t and end_t:
                         time_ranges.append((start_t, end_t))
+                
+                # Try opening_hours field
+                opening_hours = event.get('opening_hours') or event.get('hours')
+                if opening_hours and isinstance(opening_hours, str):
+                    # Parse formats like "09:00-17:00" or "9 AM - 5 PM"
+                    import re
+                    time_pattern = r'(\d{1,2}):?(\d{0,2})\s*(?:AM|PM)?\s*[-–]\s*(\d{1,2}):?(\d{0,2})\s*(?:AM|PM)?'
+                    match = re.search(time_pattern, opening_hours, re.IGNORECASE)
+                    if match:
+                        try:
+                            start_hour, start_min, end_hour, end_min = match.groups()
+                            start_min = start_min or '00'
+                            end_min = end_min or '00'
+                            start_str = f"{start_hour.zfill(2)}:{start_min.zfill(2)}"
+                            end_str = f"{end_hour.zfill(2)}:{end_min.zfill(2)}"
+                            start_t = parse_time_str(start_str)
+                            end_t = parse_time_str(end_str)
+                            if start_t and end_t:
+                                time_ranges.append((start_t, end_t))
+                        except:
+                            pass
             
             return time_ranges
 
@@ -307,8 +368,10 @@ class EventRecommendationSystem:
             # Check if any of the event's time ranges overlap with user's preferred time
             time_overlap = False
             for event_start, event_end in event_time_ranges:
-                if is_time_in_range(user_start, user_end, event_start) or \
-                   is_time_in_range(user_start, user_end, event_end):
+                # Check for any overlap between user time range and event time range
+                # Overlap exists if: user_start < event_end AND user_end > event_start
+                # This handles all overlap scenarios correctly
+                if self.time_ranges_overlap(user_start, user_end, event_start, event_end):
                     time_overlap = True
                     break
             
@@ -673,7 +736,7 @@ class EventRecommendationSystem:
         r = 6371  # Radius of earth in kilometers
         return c * r
     
-    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None, use_calendar_filter=False, selected_dates=None):
+    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None, use_calendar_filter=False, selected_dates=None, user_start_time=None, user_end_time=None):
         """Main recommendation function"""
         try:
             print(f"Starting recommendation process for email: {email}")
@@ -714,9 +777,13 @@ class EventRecommendationSystem:
                 user_preferences = self.parse_preferences(user_data.get("preferences", []))
                 user_travel_distance = user_data.get("travel-distance", 50)
                 saved_events = user_data.get("saved_events", [])
-                user_start_time = user_data.get("start-time")
-                user_end_time = user_data.get("end-time")
+                
+                # Use request parameters if provided, otherwise fall back to user profile
+                final_start_time = user_start_time if user_start_time else user_data.get("start-time")
+                final_end_time = user_end_time if user_end_time else user_data.get("end-time")
+                
                 print(f"User preferences parsed: {user_preferences}")
+                print(f"Time filters - request: {user_start_time}-{user_end_time}, profile: {user_data.get('start-time')}-{user_data.get('end-time')}, final: {final_start_time}-{final_end_time}")
             except Exception as e:
                 print(f"Error parsing user data: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error parsing user data: {str(e)}")
@@ -742,20 +809,34 @@ class EventRecommendationSystem:
 
             # 3. Apply filters
             try:
+                print(f"Starting filter process with {len(all_events_raw)} events")
+                print(f"Final time filters: {final_start_time} - {final_end_time}")
+                print(f"Use calendar filter: {use_calendar_filter}, Selected dates: {selected_dates}")
+                
                 # Only apply time filter if both start_time and end_time are not None
-                if user_start_time and user_end_time:
-                    all_events_raw = self.filter_by_time(all_events_raw, user_start_time, user_end_time)
+                if final_start_time and final_end_time:
+                    events_before_time = len(all_events_raw)
+                    all_events_raw = self.filter_by_time(all_events_raw, final_start_time, final_end_time)
+                    events_after_time = len(all_events_raw)
+                    print(f"Time filter: {events_before_time} -> {events_after_time} events (filtered out: {events_before_time - events_after_time})")
+                else:
+                    print("No time filtering applied - missing start or end time")
 
                 # Apply date/day filtering based on calendar mode
                 if use_calendar_filter and selected_dates:
                     print(f"Applying calendar date filter with {len(selected_dates)} selected dates: {selected_dates}")
+                    events_before_date = len(all_events_raw)
                     all_events_raw = self.filter_by_dates(all_events_raw, selected_dates)
-                    print(f"Events after calendar date filter: {len(all_events_raw)}")
+                    events_after_date = len(all_events_raw)
+                    print(f"Calendar date filter: {events_before_date} -> {events_after_date} events (filtered out: {events_before_date - events_after_date})")
                 else:
                     # Use traditional day preference filtering
                     user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
+                    print(f"Using traditional day filtering with preferred days: {user_preferred_days}")
+                    events_before_day = len(all_events_raw)
                     all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
-                    print(f"Events after day preference filter: {len(all_events_raw)}")
+                    events_after_day = len(all_events_raw)
+                    print(f"Day preference filter: {events_before_day} -> {events_after_day} events (filtered out: {events_before_day - events_after_day})")
                 
                 all_events_filtered = self.apply_distance_filter(
                     all_events_raw, latitude, longitude, 
@@ -899,7 +980,9 @@ async def get_recommendations(request_data: RecommendationRequest, request: Requ
         filter_distance=request_data.filter_distance,
         rejected_events=request_data.rejected_events,
         use_calendar_filter=request_data.use_calendar_filter,
-        selected_dates=request_data.selected_dates
+        selected_dates=request_data.selected_dates,
+        user_start_time=request_data.user_start_time,
+        user_end_time=request_data.user_end_time
     )
     
     return RecommendationResponse(**result)
@@ -913,7 +996,9 @@ async def get_recommendations_get(
     filter_distance: bool = Query(True, description="Whether to filter by distance"),
     rejected_events: str = Query("", description="Comma-separated rejected event IDs"),
     use_calendar_filter: bool = Query(False, description="Whether to use calendar date filtering"),
-    selected_dates: str = Query("", description="Comma-separated selected dates in YYYY-MM-DD format")
+    selected_dates: str = Query("", description="Comma-separated selected dates in YYYY-MM-DD format"),
+    user_start_time: Optional[str] = Query(None, description="User start time filter (HH:MM format)"),
+    user_end_time: Optional[str] = Query(None, description="User end time filter (HH:MM format)")
 ):
     """Get event recommendations via GET request"""
     # Get token from Authorization header
@@ -936,10 +1021,128 @@ async def get_recommendations_get(
         filter_distance=filter_distance,
         rejected_events=rejected_events,
         use_calendar_filter=use_calendar_filter,
-        selected_dates=parsed_selected_dates
+        selected_dates=parsed_selected_dates,
+        user_start_time=user_start_time,
+        user_end_time=user_end_time
     )
     
     return result
+
+@app.post("/debug/filter")
+async def debug_filter(request: Request):
+    """Debug endpoint to test filtering logic"""
+    try:
+        body = await request.json()
+        email = body.get("email")
+        user_start_time = body.get("user_start_time")  # e.g., "10:00"
+        user_end_time = body.get("user_end_time")      # e.g., "16:00"
+        selected_dates = body.get("selected_dates", [])  # e.g., ["2024-01-15"]
+        use_calendar_filter = body.get("use_calendar_filter", False)
+        
+        if not email:
+            return {"error": "Email required"}
+        
+        # Get user data
+        user_data = recommender.get_user_data(email)
+        if not user_data:
+            return {"error": "User not found"}
+        
+        # Get events
+        user_preferences = recommender.parse_preferences(user_data.get("preferences", []))
+        all_events = recommender.get_events_data(user_preferences if user_preferences else None)
+        
+        # Sample a few events for debugging
+        sample_events = all_events[:3] if all_events else []
+        
+        debug_info = {
+            "original_event_count": len(all_events),
+            "sample_events": [],
+            "filters_applied": {},
+            "filtering_results": {}
+        }
+        
+        # Add sample event info
+        for event in sample_events:
+            debug_info["sample_events"].append({
+                "id": event.get("id"),
+                "name": event.get("name"),
+                "times": event.get("times"),
+                "occurrence": event.get("occurrence"),
+                "start_date": event.get("start_date"),
+                "days_of_the_week": event.get("days_of_the_week")
+            })
+        
+        current_events = all_events.copy()
+        
+        # Test time filtering
+        if user_start_time and user_end_time:
+            debug_info["filters_applied"]["time_filter"] = {
+                "user_start_time": user_start_time,
+                "user_end_time": user_end_time
+            }
+            
+            events_before_time = len(current_events)
+            current_events = recommender.filter_by_time(current_events, user_start_time, user_end_time)
+            events_after_time = len(current_events)
+            
+            debug_info["filtering_results"]["time_filter"] = {
+                "events_before": events_before_time,
+                "events_after": events_after_time,
+                "filtered_out": events_before_time - events_after_time
+            }
+        
+        # Test date filtering
+        if use_calendar_filter and selected_dates:
+            debug_info["filters_applied"]["date_filter"] = {
+                "selected_dates": selected_dates,
+                "use_calendar_filter": use_calendar_filter
+            }
+            
+            events_before_date = len(current_events)
+            current_events = recommender.filter_by_dates(current_events, selected_dates)
+            events_after_date = len(current_events)
+            
+            debug_info["filtering_results"]["date_filter"] = {
+                "events_before": events_before_date,
+                "events_after": events_after_date,
+                "filtered_out": events_before_date - events_after_date
+            }
+        else:
+            # Traditional day filtering
+            user_preferred_days = recommender.parse_days(user_data.get("preferred_days", []))
+            debug_info["filters_applied"]["day_filter"] = {
+                "user_preferred_days": user_preferred_days
+            }
+            
+            events_before_day = len(current_events)
+            current_events = recommender.filter_by_occurrence(current_events, user_preferred_days)
+            events_after_day = len(current_events)
+            
+            debug_info["filtering_results"]["day_filter"] = {
+                "events_before": events_before_day,
+                "events_after": events_after_day,
+                "filtered_out": events_before_day - events_after_day
+            }
+        
+        # Add final filtered sample events
+        final_sample_events = current_events[:3] if current_events else []
+        debug_info["final_sample_events"] = []
+        for event in final_sample_events:
+            debug_info["final_sample_events"].append({
+                "id": event.get("id"),
+                "name": event.get("name"),
+                "times": event.get("times"),
+                "occurrence": event.get("occurrence"),
+                "start_date": event.get("start_date"),
+                "days_of_the_week": event.get("days_of_the_week")
+            })
+        
+        debug_info["final_event_count"] = len(current_events)
+        
+        return debug_info
+        
+    except Exception as e:
+        return {"error": str(e), "traceback": str(e)}
 
 # For local development
 if __name__ == "__main__":

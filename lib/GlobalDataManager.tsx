@@ -66,6 +66,14 @@ class GlobalDataManager extends EventEmitter {
   private readonly CACHE_EXPIRY_HOURS = 1;
   private sessionCache = new Map<string, number>(); // In-memory cache for frequently accessed distances
 
+  // Add these new properties to the GlobalDataManager class
+  private requestCache: Map<string, { data: any; timestamp: number; ttl: number }> = new Map();
+  private pendingRequests: Map<string, Promise<any>> = new Map();
+  private debouncedUpdateTimeout: any = null;
+  private lastApiCallTime: number = 0;
+  private readonly API_CALL_DEBOUNCE_MS = 1000; // Prevent API spam
+  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
+
   private constructor() {
     super();
   }
@@ -169,15 +177,20 @@ class GlobalDataManager extends EventEmitter {
   }
 
   private async fetchAndStoreEvents() {
+    const cacheKey = 'all_events';
+    
     try {
-      const { data: events, error } = await supabase
-        .from('all_events')
-        .select('*');
+      const events = await this.makeApiCall(cacheKey, async () => {
+        const { data: events, error } = await supabase
+          .from('all_events')
+          .select('*');
 
-      if (error) throw error;
+        if (error) throw error;
+        return events;
+      });
 
       await AsyncStorage.setItem('allEvents', JSON.stringify(events));
-      console.log('Events stored successfully');
+      console.log('Events stored successfully (cached)');
     } catch (error) {
       console.error('Error fetching and storing events:', error);
       throw error;
@@ -1028,6 +1041,101 @@ class GlobalDataManager extends EventEmitter {
       console.error('Error removing event from saved events:', error);
       throw error;
     }
+  }
+
+  // Add caching method
+  private getCachedData<T>(key: string): T | null {
+    const cached = this.requestCache.get(key);
+    if (cached && Date.now() - cached.timestamp < cached.ttl) {
+      return cached.data as T;
+    }
+    this.requestCache.delete(key);
+    return null;
+  }
+
+  private setCachedData(key: string, data: any, ttl: number = this.CACHE_TTL_MS): void {
+    this.requestCache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl
+    });
+  }
+
+  // Optimized API call wrapper with deduplication
+  private async makeApiCall<T>(key: string, apiCall: () => Promise<T>, ttl?: number): Promise<T> {
+    // Check cache first
+    const cached = this.getCachedData<T>(key);
+    if (cached) {
+      return cached;
+    }
+
+    // Check if request is already pending
+    if (this.pendingRequests.has(key)) {
+      return this.pendingRequests.get(key) as Promise<T>;
+    }
+
+    // Make the request
+    const promise = apiCall();
+    this.pendingRequests.set(key, promise);
+
+    try {
+      const result = await promise;
+      this.setCachedData(key, result, ttl);
+      return result;
+    } finally {
+      this.pendingRequests.delete(key);
+    }
+  }
+
+  // Optimized batch user data fetch
+  private async fetchUserDataBatch() {
+    const user = this.currentUser;
+    if (!user?.email) return;
+
+    const cacheKey = `user_data_${user.email}`;
+    
+    try {
+      const userData = await this.makeApiCall(cacheKey, async () => {
+        const { data, error } = await supabase
+          .from('all_users')
+          .select('*, saved_events, rejected_events, saved_events_all_time')
+          .eq('email', user.email)
+          .maybeSingle();
+
+        if (error) throw error;
+        return data;
+      }, 2 * 60 * 1000); // 2 minute cache for user data
+
+             // Process and store all user data at once
+       if (userData) {
+         await Promise.all([
+           this.fetchAndStoreUserProfile(),
+           this.fetchAndStoreSavedEvents(),
+           this.fetchAndStoreRejectedEvents()
+         ]);
+       }
+    } catch (error) {
+      console.error('Error in batch user data fetch:', error);
+      throw error;
+    }
+  }
+
+  // Debounced refresh to prevent excessive API calls
+  async refreshAllDataDebounced() {
+    if (this.debouncedUpdateTimeout) {
+      clearTimeout(this.debouncedUpdateTimeout);
+    }
+
+    this.debouncedUpdateTimeout = setTimeout(async () => {
+      const now = Date.now();
+      if (now - this.lastApiCallTime < this.API_CALL_DEBOUNCE_MS) {
+        console.log('⚡ API call skipped - too frequent');
+        return;
+      }
+
+      this.lastApiCallTime = now;
+      await this.refreshAllDataImmediate();
+    }, 300);
   }
 }
 
