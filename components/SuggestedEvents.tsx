@@ -214,7 +214,7 @@ export default function SuggestedEvents() {
         email: currentUserEmail,
         latitude: userLatitude,
         longitude: userLongitude,
-        rejected_events: excludedEventIds,
+        rejected_events: rejectedEventIds,
         filter_distance: filterByDistance
       };
 
@@ -443,7 +443,7 @@ export default function SuggestedEvents() {
     try {
       // First, update all rejected events in Supabase to ensure we have the latest data
       const rejectedEvents = await dataManager.getRejectedEvents();
-      const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
+      const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString()); // Convert to strings
       console.log('About to update rejected events in Supabase:', rejectedEventIds);
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
       console.log('Rejected events updated in Supabase, now calling backend');
@@ -604,7 +604,19 @@ export default function SuggestedEvents() {
   const handleSwipedLeft = async (cardIndex: number) => {
     const rejectedEvent = EVENTS[cardIndex];
 
-    await dataManager.updateRejectedEvents(rejectedEvent);
+    try {
+      // Update rejected events in AsyncStorage
+      await dataManager.updateRejectedEvents(rejectedEvent);
+      
+      // Also immediately update Supabase to prevent race conditions
+      const rejectedEvents = await dataManager.getRejectedEvents();
+      const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString());
+      await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
+      
+      console.log('Rejected event saved to both AsyncStorage and Supabase:', rejectedEvent.id);
+    } catch (error) {
+      console.error('Error saving rejected event:', error);
+    }
 
     setCardIndex((i) => i + 1);
     Animated.parallel([
@@ -1314,14 +1326,14 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   image: {
-    width: '92%',
-    height: '80%',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    width: '88%',
+    height: '70%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     resizeMode: 'cover',
-    marginTop: 20,
+    marginTop: 16,
     alignSelf: 'center',
   },
   title: {

@@ -88,13 +88,15 @@ const SocialSignInScreen = () => {
 
       if (error) {
         setError(getErrorMessage(error));
-        throw error;
+        setIsLoading(false);
+        return;
       }
       
       console.log('Sign in successful:', data);
       navigation.navigate('suggested-events');
     } catch (error) {
       console.error('Error during sign in:', error);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -161,7 +163,12 @@ const SocialSignInScreen = () => {
         style={styles.keyboardContainer}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        <View style={styles.contentWrapper}>
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.headerContainer}>
             <View style={styles.headerRow}>
               <Image
@@ -356,11 +363,9 @@ const SocialSignInScreen = () => {
                 )}
               </LinearGradient>
             </TouchableOpacity>
-
-
           </View>
 
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -373,10 +378,27 @@ const styles = StyleSheet.create({
   keyboardContainer: {
     flex: 1,
   },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+  },
   contentWrapper: {
     flex: 1,
     paddingHorizontal: 24,
     justifyContent: 'space-between',
+  },
+  headerContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 40,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   backButton: {
     position: 'absolute',
@@ -390,15 +412,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerContainer: {
-    alignItems: 'center',
-    marginTop: 80,
-    marginBottom: 40,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+
   logo: {
     width: width * 0.7,
     height: width * 0.4,
@@ -411,11 +425,12 @@ const styles = StyleSheet.create({
   contentContainer: {
     flex: 1,
     justifyContent: 'center',
-    marginBottom: 40,
+    minHeight: 300,
+    marginTop: 60,
   },
   titleContainer: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   titleLarge: {
     fontSize: 32,
@@ -485,7 +500,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   buttonContainer: {
-    marginTop: 20,
+    marginTop: 60,
   },
   buttonWrapper: {
     borderRadius: 16,
@@ -532,7 +547,7 @@ const styles = StyleSheet.create({
   },
   termsContainer: {
     marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 0,
     paddingHorizontal: 16,
   },
   termsText: {
