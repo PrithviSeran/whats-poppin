@@ -523,14 +523,36 @@ export default function Discover() {
   const handleEventPress = (event: ExtendedEventCard, layout: LayoutRectangle) => {
     setSelectedEvent(event);
     setCardLayout(layout);
+    setHiddenCardId(event.id);
     setModalVisible(true);
+
+    // Fade out the clicked card for smooth transition
+    Animated.timing(cardOpacity, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
   };
 
   const handleCloseModal = () => {
+    // Start fading in the card immediately if it was hidden
+    if (hiddenCardId !== null) {
+      Animated.timing(cardOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+
     setModalVisible(false);
+    
+    // Clear the hidden card immediately to prevent flickering
+    setHiddenCardId(null);
+    
     // Don't clear the selected event immediately to allow for smooth animation
     setTimeout(() => {
       setSelectedEvent(null);
+      setCardLayout(null);
     }, 300); // Match the animation duration
   };
 
@@ -654,11 +676,26 @@ export default function Discover() {
                   styles.card,
                   { backgroundColor: Colors[colorScheme ?? 'light'].card }
                 ]}
-                onLayout={(event) => {
-                  const layout = event.nativeEvent.layout;
-                  setCardLayout(layout);
+                onPress={() => {
+                  // Measure the card position when pressed
+                  const cardRef = cardRefs.current[index];
+                  if (cardRef && cardRef.measure) {
+                    cardRef.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+                      const layout = { x: pageX, y: pageY, width, height };
+                      setCardLayout(layout);
+                      handleEventPress(event, layout);
+                    });
+                  } else {
+                    // Fallback if measurement fails - use a default layout
+                    const defaultLayout = { x: 0, y: 0, width: CARD_WIDTH, height: CARD_WIDTH * 1.2 };
+                    handleEventPress(event, defaultLayout);
+                  }
                 }}
-                onPress={() => handleEventPress(event, cardLayout!)}
+                ref={(ref) => {
+                  if (ref) {
+                    cardRefs.current[index] = ref;
+                  }
+                }}
               >
                 {event.image ? (
                   <Image 

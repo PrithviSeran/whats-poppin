@@ -99,6 +99,7 @@ export default function SuggestedEvents() {
   const [cardPosition, setCardPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [isFilterVisible, setIsFilterVisible] = useState(false);
   const [swiperVisible, setSwiperVisible] = useState(true);
+  const [isSwipeInProgress, setIsSwipeInProgress] = useState(false);
 
   const swipeX = useRef(new Animated.Value(0)).current;
   const swiperRef = useRef<Swiper<EventCard>>(null);
@@ -204,7 +205,6 @@ export default function SuggestedEvents() {
 
       let location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced, // Lower accuracy for better performance
-        maximumAge: 5 * 60 * 1000, // Accept 5-minute old location
       });
       
       setUserLocation({
@@ -213,8 +213,32 @@ export default function SuggestedEvents() {
       });
     } catch (err) {
       console.error('Error getting user location:', err);
+      // Try to get manual location from user profile as fallback
+      try {
+        const userProfile = await dataManager.getUserProfile();
+        if (userProfile?.location) {
+          console.log('Using manual location as fallback:', userProfile.location);
+          try {
+            // Geocode the manual address to get coordinates
+            const geocodedLocation = await Location.geocodeAsync(userProfile.location);
+            if (geocodedLocation && geocodedLocation.length > 0) {
+              setUserLocation({
+                latitude: geocodedLocation[0].latitude,
+                longitude: geocodedLocation[0].longitude,
+              });
+              console.log('Successfully geocoded manual address in requestLocationPermission:', geocodedLocation[0]);
+            } else {
+              console.log('Could not geocode manual address in requestLocationPermission:', userProfile.location);
+            }
+          } catch (geocodeError) {
+            console.error('Error geocoding manual address in requestLocationPermission:', geocodeError);
+          }
+        }
+      } catch (profileError) {
+        console.error('Error getting user profile for fallback location:', profileError);
+      }
     }
-  }, [userLocation]);
+  }, [userLocation, dataManager]);
 
   // Optimized fetchTokenAndCallBackend with better error handling and caching
   const fetchTokenAndCallBackend = useCallback(async () => {
@@ -236,13 +260,42 @@ export default function SuggestedEvents() {
       let userLon = userLocation?.longitude;
       
       if (!userLat || !userLon) {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          maximumAge: 5 * 60 * 1000,
-        });
-        userLat = location.coords.latitude;
-        userLon = location.coords.longitude;
-        setUserLocation({ latitude: userLat, longitude: userLon });
+        try {
+          // Check permissions before getting location
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            userLat = location.coords.latitude;
+            userLon = location.coords.longitude;
+            setUserLocation({ latitude: userLat, longitude: userLon });
+          } else {
+            console.log('Location permission not granted, using manual location from profile');
+            // Try to use manual location from user profile
+            const userProfile = await dataManager.getUserProfile();
+            if (userProfile?.location) {
+              console.log('Using manual location from profile:', userProfile.location);
+              try {
+                // Geocode the manual address to get coordinates
+                const geocodedLocation = await Location.geocodeAsync(userProfile.location);
+                if (geocodedLocation && geocodedLocation.length > 0) {
+                  userLat = geocodedLocation[0].latitude;
+                  userLon = geocodedLocation[0].longitude;
+                  setUserLocation({ latitude: userLat, longitude: userLon });
+                  console.log('Successfully geocoded manual address to coordinates:', { userLat, userLon });
+                } else {
+                  console.log('Could not geocode manual address:', userProfile.location);
+                }
+              } catch (geocodeError) {
+                console.error('Error geocoding manual address:', geocodeError);
+              }
+            }
+          }
+        } catch (locationError) {
+          console.error('Error getting location in fetchTokenAndCallBackend:', locationError);
+          // Continue without location - backend should handle missing coordinates
+        }
       }
 
       // Batch data fetch
@@ -380,6 +433,18 @@ export default function SuggestedEvents() {
   });
 
   const handleCardPress = (card: EventCard) => {
+    // Block all interactions if a swipe is in progress
+    if (isSwipeInProgress) {
+      console.log('Ignoring card press - swipe in progress');
+      return;
+    }
+    
+    // Only process card press if swiper is currently visible
+    if (!swiperVisible) {
+      console.log('Ignoring card press - swiper not visible');
+      return;
+    }
+    
     // Hide swiper immediately when card is pressed
     setSwiperVisible(false);
     
@@ -400,11 +465,16 @@ export default function SuggestedEvents() {
   const handleBackPress = () => {
     // Only update state - modal handles its own animations
     setExpandedCard(null);
-    // Show swiper again when modal closes
-    setSwiperVisible(true);
+    // Show swiper again when modal closes - but only if we're not in the middle of another interaction
+    setTimeout(() => {
+      setSwiperVisible(true);
+    }, 100); // Small delay to prevent race conditions
   };
 
   const handleSwipeRight = async (cardIndex: number) => {
+    // Mark swipe as in progress to block interactions
+    setIsSwipeInProgress(true);
+    
     const likedEvent = EVENTS[cardIndex];
     try {
       // Get current saved events (local)
@@ -428,10 +498,15 @@ export default function SuggestedEvents() {
           useNativeDriver: true,
         })
       ]).start(() => {
-        setExpandedCard(null);
+        // Only clear expanded card if it's actually set - prevents interfering with card presses
+        setExpandedCard(current => current ? null : current);
+        // Clear swipe in progress after animation completes
+        setIsSwipeInProgress(false);
       });
     } catch (error) {
       console.error('Error saving liked event:', error);
+      // Clear swipe in progress even on error
+      setIsSwipeInProgress(false);
     }
   };
 
@@ -497,11 +572,22 @@ export default function SuggestedEvents() {
       let userLon = userLocation?.longitude;
       if (userLat == null || userLon == null) {
         try {
-          let location = await Location.getCurrentPositionAsync({});
-          userLat = location.coords.latitude;
-          userLon = location.coords.longitude;
-          setUserLocation({ latitude: userLat, longitude: userLon });
+          // Check permissions before getting location
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status === 'granted') {
+            let location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            userLat = location.coords.latitude;
+            userLon = location.coords.longitude;
+            setUserLocation({ latitude: userLat, longitude: userLon });
+          } else {
+            console.log('Location permission not granted for saved activities');
+            userLat = undefined;
+            userLon = undefined;
+          }
         } catch (e) {
+          console.error('Error getting location for saved activities:', e);
           // If location can't be fetched, just skip distance
           userLat = undefined;
           userLon = undefined;
@@ -617,6 +703,9 @@ export default function SuggestedEvents() {
   }, [loading, isFetchingActivities]);
 
   const handleSwipedLeft = async (cardIndex: number) => {
+    // Mark swipe as in progress to block interactions
+    setIsSwipeInProgress(true);
+    
     const rejectedEvent = EVENTS[cardIndex];
 
     try {
@@ -647,7 +736,10 @@ export default function SuggestedEvents() {
         useNativeDriver: true,
       })
     ]).start(() => {
-      setExpandedCard(null);
+      // Only clear expanded card if it's actually set - prevents interfering with card presses
+      setExpandedCard(current => current ? null : current);
+      // Clear swipe in progress after animation completes
+      setIsSwipeInProgress(false);
     });
   };
 
@@ -819,6 +911,7 @@ export default function SuggestedEvents() {
                         ref={(ref) => { cardRefs.current[index] = ref; }}
                         onPress={() => handleCardPress(card)}
                         activeOpacity={1}
+                        disabled={isSwipeInProgress}
                       >
                         <Animated.View style={[
                           styles.card,
@@ -919,6 +1012,7 @@ export default function SuggestedEvents() {
                 <TouchableOpacity 
                   style={[styles.actionButton, styles.nopeButton]}
                   onPress={() => swiperRef.current?.swipeLeft()}
+                  disabled={isSwipeInProgress}
                 >
                   <Ionicons name="close" size={32} color="red" />
                 </TouchableOpacity>
@@ -935,6 +1029,7 @@ export default function SuggestedEvents() {
                 <TouchableOpacity 
                   style={[styles.actionButton, styles.likeButton]}
                   onPress={() => swiperRef.current?.swipeRight()}
+                  disabled={isSwipeInProgress}
                 >
                   <Ionicons name="checkmark" size={32} color="green" />
                 </TouchableOpacity>

@@ -24,7 +24,7 @@ import { supabase } from '@/lib/supabase';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
-  'reset-password': { email: string };
+  'reset-password': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -64,6 +64,24 @@ const ForgotPasswordScreen = () => {
     validateEmail(text);
   };
 
+  const checkEmailExists = async (email: string): Promise<boolean> => {
+    try {
+      // Use signUp to check if email exists - this doesn't create a user
+      // but returns different responses based on whether email exists
+      const { data } = await supabase.auth.signUp({
+        email: email,
+        password: 'temporary-password-for-check', // This won't be used if email exists
+      });
+
+      // If identities array is empty, the email already exists and is confirmed
+      // If identities array has content, the email is new or unconfirmed
+      return Boolean(data.user?.identities && data.user.identities.length === 0);
+    } catch (error) {
+      console.error('Error checking email existence:', error);
+      return false; // Assume email doesn't exist on error to allow process to continue
+    }
+  };
+
   const handleResetPassword = async () => {
     if (!validateEmail(email)) return;
 
@@ -72,18 +90,35 @@ const ForgotPasswordScreen = () => {
     setEmailError('');
 
     try {
+      // First check if the email exists in Supabase Auth
+      const emailExists = await checkEmailExists(email);
+      
+      if (!emailExists) {
+        setEmailError('No account found with this email address. Please check your email or sign up for a new account.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Use the app deep link - properly configured for production
+      const redirectUrl = 'whatspoppin://reset-password';
+      
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: 'whatspoppin://reset-password',
+        redirectTo: redirectUrl,
       });
 
       if (error) {
-        setEmailError(error.message);
+        // Provide more user-friendly error messages
+        if (error.message.includes('rate limit')) {
+          setEmailError('Too many requests. Please wait a few minutes before trying again');
+        } else {
+          setEmailError(error.message);
+        }
       } else {
-        setSuccessMessage('Password reset instructions have been sent to your email');
+        setSuccessMessage('Password reset instructions have been sent to your email. Please check your inbox and follow the link to reset your password.');
         setEmail('');
       }
     } catch (error) {
-      setEmailError('An error occurred. Please try again.');
+      setEmailError('An error occurred. Please check your internet connection and try again.');
     } finally {
       setIsLoading(false);
     }

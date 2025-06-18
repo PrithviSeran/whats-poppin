@@ -83,6 +83,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const [filterByDistance, setFilterByDistance] = useState(true);
   const [locationBubbleAnim] = useState(new Animated.Value(filterByDistance ? 1 : 0));
   const [bubbleHeight, setBubbleHeight] = useState(0);
+  const scrollViewRef = React.useRef<ScrollView>(null);
   
   // Calendar state
   const [isCalendarMode, setIsCalendarMode] = useState(false);
@@ -91,6 +92,16 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
 
   const dataManager = GlobalDataManager.getInstance();
+
+  const checkLocationPermission = async () => {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      setLocationPermission(status === 'granted');
+    } catch (error) {
+      console.error('Error checking location permission:', error);
+      setLocationPermission(false);
+    }
+  };
 
   const fetchUserPreferences = async () => {
     try {
@@ -170,7 +181,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
         })
       ]).start();
       fetchUserPreferences(); // Fetch user preferences from Supabase when overlay becomes visible
-      //checkLocationPermission();
+      checkLocationPermission();
     } else {
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -480,6 +491,13 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     }).start();
   };
 
+  const handleLocationInputFocus = () => {
+    // Delay to ensure keyboard is opening
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
   if (!visible && !isAnimating) return null;
 
   const translateY = slideAnim.interpolate({
@@ -497,6 +515,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
       >
         <Animated.View 
           style={[
@@ -515,9 +534,12 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
           </View>
 
           <ScrollView 
+            ref={scrollViewRef}
             style={styles.scrollView}
+            contentContainerStyle={{ paddingBottom: 120 }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
           >
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Event Types</Text>
@@ -674,45 +696,47 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                   thumbColor={'#fff'}
                 />
               </View>
-                  {locationPermission === false ? (
-                filterByDistance && (
-                    <View style={styles.locationInputContainer}>
-                      <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Enter your location
-                      </Text>
-                      <TextInput
-                        style={[
-                          styles.locationInput,
-                          { 
-                            backgroundColor: Colors[colorScheme ?? 'light'].card,
-                            color: Colors[colorScheme ?? 'light'].text,
-                            borderColor: Colors[colorScheme ?? 'light'].card
-                          }
-                        ]}
-                        placeholder="e.g., New York, NY"
-                        placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
-                        value={manualLocation}
-                        onChangeText={setManualLocation}
-                        returnKeyType="done"
-                      />
-                    </View>
-                )
-                  ) : (
-                    <View style={styles.locationContainer}>
-                  <Animated.View
-                    style={{
-                      opacity: locationBubbleAnim,
-                      transform: [{
-                        scale: locationBubbleAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.95, 1]
-                        })
-                      }],
-                      overflow: 'hidden',
-                      height: filterByDistance ? undefined : 0,
-                    }}
-                  >
-                    {filterByDistance && (
+                            {filterByDistance && (
+                locationPermission === false ? (
+                  <View style={styles.locationInputContainer}>
+                    <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Enter your location
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.locationInput,
+                        { 
+                          backgroundColor: Colors[colorScheme ?? 'light'].card,
+                          color: Colors[colorScheme ?? 'light'].text,
+                          borderColor: '#9E95BD'
+                        }
+                      ]}
+                      placeholder="Enter your city or address (e.g., New York, NY)"
+                      placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
+                      value={manualLocation}
+                      onChangeText={setManualLocation}
+                      onFocus={handleLocationInputFocus}
+                      returnKeyType="done"
+                      autoCapitalize="words"
+                      autoCorrect={false}
+                      clearButtonMode="while-editing"
+                      blurOnSubmit={true}
+                    />
+                  </View>
+                ) : (
+                  <View style={styles.locationContainer}>
+                    <Animated.View
+                      style={{
+                        opacity: locationBubbleAnim,
+                        transform: [{
+                          scale: locationBubbleAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.95, 1]
+                          })
+                        }],
+                        overflow: 'hidden',
+                      }}
+                    >
                       <LinearGradient
                         colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
                         start={{ x: 0, y: 0 }}
@@ -727,9 +751,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                           </View>
                         </View>
                       </LinearGradient>
-                    )}
-                  </Animated.View>
-                    </View>
+                    </Animated.View>
+                  </View>
+                )
               )}
             </View>
 
@@ -800,7 +824,8 @@ const styles = StyleSheet.create({
   },
   content: {
     width: '100%',
-    height: height * 0.8,
+    maxHeight: height * 0.85,
+    minHeight: height * 0.6,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
@@ -916,19 +941,30 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   locationInputContainer: {
-    marginTop: 10,
-    marginBottom: 20,
+    marginTop: 15,
+    marginBottom: 25,
+    paddingHorizontal: 5,
   },
   locationLabel: {
-    fontSize: 16,
-    marginBottom: 8,
+    fontSize: 17,
+    fontWeight: '600',
+    marginBottom: 12,
+    opacity: 0.9,
   },
   locationInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 15,
-    fontSize: 16,
-    minHeight: 50,
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    fontSize: 17,
+    fontWeight: '500',
+    minHeight: 56,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+    textAlign: 'left',
   },
   sectionSubtitle: {
     fontSize: 16,
