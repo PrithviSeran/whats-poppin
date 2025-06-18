@@ -1803,6 +1803,340 @@ class TorontoActivityScraper:
             print(f"Error testing Toronto Open Data: {e}")
             return []
 
+    def get_existing_events_from_db(self) -> List[Dict]:
+        """Fetch existing events from database for deduplication"""
+        if not supabase:
+            print("Supabase not initialized - cannot check existing events")
+            return []
+        
+        try:
+            result = supabase.table('all_events').select('id, name, location, latitude, longitude').execute()
+            return result.data
+        except Exception as e:
+            print(f"Error fetching existing events: {e}")
+            return []
+
+    def filter_new_events_only(self, scraped_activities: List[Dict]) -> List[Dict]:
+        """Filter out events that already exist in database - OPTIMIZED VERSION"""
+        import re
+        from difflib import SequenceMatcher
+        from collections import defaultdict
+        import time
+        
+        start_time = time.time()
+        
+        # Get existing events from database
+        existing_events = self.get_existing_events_from_db()
+        print(f"Found {len(existing_events)} existing events in database")
+        
+        if not existing_events:
+            return scraped_activities
+        
+        def normalize_name(name: str) -> str:
+            """Normalize business names for comparison"""
+            if not name:
+                return ""
+            name = re.sub(r'\b(inc|ltd|llc|corp|restaurant|cafe|bar|the)\b', '', name.lower())
+            name = re.sub(r'[^\w\s]', '', name)
+            name = re.sub(r'\s+', ' ', name).strip()
+            return name
+        
+        def is_similar_location(lat1, lng1, lat2, lng2, threshold_meters=100):
+            """Check if two locations are within threshold distance"""
+            if not all([lat1, lng1, lat2, lng2]):
+                return False
+            
+            try:
+                lat1, lng1, lat2, lng2 = float(lat1), float(lng1), float(lat2), float(lng2)
+                lat_diff = abs(lat1 - lat2) * 111000
+                lng_diff = abs(lng1 - lng2) * 111000 * 0.7
+                distance = (lat_diff**2 + lng_diff**2)**0.5
+                return distance < threshold_meters
+            except (ValueError, TypeError):
+                return False
+        
+        def similarity_ratio(str1: str, str2: str) -> float:
+            """Calculate similarity ratio between two strings"""
+            return SequenceMatcher(None, str1, str2).ratio()
+        
+        def get_location_grid_key(lat, lng, grid_size=0.01):
+            """Create grid key for spatial indexing (roughly 1km grid)"""
+            if not lat or not lng:
+                return None
+            try:
+                lat, lng = float(lat), float(lng)
+                return (round(lat / grid_size), round(lng / grid_size))
+            except (ValueError, TypeError):
+                return None
+        
+        # OPTIMIZATION 1: Spatial indexing - group existing events by location grid
+        location_grid = defaultdict(list)
+        name_index = defaultdict(list)
+        
+        print("Building spatial and name indexes...")
+        for event in existing_events:
+            normalized_name = normalize_name(event.get('name', ''))
+            event_data = {
+                'id': event.get('id'),
+                'normalized_name': normalized_name,
+                'original_name': event.get('name', ''),
+                'location': event.get('location', ''),
+                'latitude': event.get('latitude'),
+                'longitude': event.get('longitude')
+            }
+            
+            # Add to spatial grid (check this grid and 8 surrounding grids)
+            grid_key = get_location_grid_key(event.get('latitude'), event.get('longitude'))
+            if grid_key:
+                location_grid[grid_key].append(event_data)
+            
+            # OPTIMIZATION 2: Name-based index for quick exact matches
+            if normalized_name:
+                # Index by first 3 characters for quick filtering
+                name_prefix = normalized_name[:3] if len(normalized_name) >= 3 else normalized_name
+                name_index[name_prefix].append(event_data)
+        
+        print(f"Created {len(location_grid)} location grids and {len(name_index)} name prefixes")
+        
+        new_events = []
+        duplicate_count = 0
+        processed_count = 0
+        
+        for activity in scraped_activities:
+            processed_count += 1
+            if processed_count % 100 == 0:
+                elapsed = time.time() - start_time
+                print(f"Processed {processed_count}/{len(scraped_activities)} events in {elapsed:.1f}s")
+            
+            activity_name = normalize_name(activity.get('name', ''))
+            activity_lat = activity.get('latitude')
+            activity_lng = activity.get('longitude')
+            
+            # OPTIMIZATION 3: Fast exact name match check first
+            is_duplicate = False
+            if activity_name:
+                name_prefix = activity_name[:3] if len(activity_name) >= 3 else activity_name
+                candidates_by_name = name_index.get(name_prefix, [])
+                
+                for existing in candidates_by_name:
+                    if existing['normalized_name'] == activity_name:
+                        # Exact name match - check location if available
+                        if (not activity_lat or not activity_lng or
+                            is_similar_location(activity_lat, activity_lng, 
+                                              existing['latitude'], existing['longitude'])):
+                            print(f"EXACT match - Skipping: '{activity.get('name')}'")
+                            is_duplicate = True
+                            duplicate_count += 1
+                            break
+            
+            # OPTIMIZATION 4: Spatial filtering - only check nearby events
+            if not is_duplicate and activity_lat and activity_lng:
+                grid_key = get_location_grid_key(activity_lat, activity_lng)
+                candidates_by_location = []
+                
+                if grid_key:
+                    # Check current grid and 8 surrounding grids
+                    for dx in [-1, 0, 1]:
+                        for dy in [-1, 0, 1]:
+                            nearby_grid = (grid_key[0] + dx, grid_key[1] + dy)
+                            candidates_by_location.extend(location_grid.get(nearby_grid, []))
+                
+                # Only do expensive similarity calculation on nearby candidates
+                for existing in candidates_by_location:
+                    if existing['normalized_name'] == activity_name:
+                        continue  # Already checked exact matches above
+                    
+                    # Check name similarity only for geographically close events
+                    if is_similar_location(activity_lat, activity_lng, 
+                                         existing['latitude'], existing['longitude']):
+                        name_similarity = similarity_ratio(activity_name, existing['normalized_name'])
+                        
+                        if name_similarity > 0.8:
+                            print(f"FUZZY match - Skipping: '{activity.get('name')}' (similar to: '{existing['original_name']}')")
+                            is_duplicate = True
+                            duplicate_count += 1
+                            break
+            
+            if not is_duplicate:
+                new_events.append(activity)
+        
+        elapsed = time.time() - start_time
+        print(f"Filtering completed in {elapsed:.1f} seconds")
+        print(f"Filtered out {duplicate_count} duplicates")
+        print(f"Found {len(new_events)} new events to add")
+        return new_events
+
+    def save_new_events_only(self, activities: List[Dict]):
+        """Save only new events to database without affecting existing ones"""
+        if not supabase:
+            print("Supabase not initialized - skipping database save")
+            return
+        
+        if not activities:
+            print("No new events to save")
+            return
+            
+        try:
+            print(f"\nPreparing to save {len(activities)} new events to Supabase")
+            
+            # Get the highest existing ID to continue from there
+            try:
+                result = supabase.table('all_events').select('id').order('id', desc=True).limit(1).execute()
+                if result.data:
+                    self.next_event_id = result.data[0]['id'] + 1
+                else:
+                    self.next_event_id = 1
+                print(f"Starting new event IDs from: {self.next_event_id}")
+            except Exception as e:
+                print(f"Error getting max ID, starting from 1: {e}")
+                self.next_event_id = 1
+            
+            # Assign IDs to new events
+            for activity in activities:
+                activity['id'] = self.next_event_id
+                self.next_event_id += 1
+            
+            # Process images for each new activity
+            print("\nProcessing images for new activities...")
+            for activity in activities:
+                print(f"Processing images for: {activity.get('name')} (ID: {activity.get('id')})")
+                if '_temp_image_data' in activity:
+                    temp_data = activity.pop('_temp_image_data')
+                    if temp_data:
+                        image_urls = []
+                        try:
+                            if isinstance(temp_data, list):
+                                for index, image_data in enumerate(temp_data):
+                                    image_url = None
+                                    if isinstance(image_data, str):
+                                        if image_data.startswith('http'):
+                                            image_url = self.download_image_from_url(image_data, activity['id'], index)
+                                        else:
+                                            image_url = self.get_google_place_photo(image_data, activity['id'], index)
+                                    else:
+                                        image_url = self.upload_to_supabase_storage(image_data, activity['id'], index)
+                                    
+                                    if image_url:
+                                        image_urls.append(image_url)
+                                    time_module.sleep(0.2)
+                            else:
+                                if isinstance(temp_data, str):
+                                    if temp_data.startswith('http'):
+                                        image_url = self.download_image_from_url(temp_data, activity['id'], 0)
+                                    else:
+                                        image_url = self.get_google_place_photo(temp_data, activity['id'], 0)
+                                else:
+                                    image_url = self.upload_to_supabase_storage(temp_data, activity['id'], 0)
+                                
+                                if image_url:
+                                    image_urls.append(image_url)
+                            
+                            if image_urls:
+                                activity['image'] = image_urls[0]
+                                print(f"Successfully processed {len(image_urls)} images")
+                            else:
+                                activity['image'] = None
+                                
+                        except Exception as e:
+                            print(f"Error processing images for activity {activity['id']}: {e}")
+                            activity['image'] = None
+            
+            # Clean activity data
+            cleaned_activities = []
+            for activity in activities:
+                cleaned = {
+                    k: self.convert_datetime_to_string(v) 
+                    for k, v in activity.items() 
+                    if v is not None and not k.startswith('_')
+                }
+                cleaned_activities.append(cleaned)
+            
+            # Insert new events (using insert instead of upsert)
+            print(f"\nInserting {len(cleaned_activities)} new events into database...")
+            batch_size = 100
+            for i in range(0, len(cleaned_activities), batch_size):
+                batch = cleaned_activities[i:i+batch_size]
+                print(f"Inserting batch {i//batch_size + 1} ({len(batch)} records)...")
+                result = supabase.table('all_events').insert(batch).execute()
+                print(f"Successfully inserted batch {i//batch_size + 1}")
+                
+        except Exception as e:
+            print(f"Error saving new events to Supabase: {e}")
+            raise
+
+    def run_incremental_scrape(self):
+        """Main method to scrape and add only new events"""
+        all_activities = []
+        
+        print("\n=== Starting Incremental Scrape (New Events Only) ===")
+        
+        print("\n=== Starting Google Places Scrape ===")
+        for event_type, place_types in self.activity_types.items():
+            print(f"\nScraping {event_type}...")
+            for place_type in place_types:
+                print(f"  - Getting {place_type} places...")
+                places = self.get_google_places(place_type, max_results=100)
+                print(f"    Found {len(places)} places")
+                for place in places:
+                    activity = self.transform_google_place(place, event_type)
+                    all_activities.append(activity)
+                time_module.sleep(1)  # Rate limiting
+        
+        print("\n=== Starting Yelp Scrape ===")
+        yelp_categories = ['restaurants', 'bars', 'coffee', 'shopping', 'arts']
+        for category in yelp_categories:
+            print(f"\nScraping {category}...")
+            businesses = self.get_yelp_businesses(category, limit=100)
+            print(f"  Found {len(businesses)} businesses")
+            for business in businesses:
+                activity = self.transform_yelp_business(business, category)
+                all_activities.append(activity)
+            time_module.sleep(1)  # Rate limiting
+        
+        print("\n=== Starting TicketMaster Scrape ===")
+        events = self.get_ticket_master_events(limit=100)
+        print(f"Found {len(events)} events from TicketMaster")
+        for event in events:
+            activity = self.transform_ticket_master_event(event)
+            all_activities.append(activity)
+        
+        print("\n=== Starting Toronto Open Data Scrape ===")
+        toronto_facilities = self.get_toronto_parks_and_recreation(limit=500)
+        print(f"Found {len(toronto_facilities)} facilities from Toronto Open Data")
+        processed_count = 0
+        for facility in toronto_facilities:
+            activity = self.transform_toronto_open_data_facility(facility)
+            if activity is not None:
+                activity = self.enhance_toronto_facility_with_google_places(activity)
+                all_activities.append(activity)
+                processed_count += 1
+                time_module.sleep(0.5)
+        print(f"After filtering, included {processed_count} Toronto parks and nature facilities")
+        
+        print(f"\nTotal activities collected: {len(all_activities)}")
+        
+        # Remove duplicates within scraped data
+        print("\n=== Removing Internal Duplicates ===")
+        unique_activities = self.remove_duplicates(all_activities)
+        print(f"Found {len(unique_activities)} unique activities after internal deduplication")
+        
+        print("\n=== Merging Duplicate Data ===")
+        merged_activities = self.merge_duplicate_data(unique_activities)
+        print(f"Final unique activities after merging: {len(merged_activities)}")
+        
+        # Filter against existing database events
+        print("\n=== Filtering Against Existing Database Events ===")
+        new_events_only = self.filter_new_events_only(merged_activities)
+        
+        if new_events_only:
+            # Save only new events
+            print("\n=== Saving New Events to Database ===")
+            self.save_new_events_only(new_events_only)
+        else:
+            print("\nNo new events found to add!")
+        
+        return new_events_only
+
 # Usage example
 if __name__ == "__main__":
     # Set up your environment variables first:
@@ -1814,11 +2148,14 @@ if __name__ == "__main__":
     
     scraper = TorontoActivityScraper()
     
-    # Uncomment the line below to test only Toronto Open Data functionality
+    # Option 1: Run incremental scrape (only add new events)
+    new_activities = scraper.run_incremental_scrape()
+    print("Incremental scraping completed!")
+    print(f"Added {len(new_activities)} new events")
+    
+    # Option 2: Run full scrape (replaces all existing events)
+    # activities = scraper.run_full_scrape()
+    # print("Full scraping completed!")
+    
+    # Option 3: Test only Toronto Open Data functionality
     # test_results = scraper.test_toronto_open_data(limit=2)
-    
-    # Run full scrape including Toronto Open Data
-    activities = scraper.run_full_scrape()
-    
-    print("Scraping completed!")
-    print(f"Sample activity: {activities[0] if activities else 'No activities found'}")

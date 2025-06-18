@@ -575,6 +575,14 @@ class EventRecommendationSystem:
         
         return interactions
     
+    def is_featured_event(self, event_id):
+        """Helper method to check if an event is featured"""
+        try:
+            result = self.Client.table("all_events").select("featured").eq("id", event_id).single().execute()
+            return result.data.get("featured", False) if result.data else False
+        except Exception:
+            return False
+    
     def build_enhanced_interactions(self, users):
         """Build enhanced interactions including both positive (saved) and negative (rejected) interactions"""
         interactions = []
@@ -617,18 +625,24 @@ class EventRecommendationSystem:
             
             current_saved_set = set(current_saved_events)
             
-            # Add positive interactions
+            # Add positive interactions with featured event boost
             for event_id in saved_events_all_time:
                 try:
                     event_id = int(event_id)
                     # Higher weight for currently saved events
-                    weight = 2.0 if event_id in current_saved_set else 1.0
-                    interactions.append((user_name, event_id, weight))
+                    base_weight = 2.0 if event_id in current_saved_set else 1.0
+                    
+                    # FEATURED BOOST: Check if this is a featured event
+                    is_featured = self.is_featured_event(event_id)
+                    featured_multiplier = 1.5 if is_featured else 1.0
+                    
+                    final_weight = base_weight * featured_multiplier
+                    interactions.append((user_name, event_id, final_weight))
                     user_has_interactions = True
                 except (ValueError, TypeError):
                     continue
             
-            # Negative interactions from rejected_events (with negative weights)
+            # Negative interactions from rejected_events (with reduced penalty for featured)
             rejected_events = user.get("rejected_events", [])
             if rejected_events is None:
                 rejected_events = []
@@ -640,12 +654,15 @@ class EventRecommendationSystem:
             elif not isinstance(rejected_events, (list, tuple)):
                 rejected_events = []
             
-            # Add negative interactions with negative weight
+            # Add negative interactions with reduced penalty for featured events
             for event_id in rejected_events:
                 try:
                     event_id = int(event_id)
-                    # Negative weight for rejected events
-                    interactions.append((user_name, event_id, -0.5))
+                    # FEATURED PROTECTION: Reduce negative impact for featured events
+                    is_featured = self.is_featured_event(event_id)
+                    negative_weight = -0.25 if is_featured else -0.5
+                    
+                    interactions.append((user_name, event_id, negative_weight))
                     user_has_interactions = True
                 except (ValueError, TypeError):
                     continue
@@ -686,7 +703,7 @@ class EventRecommendationSystem:
         return user_feature_tuples
     
     def build_event_features(self, events):
-        """Build event features - implement your logic"""
+        """Build event features with featured event boosting"""
         event_feature_tuples = []
         for event in events:
             eid = event.get("id")
@@ -719,7 +736,25 @@ class EventRecommendationSystem:
                     cost_range = "$$$$"
             reservation = event.get("reservation")
             reservation_required = "yes" if reservation and reservation.lower() in ["yes", "y", "true", "1"] else "no"
-            event_feature_tuples.append((eid, [event_types, time_tag, age_restriction, cost_range, reservation_required]))
+            
+            # FEATURED EVENT BOOST: Add featured status as a strong positive feature
+            is_featured = event.get("featured", False)
+            featured_status = "featured" if is_featured else "regular"
+            
+            # Featured events get additional boost through multiple feature dimensions
+            featured_boost_score = 1.0 if is_featured else 0.0  # Binary featured flag
+            featured_multiplier = 3 if is_featured else 1  # Quality multiplier
+            
+            event_feature_tuples.append((eid, [
+                event_types, 
+                time_tag, 
+                age_restriction, 
+                cost_range, 
+                reservation_required,
+                featured_status,      # Categorical: "featured" vs "regular"
+                featured_boost_score, # Numeric: 1.0 for featured, 0.0 for regular
+                featured_multiplier   # Weight multiplier: 3 for featured, 1 for regular
+            ]))
 
         return event_feature_tuples
     
@@ -920,15 +955,48 @@ class EventRecommendationSystem:
                 )
                 print(f"Recommendations generated: {len(recommendations)}")
 
-                # Get the full event objects for the recommended events
+                # Get the full event objects for the recommended events with featured boost
                 recommended_events = []
+                featured_events = []
+                regular_events = []
+                
                 for eid, score in recommendations:
                     # Find the full event object from all_events_filtered
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
-                        # Don't set image URL here - let frontend handle image URL generation
-                        # since images are stored in folder structure: event_id/image_index.jpg
-                        recommended_events.append(event_obj)
+                        # FEATURED POST-PROCESSING BOOST: Separate featured and regular events
+                        if event_obj.get("featured", False):
+                            # Apply additional score boost to featured events
+                            boosted_score = score * 1.3  # 30% score boost
+                            featured_events.append((event_obj, boosted_score))
+                        else:
+                            regular_events.append((event_obj, score))
+                
+                # Sort each group by score and interleave them with featured preference
+                featured_events.sort(key=lambda x: x[1], reverse=True)
+                regular_events.sort(key=lambda x: x[1], reverse=True)
+                
+                # Interleave: prioritize featured events (2:1 ratio when possible)
+                recommended_events = []
+                f_idx = r_idx = 0
+                position = 0
+                
+                while len(recommended_events) < 5 and (f_idx < len(featured_events) or r_idx < len(regular_events)):
+                    # Prioritize featured events: positions 0, 1, 3, 4... (skip position 2, 5, 8...)
+                    if position % 3 != 2 and f_idx < len(featured_events):
+                        recommended_events.append(featured_events[f_idx][0])
+                        f_idx += 1
+                    elif r_idx < len(regular_events):
+                        recommended_events.append(regular_events[r_idx][0])
+                        r_idx += 1
+                    elif f_idx < len(featured_events):
+                        # Fill remaining with featured if available
+                        recommended_events.append(featured_events[f_idx][0])
+                        f_idx += 1
+                    
+                    position += 1
+                
+                print(f"Final recommendations: {len([e for e in recommended_events if e.get('featured')])} featured, {len([e for e in recommended_events if not e.get('featured')])} regular")
                 
                 return {
                     "summary": f"Found {len(recommended_events)} recommended events for {email}",

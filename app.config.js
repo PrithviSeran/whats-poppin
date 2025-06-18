@@ -39,7 +39,9 @@ module.exports = {
             CFBundleURLSchemes: ["whatspoppin"],
             CFBundleURLName: "com.prithviseran.whatspoppin"
           }
-        ]
+        ],
+        // Critical for Google Maps to work in production/TestFlight
+        GMSApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
       }
     },
     android: {
@@ -95,7 +97,8 @@ module.exports = {
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      // Critical: React Native Maps plugin for proper iOS compilation
     ],
     experiments: {
       typedRoutes: true

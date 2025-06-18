@@ -11,6 +11,7 @@ import {
   ScrollView,
   Linking,
   Share,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -52,6 +53,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
   const [isClosing, setIsClosing] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState(false);
 
   // Helper function to get current day name
   const getCurrentDayName = () => {
@@ -806,7 +809,16 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             {/* Google Map */}
             <View style={styles.mapContainer}>
               {userLocation && event.latitude && event.longitude ? (
-                <MapView
+                <View style={styles.mapWrapper}>
+                  {!mapReady && (
+                    <View style={styles.mapLoadingOverlay}>
+                      <ActivityIndicator size="large" color="#FF0005" />
+                      <Text style={[styles.mapLoadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Loading map...
+                      </Text>
+                    </View>
+                  )}
+                  <MapView
                   provider={PROVIDER_GOOGLE}
                   style={styles.map}
                   initialRegion={{
@@ -819,6 +831,30 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   showsMyLocationButton={true}
                   showsCompass={true}
                   showsScale={true}
+                  // Critical for TestFlight: Force map tiles to load
+                  mapType="standard"
+                  loadingEnabled={true}
+                  loadingIndicatorColor="#FF0005"
+                  loadingBackgroundColor="#f0f0f0"
+                  // Improved rendering for production
+                  pitchEnabled={false}
+                  rotateEnabled={false}
+                  scrollEnabled={true}
+                  zoomEnabled={true}
+                  // TestFlight compatibility
+                  showsBuildings={true}
+                  showsTraffic={false}
+                  showsIndoors={false}
+                  // Map event handlers for better TestFlight reliability
+                  onMapReady={() => {
+                    console.log('Map is ready');
+                    setMapReady(true);
+                    setMapError(false);
+                  }}
+                  onRegionChangeComplete={() => {
+                    // Ensure map is properly initialized
+                    if (!mapReady) setMapReady(true);
+                  }}
                 >
                   <Marker 
                     coordinate={userLocation}
@@ -845,6 +881,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     </View>
                   </Marker>
                 </MapView>
+              </View>
               ) : (
                 <View style={[styles.map, styles.mapPlaceholder]}>
                   <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>
@@ -1254,5 +1291,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     letterSpacing: 0.3,
+  },
+  mapWrapper: {
+    position: 'relative',
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  mapLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(240, 240, 240, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    borderRadius: 12,
+  },
+  mapLoadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    fontWeight: '500',
   },
 }); 

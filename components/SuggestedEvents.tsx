@@ -433,17 +433,26 @@ export default function SuggestedEvents() {
   });
 
   const handleCardPress = (card: EventCard) => {
+    console.log('🎯 Card press attempted:', {
+      isSwipeInProgress,
+      expandedCard: !!expandedCard,
+      swiperVisible,
+      cardName: card.name
+    });
+    
     // Block all interactions if a swipe is in progress
     if (isSwipeInProgress) {
-      console.log('Ignoring card press - swipe in progress');
+      console.log('❌ Ignoring card press - swipe in progress');
       return;
     }
     
-    // Only process card press if swiper is currently visible
-    if (!swiperVisible) {
-      console.log('Ignoring card press - swiper not visible');
+    // Block multiple modal opens
+    if (expandedCard) {
+      console.log('❌ Ignoring card press - modal already open');
       return;
     }
+    
+    console.log('✅ Processing card press for:', card.name);
     
     // Hide swiper immediately when card is pressed
     setSwiperVisible(false);
@@ -465,49 +474,70 @@ export default function SuggestedEvents() {
   const handleBackPress = () => {
     // Only update state - modal handles its own animations
     setExpandedCard(null);
-    // Show swiper again when modal closes - but only if we're not in the middle of another interaction
-    setTimeout(() => {
-      setSwiperVisible(true);
-    }, 100); // Small delay to prevent race conditions
+    setCardPosition(null);
+    // Show swiper again immediately when modal closes - no timeout needed
+    setSwiperVisible(true);
   };
 
   const handleSwipeRight = async (cardIndex: number) => {
+    console.log('🚀 Starting swipe right for card:', cardIndex);
+    
     // Mark swipe as in progress to block interactions
     setIsSwipeInProgress(true);
     
-    const likedEvent = EVENTS[cardIndex];
-    try {
-      // Get current saved events (local)
-      await dataManager.addEventToSavedEvents(likedEvent.id);
-      // Refresh global data so SavedLikes and others update
-      await GlobalDataManager.getInstance().refreshAllData();
-
-      const savedEvents = await dataManager.getSavedEvents();
-      console.log('savedEvents', savedEvents);
-
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.spring(scaleAnim, {
-          toValue: 0.8,
-          friction: 5,
-          tension: 50,
-          useNativeDriver: true,
-        })
-      ]).start(() => {
-        // Only clear expanded card if it's actually set - prevents interfering with card presses
-        setExpandedCard(current => current ? null : current);
-        // Clear swipe in progress after animation completes
-        setIsSwipeInProgress(false);
-      });
-    } catch (error) {
-      console.error('Error saving liked event:', error);
-      // Clear swipe in progress even on error
+    // Shorter failsafe timer since we're unblocking UI immediately
+    const failsafeTimer = setTimeout(() => {
+      console.log('⚠️ Failsafe timer triggered - resetting isSwipeInProgress (backup)');
       setIsSwipeInProgress(false);
-    }
+    }, 1000); // Much shorter since we unblock immediately anyway
+    
+    const likedEvent = EVENTS[cardIndex];
+    
+    // Clear swipe in progress IMMEDIATELY to unblock UI
+    setIsSwipeInProgress(false);
+    clearTimeout(failsafeTimer);
+    console.log('✅ Swipe right UI unblocked immediately');
+    
+    // Reset any expanded card state to prevent interference
+    setExpandedCard(null);
+    setCardPosition(null);
+
+    // Start animation immediately (non-blocking)
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 0.8,
+        friction: 5,
+        tension: 50,
+        useNativeDriver: true,
+      })
+    ]).start();
+    
+    // Do heavy backend operations in background (non-blocking)
+    (async () => {
+      try {
+        console.log('🔄 Starting background save operation for:', likedEvent.name);
+        
+        // Save the event (this can take time but won't block UI)
+        await dataManager.addEventToSavedEvents(likedEvent.id);
+        console.log('✅ Event saved successfully in background');
+        
+        // Refresh data in background (don't await this - let it happen async)
+        GlobalDataManager.getInstance().refreshAllData().then(() => {
+          console.log('✅ Global data refreshed in background');
+        }).catch((error) => {
+          console.error('❌ Background data refresh failed:', error);
+        });
+        
+      } catch (error) {
+        console.error('❌ Background save operation failed:', error);
+        // Even if save fails, UI remains responsive
+      }
+    })();
   };
 
   // Load liked events on component mount
@@ -525,6 +555,22 @@ export default function SuggestedEvents() {
     };
     loadLikedEvents();
   }, []);
+
+  // Add a watchdog effect to reset isSwipeInProgress if it gets stuck
+  useEffect(() => {
+    if (isSwipeInProgress) {
+      console.log('🔍 isSwipeInProgress is true, starting watchdog timer');
+      const watchdogTimer = setTimeout(() => {
+        console.log('🚨 Watchdog triggered: isSwipeInProgress has been stuck for 10 seconds, forcing reset');
+        setIsSwipeInProgress(false);
+      }, 10000); // Force reset after 10 seconds if still stuck
+
+      return () => {
+        console.log('🔍 Clearing watchdog timer');
+        clearTimeout(watchdogTimer);
+      };
+    }
+  }, [isSwipeInProgress]);
 
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
@@ -703,8 +749,16 @@ export default function SuggestedEvents() {
   }, [loading, isFetchingActivities]);
 
   const handleSwipedLeft = async (cardIndex: number) => {
+    console.log('🚀 Starting swipe left for card:', cardIndex);
+    
     // Mark swipe as in progress to block interactions
     setIsSwipeInProgress(true);
+    
+    // Failsafe timer to reset isSwipeInProgress if it gets stuck
+    const failsafeTimer = setTimeout(() => {
+      console.log('⚠️ Failsafe timer triggered - resetting isSwipeInProgress');
+      setIsSwipeInProgress(false);
+    }, 5000); // Reset after 5 seconds maximum
     
     const rejectedEvent = EVENTS[cardIndex];
 
@@ -718,9 +772,22 @@ export default function SuggestedEvents() {
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
       
       console.log('Rejected event saved to both AsyncStorage and Supabase:', rejectedEvent.id);
+      
+      // Clear the failsafe timer since we completed successfully
+      clearTimeout(failsafeTimer);
     } catch (error) {
-      console.error('Error saving rejected event:', error);
+      console.error('❌ Error saving rejected event:', error);
+      // Clear the failsafe timer
+      clearTimeout(failsafeTimer);
     }
+
+    // Clear swipe in progress immediately after backend operations complete
+    setIsSwipeInProgress(false);
+    console.log('✅ Swipe left completed, isSwipeInProgress reset');
+    
+    // Reset any expanded card state to prevent interference
+    setExpandedCard(null);
+    setCardPosition(null);
 
     setCardIndex((i) => i + 1);
     Animated.parallel([
@@ -735,12 +802,7 @@ export default function SuggestedEvents() {
         tension: 50,
         useNativeDriver: true,
       })
-    ]).start(() => {
-      // Only clear expanded card if it's actually set - prevents interfering with card presses
-      setExpandedCard(current => current ? null : current);
-      // Clear swipe in progress after animation completes
-      setIsSwipeInProgress(false);
-    });
+    ]).start();
   };
 
   // Add refs for measuring card positions
@@ -909,14 +971,24 @@ export default function SuggestedEvents() {
                     return (
                       <TouchableOpacity 
                         ref={(ref) => { cardRefs.current[index] = ref; }}
-                        onPress={() => handleCardPress(card)}
-                        activeOpacity={1}
+                        onPress={() => {
+                          console.log('🎯 TouchableOpacity onPress triggered for:', card.name);
+                          handleCardPress(card);
+                        }}
+                        onPressIn={() => console.log('👆 TouchableOpacity onPressIn for:', card.name)}
+                        onPressOut={() => console.log('👆 TouchableOpacity onPressOut for:', card.name)}
+                        activeOpacity={0.9}
                         disabled={isSwipeInProgress}
+                        style={{ flex: 1 }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
-                        <Animated.View style={[
-                          styles.card,
-                          isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                                                ]}>
+                        <Animated.View 
+                          style={[
+                            styles.card,
+                            isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
+                          ]}
+                          onTouchStart={() => console.log('👆 Card touch detected for:', card.name)}
+                        >
                             {eventImageUrl ? (
                               <Image 
                                 source={{ uri: eventImageUrl }}
@@ -1003,7 +1075,6 @@ export default function SuggestedEvents() {
                   }}
                   disableTopSwipe
                   disableBottomSwipe
-                  pointerEvents="box-none"
                   useViewOverflow={false}
                 />
               </View>
