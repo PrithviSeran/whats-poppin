@@ -8,16 +8,20 @@ import {
   Dimensions,
   Platform,
   Image,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { Ionicons } from '@expo/vector-icons';
 import MaskedView from '@react-native-masked-view/masked-view';
+import CreateAccountProgressBar from './CreateAccountProgressBar';
 
 const { width } = Dimensions.get('window');
-const BALLOON_IMAGE = require('../assets/images/balloons.png');
+const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
+const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 type RootStackParamList = {
   'create-account-password': { userData: string };
@@ -43,107 +47,122 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
     }
   };
 
+  const genderOptions = [
+    { value: 'Male', icon: 'person-outline', label: 'Male' },
+    { value: 'Female', icon: 'person-outline', label: 'Female' },
+  ];
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <TouchableOpacity
-        style={{
-          position: 'absolute',
-          top: 50,
-          left: 20,
-          zIndex: 10,
-          backgroundColor: 'rgba(0,0,0,0.1)',
-          borderRadius: 20,
-          padding: 8,
-        }}
+        style={styles.backButton}
         onPress={() => navigation.goBack()}
       >
-        <Text style={{ fontSize: 28, color: '#FF0005' }}>{'←'}</Text>
+        <Ionicons name="chevron-back" size={28} color="#9E95BD" />
       </TouchableOpacity>
 
-      <View style={styles.centerContent}>
+      <CreateAccountProgressBar
+        currentStep={4}
+        totalSteps={6}
+        stepLabels={['Name', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+      />
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
             <Image
-              source={BALLOON_IMAGE}
-              style={styles.balloons}
+              source={colorScheme === 'dark' ? LOGO_IMAGE_DARK : LOGO_IMAGE_LIGHT}
+              style={colorScheme === 'dark' ? styles.logo : styles.logoLight}
               resizeMode="contain"
             />
-            <MaskedView
-              maskElement={
-                <Text style={[styles.title, { opacity: 1 }]}>{`What's Poppin?`}</Text>
-              }
-            >
-              <LinearGradient
-                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
+          </View>
+        </View>
+
+        <View style={styles.contentContainer}>
+          <View style={styles.titleContainer}>
+            <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>
+              What's your gender?
+            </Text>
+            <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+              This helps us personalize your experience
+            </Text>
+          </View>
+
+          <View style={styles.genderOptionsContainer}>
+            {genderOptions.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.genderButton,
+                  {
+                    backgroundColor: selectedGender === option.value
+                      ? Colors[colorScheme ?? 'light'].card
+                      : Colors[colorScheme ?? 'light'].card,
+                    borderColor: selectedGender === option.value
+                      ? '#9E95BD'
+                      : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                  }
+                ]}
+                onPress={() => setSelectedGender(option.value as 'Male' | 'Female')}
               >
-                <Text style={[styles.title, { opacity: 0 }]}>{`What's Poppin?`}</Text>
-              </LinearGradient>
-            </MaskedView>
+                <View style={[
+                  styles.genderIconContainer,
+                  {
+                    backgroundColor: selectedGender === option.value ? '#9E95BD' : 'transparent',
+                  }
+                ]}>
+                  <Ionicons 
+                    name={option.icon as any}
+                    size={24} 
+                    color={selectedGender === option.value ? 'white' : '#9E95BD'} 
+                  />
+                </View>
+                <Text style={[
+                  styles.genderButtonText,
+                  { 
+                    color: selectedGender === option.value 
+                      ? '#9E95BD' 
+                      : Colors[colorScheme ?? 'light'].text,
+                    fontWeight: selectedGender === option.value ? '600' : '500',
+                  }
+                ]}>
+                  {option.label}
+                </Text>
+                {selectedGender === option.value && (
+                  <View style={styles.checkmarkContainer}>
+                    <Ionicons name="checkmark-circle" size={24} color="#9E95BD" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
-        <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>I am a</Text>
-          <View style={styles.genderButtonGroup}>
-            <TouchableOpacity
-              style={[
-                styles.genderButton,
-                selectedGender === 'Male' && styles.genderButtonSelected,
-                {
-                  borderColor: '#FF0005',
-                  backgroundColor: selectedGender === 'Male'
-                    ? '#FF0005'
-                    : Colors[colorScheme ?? 'light'].background,
-                },
-              ]}
-              onPress={() => setSelectedGender('Male')}
-            >
-              <Text style={[
-                styles.genderButtonText,
-                selectedGender === 'Male' && styles.genderButtonTextSelected,
-                { color: selectedGender === 'Male' ? 'white' : '#FF0005' },
-              ]}>Male</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.genderButton,
-                selectedGender === 'Female' && styles.genderButtonSelected,
-                {
-                  borderColor: '#FF0005',
-                  backgroundColor: selectedGender === 'Female'
-                    ? '#FF0005'
-                    : Colors[colorScheme ?? 'light'].background,
-                },
-              ]}
-              onPress={() => setSelectedGender('Female')}
-            >
-              <Text style={[
-                styles.genderButtonText,
-                selectedGender === 'Female' && styles.genderButtonTextSelected,
-                { color: selectedGender === 'Female' ? 'white' : '#FF0005' },
-              ]}>Female</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.buttonGroup}>
-          <TouchableOpacity onPress={handleNext} disabled={!selectedGender}>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity 
+            onPress={handleNext} 
+            disabled={!selectedGender}
+            style={styles.buttonWrapper}
+          >
             <LinearGradient
-              colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+              colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.socialButton}
+              locations={[0, 0.25, 0.5, 0.75, 1]}
+              style={[
+                styles.nextButton,
+                !selectedGender && styles.disabledButton,
+              ]}
             >
-              <Text style={styles.socialButtonText}>Next</Text>
+              <Text style={styles.nextButtonText}>Continue</Text>
+              <Ionicons name="chevron-forward" size={20} color="white" style={styles.buttonIcon} />
             </LinearGradient>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -151,101 +170,126 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 20,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
     paddingBottom: 40,
   },
-  centerContent: {
-    flex: 1,
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  titleLarge: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 30,
-    marginTop: 40,
-  },
-  buttonGroup: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  socialButton: {
-    borderRadius: 30,
-    width: width * 0.8,
-    paddingVertical: 13,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  socialButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  genderButtonGroup: {
-    flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 10,
-    marginBottom: 10,
-    gap: 20,
-  },
-  genderButton: {
-    borderWidth: 2,
-    borderRadius: 25,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    marginHorizontal: 10,
-    shadowColor: '#FF0005',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  genderButtonSelected: {
-    backgroundColor: '#FF0005',
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  genderButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  genderButtonTextSelected: {
-    color: 'white',
   },
   headerContainer: {
-    width: '100%',
     alignItems: 'center',
     marginTop: 20,
+    marginBottom: 40,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  balloons: {
-    width: width * 0.22,
-    height: width * 0.22,
-    marginRight: -6,
+  logo: {
+    width: width * 0.7,
+    height: width * 0.4,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#F45B5B',
-    textAlign: 'left',
-    textShadowColor: 'rgba(0,0,0,0.18)',
-    textShadowOffset: { width: 4, height: 4 },
-    textShadowRadius: 6,
-    fontFamily: Platform.OS === 'ios' ? 'MarkerFelt-Wide' : 'sans-serif-condensed',
+  logoLight: {
+    width: width * 0.5,
+    height: width * 0.27,
+    marginTop: 10,
+  },
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 400,
+  },
+  titleContainer: {
+    alignItems: 'center',
+    marginBottom: 60,
+  },
+  titleLarge: {
+    fontSize: 28,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    opacity: 0.7,
+    fontWeight: '400',
+  },
+  genderOptionsContainer: {
+    gap: 16,
+    marginBottom: 40,
+  },
+  genderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  genderIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  genderButtonText: {
+    flex: 1,
+    fontSize: 18,
+  },
+  checkmarkContainer: {
+    marginLeft: 12,
+  },
+  buttonContainer: {
+    marginTop: 40,
+    alignItems: 'center',
+  },
+  buttonWrapper: {
+    width: '100%',
+  },
+  nextButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    paddingVertical: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  nextButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  buttonIcon: {
+    marginLeft: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });
 

@@ -309,7 +309,22 @@ export default function SavedActivities({
                            (translateDistance > CARD_WIDTH * 0.2 && releaseVelocity > 0.5);
         
                  if (shouldDelete) {
-           console.log('Triggering delete for event ID:', eventId);
+           console.log('🚮 Triggering delete for event ID:', eventId);
+           console.log('🔍 Event ID type:', typeof eventId, 'Value:', eventId);
+           
+           // Validate eventId before proceeding
+           if (!eventId || typeof eventId !== 'number') {
+             console.error('❌ Invalid eventId in pan responder:', eventId);
+             // Reset card position
+             RNAnimated.spring(cardTranslateX[eventId], {
+               toValue: 0,
+               useNativeDriver: true,
+               tension: 200,
+               friction: 8,
+             }).start();
+             return;
+           }
+           
            // Animate out faster and delete
            RNAnimated.timing(cardTranslateX[eventId], {
              toValue: CARD_WIDTH,
@@ -317,7 +332,7 @@ export default function SavedActivities({
              useNativeDriver: true,
            }).start(() => {
              // Use the optimized removal function
-             console.log('Animation complete, calling handleRemoveSavedEventOptimized for event:', eventId);
+             console.log('🎬 Animation complete, calling handleRemoveSavedEventOptimized for event:', eventId);
              handleRemoveSavedEventOptimized(eventId);
            });
         } else {
@@ -351,23 +366,47 @@ export default function SavedActivities({
 
   // Optimized removal function using GlobalDataManager
   const handleRemoveSavedEventOptimized = useCallback(async (eventId: number) => {
-    console.log('Removing event with ID:', eventId);
+    console.log('🗑️ Removing event with ID:', eventId);
+    console.log('📋 Current events before removal:', savedActivitiesEvents.map(e => ({ id: e.id, name: e.name })));
     
     // Validate eventId
     if (!eventId || typeof eventId !== 'number') {
-      console.error('Invalid eventId provided:', eventId);
+      console.error('❌ Invalid eventId provided:', eventId);
       return;
     }
     
-    // Store current events before update for potential revert
-    const currentEventsSnapshot = savedActivitiesEvents;
-    
     try {
-      // Optimistically update UI first
-      const updatedEvents = currentEventsSnapshot.filter(e => e.id !== eventId);
-      setSavedActivitiesEvents(updatedEvents);
+      // Use functional state update to get current state and avoid stale closures
+      let currentEventsSnapshot: EventCard[] = [];
+      let eventToRemove: EventCard | undefined;
+      let updatedEvents: EventCard[] = [];
       
-      console.log('Optimistically removed event from UI, now updating backend...');
+      setSavedActivitiesEvents(currentEvents => {
+        currentEventsSnapshot = [...currentEvents];
+        
+        // Find the event to remove for debugging
+        eventToRemove = currentEventsSnapshot.find(e => e.id === eventId);
+        if (!eventToRemove) {
+          console.error('❌ Event not found in current events:', eventId);
+          return currentEvents; // Return unchanged if event not found
+        }
+        
+        console.log('🎯 Found event to remove:', eventToRemove.name);
+        
+        // Filter out the event
+        updatedEvents = currentEventsSnapshot.filter(e => e.id !== eventId);
+        console.log('✅ Filtered events - before:', currentEventsSnapshot.length, 'after:', updatedEvents.length);
+        console.log('📋 Remaining events:', updatedEvents.map(e => ({ id: e.id, name: e.name })));
+        
+        return updatedEvents;
+      });
+      
+      // Exit early if event was not found
+      if (!eventToRemove) {
+        return;
+      }
+      
+      console.log('🔄 Optimistically updated UI, now updating backend...');
       
       // Clean up animation references for the removed event
       if (cardTranslateX[eventId]) {
@@ -380,14 +419,20 @@ export default function SavedActivities({
       
       // Wait for the backend removal to complete
       await dataManager.removeEventFromSavedEvents(eventId);
-      console.log('Successfully removed event from backend');
+      console.log('✅ Successfully removed event from backend');
       
     } catch (error) {
-      console.error('Error removing event from saved events:', error);
-      // Revert UI state if the removal failed
-      setSavedActivitiesEvents(currentEventsSnapshot);
+      console.error('❌ Error removing event from saved events:', error);
+      // Revert UI state if the removal failed by refetching from backend
+      console.log('🔄 Reverting UI state due to backend error - refetching events');
+      try {
+        const revertedEvents = await dataManager.getSavedEvents();
+        setSavedActivitiesEvents(revertedEvents);
+      } catch (revertError) {
+        console.error('❌ Failed to revert events, keeping current state');
+      }
     }
-  }, [dataManager, savedActivitiesEvents]);
+  }, [dataManager]); // Remove savedActivitiesEvents from dependency to prevent stale closures
 
   // Legacy removal function for backwards compatibility (can be removed later)
   const handleRemoveSavedEvent = useCallback(async (eventId: number) => {
@@ -431,17 +476,20 @@ export default function SavedActivities({
   }, [onClose, savedActivitiesFadeAnim, slideAnim]);
 
   const handleClearAll = useCallback(async () => {
-    // Store current events for potential revert
-    const currentEventsSnapshot = savedActivitiesEvents;
-    
     try {
-      console.log('🗑️ SavedActivities: Starting clear all process...');
-      console.log('  - Events to clear:', currentEventsSnapshot.length);
-      console.log('  - Event IDs:', currentEventsSnapshot.map(e => e.id));
+      // Use functional state update to get current state
+      let currentEventsSnapshot: EventCard[] = [];
       
-      // Optimistically clear UI first
-      setSavedActivitiesEvents([]);
-      console.log('✅ SavedActivities: UI cleared optimistically');
+      setSavedActivitiesEvents(currentEvents => {
+        currentEventsSnapshot = [...currentEvents];
+        console.log('🗑️ SavedActivities: Starting clear all process...');
+        console.log('  - Events to clear:', currentEventsSnapshot.length);
+        console.log('  - Event IDs:', currentEventsSnapshot.map(e => e.id));
+        
+        // Optimistically clear UI first
+        console.log('✅ SavedActivities: UI cleared optimistically');
+        return [];
+      });
       
       // Wait for the backend clear to complete
       await dataManager.clearSavedEvents();
@@ -460,11 +508,16 @@ export default function SavedActivities({
       
     } catch (error) {
       console.error('❌ SavedActivities: Error clearing saved events:', error);
-      // Revert UI state if the clear failed
-      setSavedActivitiesEvents(currentEventsSnapshot);
+      // Revert UI state if the clear failed by refetching from backend
+      try {
+        const revertedEvents = await dataManager.getSavedEvents();
+        setSavedActivitiesEvents(revertedEvents);
+      } catch (revertError) {
+        console.error('❌ Failed to revert events after clear error');
+      }
       Alert.alert('Error', 'Failed to clear saved events. Please try again.');
     }
-  }, [dataManager, savedActivitiesEvents]);
+  }, [dataManager]); // Remove savedActivitiesEvents from dependency to prevent stale closures
 
   // Cleanup animation values and prevent memory leaks
   useEffect(() => {

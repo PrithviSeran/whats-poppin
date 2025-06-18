@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Dimensions, Image, SafeAreaView, Animated, TouchableOpacity, ScrollView } from 'react-native';
 import Swiper from 'react-native-deck-swiper';
 import MainFooter from './MainFooter';
@@ -35,6 +35,42 @@ const DAYS_OF_WEEK = [
   'Sunday'
 ];
 
+// Add these optimized constants outside the component
+const DEBOUNCE_DELAY = 500;
+const IMAGE_CACHE = new Map<number, { imageUrl: string | null; allImages: string[] }>();
+
+// Helper function to format times data for display
+const formatTimesForDisplay = (times: { [key: string]: string | [string, string] } | undefined): string => {
+  if (!times || Object.keys(times).length === 0) {
+    return 'Hours not available';
+  }
+
+  const entries = Object.entries(times);
+  if (entries.length === 1) {
+    const [day, timeValue] = entries[0];
+    if (timeValue === 'all_day') {
+      return `${day}: Open 24 hours`;
+    } else if (Array.isArray(timeValue)) {
+      return `${day}: ${timeValue[0]} - ${timeValue[1]}`;
+    }
+    return `${day}: ${timeValue}`;
+  }
+
+  // Multiple days - show a summary
+  const allDayCount = entries.filter(([_, timeValue]) => timeValue === 'all_day').length;
+  const regularHours = entries.filter(([_, timeValue]) => Array.isArray(timeValue));
+  
+  if (allDayCount === entries.length) {
+    return 'Open 24 hours daily';
+  } else if (regularHours.length > 0) {
+    const [_, firstTime] = regularHours[0];
+    if (Array.isArray(firstTime)) {
+      return `Varies by day (e.g., ${firstTime[0]} - ${firstTime[1]})`;
+    }
+  }
+  
+  return 'Varies by day';
+};
 
 // Function to calculate distance between two coordinates using Haversine formula
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -63,6 +99,7 @@ export default function SuggestedEvents() {
   const [cardPosition, setCardPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [isFilterVisible, setIsFilterVisible] = useState(false);
   const [swiperVisible, setSwiperVisible] = useState(true);
+  const [isSwipeInProgress, setIsSwipeInProgress] = useState(false);
 
   const swipeX = useRef(new Animated.Value(0)).current;
   const swiperRef = useRef<Swiper<EventCard>>(null);
@@ -94,137 +131,221 @@ export default function SuggestedEvents() {
 
   const dataManager = GlobalDataManager.getInstance();
 
-  // Helper function to format times data for display
-  const formatTimesForDisplay = (times: { [key: string]: string | [string, string] } | undefined): string => {
-    if (!times || Object.keys(times).length === 0) {
-      return 'Hours not available';
+  // Memoized expensive calculations
+  const processedEventsRef = useRef<EventCard[]>([]);
+  const lastFetchTimeRef = useRef<number>(0);
+
+  // Debounced fetch function
+  const debouncedFetchRef = useRef<any>();
+
+  const debouncedFetchBackend = useCallback(() => {
+    if (debouncedFetchRef.current) {
+      clearTimeout(debouncedFetchRef.current);
     }
 
-    const entries = Object.entries(times);
-    if (entries.length === 1) {
-      const [day, timeValue] = entries[0];
-      if (timeValue === 'all_day') {
-        return `${day}: Open 24 hours`;
-      } else if (Array.isArray(timeValue)) {
-        return `${day}: ${timeValue[0]} - ${timeValue[1]}`;
+    debouncedFetchRef.current = setTimeout(() => {
+      const now = Date.now();
+      if (now - lastFetchTimeRef.current < 1000) {
+        console.log('⚡ Fetch skipped - too frequent');
+        return;
       }
-      return `${day}: ${timeValue}`;
+      lastFetchTimeRef.current = now;
+      fetchTokenAndCallBackend();
+    }, DEBOUNCE_DELAY);
+  }, []);
+
+  // Optimized image URL generation with caching
+  const getEventImageUrls = useCallback((eventId: number) => {
+    const cacheKey = eventId;
+    
+    if (IMAGE_CACHE.has(cacheKey)) {
+      const cached = IMAGE_CACHE.get(cacheKey);
+      return cached || { imageUrl: null, allImages: [] };
     }
 
-    // Multiple days - show a summary
-    const allDayCount = entries.filter(([_, timeValue]) => timeValue === 'all_day').length;
-    const regularHours = entries.filter(([_, timeValue]) => Array.isArray(timeValue));
+    if (!eventId) return { imageUrl: null, allImages: [] };
+
+    const randomImageIndex = Math.floor(Math.random() * 5);
+    const baseUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${eventId}`;
     
-    if (allDayCount === entries.length) {
-      return 'Open 24 hours daily';
-    } else if (regularHours.length > 0) {
-      const [_, firstTime] = regularHours[0];
-      if (Array.isArray(firstTime)) {
-        return `Varies by day (e.g., ${firstTime[0]} - ${firstTime[1]})`;
+    const imageUrl = `${baseUrl}/${randomImageIndex}.jpg`;
+    const allImages = Array.from({ length: 5 }, (_, i) => `${baseUrl}/${i}.jpg`);
+    
+    const result = { imageUrl, allImages };
+    IMAGE_CACHE.set(cacheKey, result);
+    
+    return result;
+  }, []);
+
+  // Optimized event processing
+  const processEvents = useCallback((events: EventCard[]) => {
+    return events.map((event) => {
+      const urls = getEventImageUrls(event.id);
+      return {
+        ...event,
+        image: urls.imageUrl,
+        allImages: urls.allImages
+      };
+    });
+  }, [getEventImageUrls]);
+
+  // Memoized location permission request
+  const requestLocationPermission = useCallback(async () => {
+    if (userLocation) {
+      console.log('⚡ Location already cached');
+      return;
+    }
+
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.error('Permission to access location was denied');
+        return;
+      }
+
+      let location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced, // Lower accuracy for better performance
+      });
+      
+      setUserLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+    } catch (err) {
+      console.error('Error getting user location:', err);
+      // Try to get manual location from user profile as fallback
+      try {
+        const userProfile = await dataManager.getUserProfile();
+        if (userProfile?.location) {
+          console.log('Using manual location as fallback:', userProfile.location);
+          try {
+            // Geocode the manual address to get coordinates
+            const geocodedLocation = await Location.geocodeAsync(userProfile.location);
+            if (geocodedLocation && geocodedLocation.length > 0) {
+              setUserLocation({
+                latitude: geocodedLocation[0].latitude,
+                longitude: geocodedLocation[0].longitude,
+              });
+              console.log('Successfully geocoded manual address in requestLocationPermission:', geocodedLocation[0]);
+            } else {
+              console.log('Could not geocode manual address in requestLocationPermission:', userProfile.location);
+            }
+          } catch (geocodeError) {
+            console.error('Error geocoding manual address in requestLocationPermission:', geocodeError);
+          }
+        }
+      } catch (profileError) {
+        console.error('Error getting user profile for fallback location:', profileError);
       }
     }
+  }, [userLocation, dataManager]);
+
+  // Optimized fetchTokenAndCallBackend with better error handling and caching
+  const fetchTokenAndCallBackend = useCallback(async () => {
+    const currentUserEmail = dataManager.getCurrentUser()?.email;
     
-    return 'Varies by day';
-  };
-
-  const fetchTokenAndCallBackend = async () => {
-    const currentUserEmail = dataManager.getCurrentUser()?.email ?? null;
-    const userLocation = await Location.getCurrentPositionAsync();
-    const userLatitude = userLocation.coords.latitude;
-    const userLongitude = userLocation.coords.longitude;
-
     if (!currentUserEmail) {
       console.error('No user email available');
       return;
     }
 
     try {
-      // IMPORTANT: Refresh GlobalDataManager data to ensure we have the latest state
-      // This is crucial when user has just cleared events or applied filters
-      console.log('🔄 fetchTokenAndCallBackend: Refreshing data before API call...');
-      await dataManager.refreshAllDataImmediate();
+      setLoading(true);
       
-      // Get both rejected and liked (saved) events to exclude from recommendations
-      const rejectedEvents = await dataManager.getRejectedEvents();
-      const savedEvents = await dataManager.getSavedEvents();
+      // Use debounced refresh instead of immediate
+      await dataManager.refreshAllDataDebounced();
       
+      // Get location only if not cached
+      let userLat = userLocation?.latitude;
+      let userLon = userLocation?.longitude;
+      
+      if (!userLat || !userLon) {
+        try {
+          // Check permissions before getting location
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            userLat = location.coords.latitude;
+            userLon = location.coords.longitude;
+            setUserLocation({ latitude: userLat, longitude: userLon });
+          } else {
+            console.log('Location permission not granted, using manual location from profile');
+            // Try to use manual location from user profile
+            const userProfile = await dataManager.getUserProfile();
+            if (userProfile?.location) {
+              console.log('Using manual location from profile:', userProfile.location);
+              try {
+                // Geocode the manual address to get coordinates
+                const geocodedLocation = await Location.geocodeAsync(userProfile.location);
+                if (geocodedLocation && geocodedLocation.length > 0) {
+                  userLat = geocodedLocation[0].latitude;
+                  userLon = geocodedLocation[0].longitude;
+                  setUserLocation({ latitude: userLat, longitude: userLon });
+                  console.log('Successfully geocoded manual address to coordinates:', { userLat, userLon });
+                } else {
+                  console.log('Could not geocode manual address:', userProfile.location);
+                }
+              } catch (geocodeError) {
+                console.error('Error geocoding manual address:', geocodeError);
+              }
+            }
+          }
+        } catch (locationError) {
+          console.error('Error getting location in fetchTokenAndCallBackend:', locationError);
+          // Continue without location - backend should handle missing coordinates
+        }
+      }
+
+      // Batch data fetch
+      const [rejectedEvents, savedEvents, filterByDistance, session] = await Promise.all([
+        dataManager.getRejectedEvents(),
+        dataManager.getSavedEvents(),
+        dataManager.getIsFilterByDistance(),
+        dataManager.getSession(),
+      ]);
+
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
       const savedEventIds = savedEvents.map((e: any) => e.id);
       
-      // Combine rejected and saved events to exclude from recommendations
-      const excludedEventIds = [...rejectedEventIds, ...savedEventIds];
-      
-      const filterByDistance = await dataManager.getIsFilterByDistance();
-      const session = await dataManager.getSession();
-      
-      console.log('📊 fetchTokenAndCallBackend: Data state:');
-      console.log('  - Rejected events:', rejectedEventIds);
-      console.log('  - Saved events:', savedEventIds);
-      console.log('  - Total excluded events:', excludedEventIds);
-      console.log('  - Filter by distance:', filterByDistance);
+      console.log('📊 Optimized data state:', {
+        rejectedCount: rejectedEventIds.length,
+        savedCount: savedEventIds.length,
+        location: { lat: userLat, lon: userLon }
+      });
 
-      // ADDITIONAL: Verify data directly from Supabase to check for race conditions
-      try {
-        const { data: userData } = await supabase
-          .from('all_users')
-          .select('saved_events')
-          .eq('email', currentUserEmail)
-          .single();
-        
-        console.log('✅ Direct Supabase saved_events check:', userData?.saved_events);
-        
-        if (userData?.saved_events && Array.isArray(userData.saved_events) && userData.saved_events.length !== savedEventIds.length) {
-          console.warn('⚠️  CACHE MISMATCH DETECTED!');
-          console.warn('  - GlobalDataManager saved events count:', savedEventIds.length);
-          console.warn('  - Supabase saved events count:', userData.saved_events.length);
-          console.warn('  - This indicates a race condition or cache sync issue');
-        }
-      } catch (error) {
-        console.error('❌ Error checking Supabase data directly:', error);
-      }
+      // Get calendar preferences (cached)
+      const [isCalendarMode, selectedDatesStr] = await Promise.all([
+        AsyncStorage.getItem('isCalendarMode'),
+        AsyncStorage.getItem('selectedDates')
+      ]);
 
-
-      /*const params = new URLSearchParams({
-          email: currentUserEmail,
-          latitude: userLatitude?.toString() || '',
-          longitude: userLongitude?.toString() || '',
-          filter_distance: filterByDistance.toString(),
-          rejected_events: Array.isArray(rejectedEventIds) ? rejectedEventIds.join(',') : rejectedEventIds
-      });*/
-
-      // Get calendar preferences from AsyncStorage
-      const isCalendarMode = await AsyncStorage.getItem('isCalendarMode') === 'true';
-      const selectedDatesStr = await AsyncStorage.getItem('selectedDates');
       let selectedDates: string[] = [];
-      
-      if (isCalendarMode && selectedDatesStr) {
+      if (isCalendarMode === 'true' && selectedDatesStr) {
         try {
           selectedDates = JSON.parse(selectedDatesStr);
         } catch (e) {
           console.error('Error parsing selected dates:', e);
-          selectedDates = [];
         }
       }
 
-      console.log('📅 Calendar filtering info:');
-      console.log('  - Is calendar mode:', isCalendarMode);
-      console.log('  - Selected dates:', selectedDates);
+      // Get current user profile to extract time preferences
+      const userProfile = await dataManager.getUserProfile();
+      const currentStartTime = userProfile?.['start-time'] || '21:00';
+      const currentEndTime = userProfile?.['end-time'] || '03:00';
 
-      const requestBody: any = {
+      const requestBody = {
         email: currentUserEmail,
-        latitude: userLatitude,
-        longitude: userLongitude,
-        rejected_events: excludedEventIds,
-        filter_distance: filterByDistance
+        latitude: userLat,
+        longitude: userLon,
+        rejected_events: rejectedEventIds,
+        filter_distance: filterByDistance,
+        selected_dates: selectedDates,
+        use_calendar_filter: isCalendarMode === 'true' && selectedDates.length > 0,
+        user_start_time: currentStartTime,
+        user_end_time: currentEndTime
       };
-
-      // Add calendar filtering if in calendar mode
-      if (isCalendarMode && selectedDates.length > 0) {
-        requestBody.selected_dates = selectedDates;
-        requestBody.use_calendar_filter = true;
-      } else {
-        requestBody.use_calendar_filter = false;
-      }
 
       const response = await fetch('https://iamtheprince-whats-poppin.hf.space/recommend', {
         method: 'POST',
@@ -236,54 +357,24 @@ export default function SuggestedEvents() {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Server responded with error:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorText
-        });
-        throw new Error(`Server responded with ${response.status}: ${errorText}`);
+        throw new Error(`Server responded with ${response.status}`);
       }
 
       const eventsData = await response.json();
-
-      // Process events to add random image selection
-      const processedEvents = eventsData.events.map((event: EventCard) => {
-        // Only generate image URLs if the event has an ID, otherwise leave null
-        let imageUrl = null;
-        let allImages: string[] = [];
-        
-        if (event.id) {
-          // Randomly select one of the 5 images (0-4)
-          const randomImageIndex = Math.floor(Math.random() * 5);
-          imageUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg`;
-          // Store all 5 image URLs for use in EventDetailModal
-          allImages = Array.from({ length: 5 }, (_, i) => 
-            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
-          );
-        }
-        
-        return {
-          ...event,
-          image: imageUrl,
-          allImages: allImages
-        };
-      });
-
-      // Reset the Swiper state
+      const processedEvents = processEvents(eventsData.events);
+      
+      // Update state efficiently
       setCardIndex(0);
-      setEVENTS([]); // Clear current events
-      setTimeout(() => {
-        setEVENTS(processedEvents); // Set new events after a brief delay
-        setLoading(false);
-        setIsFetchingActivities(false); // Reset fetching activities state
-      }, 100);
+      setEVENTS(processedEvents);
+      processedEventsRef.current = processedEvents;
+      
     } catch (error) {
       console.error('Error fetching recommendations:', error);
+    } finally {
       setLoading(false);
-      setIsFetchingActivities(false); // Reset fetching activities state
+      setIsFetchingActivities(false);
     }
-  };
+  }, [userLocation, dataManager, processEvents]);
 
   useEffect(() => {
     //fetchUserEvents(); // Consider if this should be here or after filters are loaded
@@ -342,6 +433,18 @@ export default function SuggestedEvents() {
   });
 
   const handleCardPress = (card: EventCard) => {
+    // Block all interactions if a swipe is in progress
+    if (isSwipeInProgress) {
+      console.log('Ignoring card press - swipe in progress');
+      return;
+    }
+    
+    // Only process card press if swiper is currently visible
+    if (!swiperVisible) {
+      console.log('Ignoring card press - swiper not visible');
+      return;
+    }
+    
     // Hide swiper immediately when card is pressed
     setSwiperVisible(false);
     
@@ -362,11 +465,16 @@ export default function SuggestedEvents() {
   const handleBackPress = () => {
     // Only update state - modal handles its own animations
     setExpandedCard(null);
-    // Show swiper again when modal closes
-    setSwiperVisible(true);
+    // Show swiper again when modal closes - but only if we're not in the middle of another interaction
+    setTimeout(() => {
+      setSwiperVisible(true);
+    }, 100); // Small delay to prevent race conditions
   };
 
   const handleSwipeRight = async (cardIndex: number) => {
+    // Mark swipe as in progress to block interactions
+    setIsSwipeInProgress(true);
+    
     const likedEvent = EVENTS[cardIndex];
     try {
       // Get current saved events (local)
@@ -390,10 +498,15 @@ export default function SuggestedEvents() {
           useNativeDriver: true,
         })
       ]).start(() => {
-        setExpandedCard(null);
+        // Only clear expanded card if it's actually set - prevents interfering with card presses
+        setExpandedCard(current => current ? null : current);
+        // Clear swipe in progress after animation completes
+        setIsSwipeInProgress(false);
       });
     } catch (error) {
       console.error('Error saving liked event:', error);
+      // Clear swipe in progress even on error
+      setIsSwipeInProgress(false);
     }
   };
 
@@ -413,29 +526,6 @@ export default function SuggestedEvents() {
     loadLikedEvents();
   }, []);
 
-  // Function to request location permission and get current location using expo-location
-  const requestLocationPermission = async () => {
-    try {
-      // Request foreground location permissions
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.error('Permission to access location was denied');
-        // Optionally show a message to the user explaining why location is needed
-        return;
-      }
-
-      // Get current location
-      let location = await Location.getCurrentPositionAsync({});
-      setUserLocation({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      });
-
-    } catch (err) {
-      console.error('Error getting user location:', err);
-    }
-  };
-
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
     console.log('All cards have been swiped');
@@ -443,7 +533,7 @@ export default function SuggestedEvents() {
     try {
       // First, update all rejected events in Supabase to ensure we have the latest data
       const rejectedEvents = await dataManager.getRejectedEvents();
-      const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
+      const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString()); // Convert to strings
       console.log('About to update rejected events in Supabase:', rejectedEventIds);
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
       console.log('Rejected events updated in Supabase, now calling backend');
@@ -482,11 +572,22 @@ export default function SuggestedEvents() {
       let userLon = userLocation?.longitude;
       if (userLat == null || userLon == null) {
         try {
-          let location = await Location.getCurrentPositionAsync({});
-          userLat = location.coords.latitude;
-          userLon = location.coords.longitude;
-          setUserLocation({ latitude: userLat, longitude: userLon });
+          // Check permissions before getting location
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status === 'granted') {
+            let location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            userLat = location.coords.latitude;
+            userLon = location.coords.longitude;
+            setUserLocation({ latitude: userLat, longitude: userLon });
+          } else {
+            console.log('Location permission not granted for saved activities');
+            userLat = undefined;
+            userLon = undefined;
+          }
         } catch (e) {
+          console.error('Error getting location for saved activities:', e);
           // If location can't be fetched, just skip distance
           userLat = undefined;
           userLon = undefined;
@@ -602,9 +703,24 @@ export default function SuggestedEvents() {
   }, [loading, isFetchingActivities]);
 
   const handleSwipedLeft = async (cardIndex: number) => {
+    // Mark swipe as in progress to block interactions
+    setIsSwipeInProgress(true);
+    
     const rejectedEvent = EVENTS[cardIndex];
 
-    await dataManager.updateRejectedEvents(rejectedEvent);
+    try {
+      // Update rejected events in AsyncStorage
+      await dataManager.updateRejectedEvents(rejectedEvent);
+      
+      // Also immediately update Supabase to prevent race conditions
+      const rejectedEvents = await dataManager.getRejectedEvents();
+      const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString());
+      await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
+      
+      console.log('Rejected event saved to both AsyncStorage and Supabase:', rejectedEvent.id);
+    } catch (error) {
+      console.error('Error saving rejected event:', error);
+    }
 
     setCardIndex((i) => i + 1);
     Animated.parallel([
@@ -620,7 +736,10 @@ export default function SuggestedEvents() {
         useNativeDriver: true,
       })
     ]).start(() => {
-      setExpandedCard(null);
+      // Only clear expanded card if it's actually set - prevents interfering with card presses
+      setExpandedCard(current => current ? null : current);
+      // Clear swipe in progress after animation completes
+      setIsSwipeInProgress(false);
     });
   };
 
@@ -792,6 +911,7 @@ export default function SuggestedEvents() {
                         ref={(ref) => { cardRefs.current[index] = ref; }}
                         onPress={() => handleCardPress(card)}
                         activeOpacity={1}
+                        disabled={isSwipeInProgress}
                       >
                         <Animated.View style={[
                           styles.card,
@@ -892,6 +1012,7 @@ export default function SuggestedEvents() {
                 <TouchableOpacity 
                   style={[styles.actionButton, styles.nopeButton]}
                   onPress={() => swiperRef.current?.swipeLeft()}
+                  disabled={isSwipeInProgress}
                 >
                   <Ionicons name="close" size={32} color="red" />
                 </TouchableOpacity>
@@ -908,6 +1029,7 @@ export default function SuggestedEvents() {
                 <TouchableOpacity 
                   style={[styles.actionButton, styles.likeButton]}
                   onPress={() => swiperRef.current?.swipeRight()}
+                  disabled={isSwipeInProgress}
                 >
                   <Ionicons name="checkmark" size={32} color="green" />
                 </TouchableOpacity>
@@ -1314,14 +1436,14 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   image: {
-    width: '92%',
-    height: '80%',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    width: '88%',
+    height: '70%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     resizeMode: 'cover',
-    marginTop: 20,
+    marginTop: 16,
     alignSelf: 'center',
   },
   title: {

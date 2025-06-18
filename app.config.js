@@ -12,14 +12,34 @@ module.exports = {
       resizeMode: "contain",
       backgroundColor: "#ffffff"
     },
+    extra: {
+      eas: {
+        projectId: "d313f76f-429c-4ab7-9a2a-3557cc200f40"
+      }
+    },
     assetBundlePatterns: [
       "**/*"
     ],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.whatspoppin.app",
+      bundleIdentifier: "com.prithviseran.whatspoppin",
+      buildNumber: "1",
       config: {
         googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+      },
+      infoPlist: {
+        NSAppTransportSecurity: {
+          NSAllowsArbitraryLoads: true
+        },
+        NSLocationWhenInUseUsageDescription: "This app needs access to your location to show nearby events and your position on the map.",
+        NSLocationAlwaysUsageDescription: "This app needs access to your location to show nearby events and your position on the map.",
+        UIBackgroundModes: ["location", "fetch"],
+        CFBundleURLTypes: [
+          {
+            CFBundleURLSchemes: ["whatspoppin"],
+            CFBundleURLName: "com.prithviseran.whatspoppin"
+          }
+        ]
       }
     },
     android: {
@@ -27,12 +47,30 @@ module.exports = {
         foregroundImage: "./assets/images/adaptive-icon.png",
         backgroundColor: "#ffffff"
       },
-      package: "com.whatspoppin.app",
+      package: "com.prithviseran.whatspoppin",
       config: {
         googleMaps: {
           apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
         }
-      }
+      },
+      permissions: [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
+      intentFilters: [
+        {
+          action: "VIEW",
+          autoVerify: true,
+          data: [
+            {
+              scheme: "whatspoppin"
+            }
+          ],
+          category: ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     web: {
       bundler: "metro",
@@ -46,7 +84,18 @@ module.exports = {
         {
           locationAlwaysAndWhenInUsePermission: "Allow $(PRODUCT_NAME) to use your location."
         }
-      ]
+      ],
+      [
+        "expo-splash-screen",
+        {
+          image: "./assets/images/splash-icon.png",
+          imageWidth: 200,
+          resizeMode: "contain",
+          backgroundColor: "#ffffff"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser"
     ],
     experiments: {
       typedRoutes: true

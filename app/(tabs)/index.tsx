@@ -200,9 +200,9 @@ export default function HomeScreen() {
     return <SignInScreen />;
   }
 
-  if (isDataLoading) {
-    return <LoadingScreen />;
-  }
+  // if (isDataLoading) {
+  //   return <LoadingScreen />;
+  // }
 
   // Data is ready, show the main content
   return <SuggestedEvents />;

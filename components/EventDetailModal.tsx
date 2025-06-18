@@ -508,7 +508,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               <Text style={[styles.organizationText, { color: Colors[colorScheme ?? 'light'].text }]}>
                 {event.organization}
               </Text>
-              
+
               <View style={styles.buttonContainer}>
                 {/* Link Button */}
                 {event.link && (
@@ -559,6 +559,46 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
+
+              {/* Event Type Tags */}
+              {event.event_type && (
+                <View style={styles.eventTagsContainer}>
+                  {(() => {
+                    // Parse event types - handle both comma-separated strings and arrays
+                    let eventTypes: string[] = [];
+                    
+                    if (typeof event.event_type === 'string') {
+                      // Split by common separators and clean up
+                      eventTypes = event.event_type
+                        .split(/[,;|&+]/) // Split by comma, semicolon, pipe, ampersand, or plus
+                        .map(type => type.trim())
+                        .filter(type => type.length > 0);
+                    } else if (Array.isArray(event.event_type)) {
+                      eventTypes = event.event_type;
+                    }
+                    
+                    // If no valid types found, use the original string
+                    if (eventTypes.length === 0) {
+                      eventTypes = [event.event_type];
+                    }
+                    
+                    return eventTypes.map((eventType, index) => (
+                      <View key={index} style={styles.eventTag}>
+                        <LinearGradient
+                          colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          locations={[0, 0.25, 0.5, 0.75, 1]}
+                          style={styles.eventTagGradient}
+                        >
+                          <Ionicons name="pricetag" size={14} color="white" style={styles.tagIcon} />
+                          <Text style={styles.eventTagText}>{eventType}</Text>
+                        </LinearGradient>
+                      </View>
+                    ));
+                  })()}
+                </View>
+              )}
             </View>
 
             <View style={styles.infoSection}>
@@ -1181,5 +1221,38 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
     backgroundColor: 'rgba(158, 149, 189, 0.05)',
+  },
+  eventTagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+    marginBottom: 8,
+    marginHorizontal: -4, // Offset the right margin of individual tags
+  },
+  eventTag: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    marginRight: 8,
+    marginBottom: 6,
+  },
+  eventTagGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  tagIcon: {
+    marginRight: 6,
+  },
+  eventTagText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
 }); 
