@@ -16,6 +16,11 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "extra": {
+      "eas": {
+        "projectId": "d313f76f-429c-4ab7-9a2a-3557cc200f40"
+      }
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.iamtheprince.whats-poppin",

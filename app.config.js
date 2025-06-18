@@ -8,16 +8,20 @@ module.exports = {
     scheme: "whatspoppin",
     userInterfaceStyle: "automatic",
     splash: {
-      image: "./assets/images/splash.png",
       resizeMode: "contain",
       backgroundColor: "#ffffff"
+    },
+    extra: {
+      eas: {
+        projectId: "d313f76f-429c-4ab7-9a2a-3557cc200f40"
+      }
     },
     assetBundlePatterns: [
       "**/*"
     ],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.whatspoppin.app",
+      bundleIdentifier: "com.prithviseran.whatspoppin",
       config: {
         googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
       }
@@ -27,7 +31,7 @@ module.exports = {
         foregroundImage: "./assets/images/adaptive-icon.png",
         backgroundColor: "#ffffff"
       },
-      package: "com.whatspoppin.app",
+      package: "com.prithviseran.whatspoppin",
       config: {
         googleMaps: {
           apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY

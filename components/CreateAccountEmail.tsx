@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, RouteProp } from '@react-navigation/native';
@@ -21,6 +22,7 @@ import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import MaskedView from '@react-native-masked-view/masked-view';
 import CreateAccountProgressBar from './CreateAccountProgressBar';
+import { supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -30,6 +32,8 @@ const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 type RootStackParamList = {
   'create-account-birthday': { userData: string };
   'create-account-email': { userData: string };
+  'social-sign-in': undefined;
+  'forgot-password': undefined;
 };
 
 type CreateAccountEmailRouteProp = RouteProp<RootStackParamList, 'create-account-email'>;
@@ -44,6 +48,8 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
+  const [emailExists, setEmailExists] = useState(false);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
@@ -64,12 +70,83 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     return true;
   };
 
+  const checkEmailExists = async (email: string) => {
+    if (!email || !validateEmail(email)) return;
+    
+    setIsCheckingEmail(true);
+    setEmailExists(false);
+    setEmailError('');
+    
+    try {
+      // First check auth.users table for existing auth accounts
+      const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
+      
+      // If we can't access admin API (which is expected in client-side), 
+      // check the all_users table instead
+      if (authError) {
+        const { data: userData, error: userError } = await supabase
+          .from('all_users')
+          .select('email')
+          .eq('email', email.toLowerCase())
+          .maybeSingle();
+        
+        if (userError && userError.code !== 'PGRST116') {
+          console.error('Error checking email:', userError);
+          return;
+        }
+        
+        if (userData) {
+          setEmailExists(true);
+          setEmailError('This email is already registered');
+        }
+      } else {
+        // Check if email exists in auth users
+        const existingUser = authData.users.find(user => 
+          user.email?.toLowerCase() === email.toLowerCase()
+        );
+        
+        if (existingUser) {
+          setEmailExists(true);
+          setEmailError('This email is already registered');
+        }
+      }
+    } catch (error) {
+      console.error('Error checking email existence:', error);
+    } finally {
+      setIsCheckingEmail(false);
+    }
+  };
+
+  const handleEmailChange = (text: string) => {
+    setEmail(text);
+    setEmailExists(false);
+    setEmailError('');
+    
+    // Validate format first
+    if (validateEmail(text)) {
+      // Debounce the email check
+      const timeoutId = setTimeout(() => {
+        checkEmailExists(text);
+      }, 800);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  };
+
   const handleNext = () => {
-    if (validateEmail(email)) {
+    if (validateEmail(email) && !emailExists && !isCheckingEmail) {
       navigation.navigate('create-account-birthday', {
         userData: JSON.stringify({ ...userData, email }),
       });
     }
+  };
+
+  const handleSignIn = () => {
+    navigation.navigate('social-sign-in');
+  };
+
+  const handleForgotPassword = () => {
+    navigation.navigate('forgot-password');
   };
 
   const handleInputFocus = () => {
@@ -164,10 +241,7 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
                     { color: Colors[colorScheme ?? 'light'].text },
                   ]}
                   value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    validateEmail(text);
-                  }}
+                  onChangeText={handleEmailChange}
                   onFocus={handleInputFocus}
                   onBlur={handleInputBlur}
                   placeholder="Enter your email address"
@@ -175,23 +249,71 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="email-address"
-                  returnKeyType="next"
-                  onSubmitEditing={handleNext}
+                  returnKeyType="done"
                 />
+                {isCheckingEmail && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color="#9E95BD" 
+                    style={{ marginLeft: 8 }}
+                  />
+                )}
               </View>
-              {emailError ? (
+              {emailError && !emailExists && (
                 <View style={styles.errorContainer}>
                   <Ionicons name="alert-circle" size={16} color="#FF3B30" />
                   <Text style={styles.errorText}>{emailError}</Text>
                 </View>
-              ) : null}
+              )}
+                             {emailExists && (
+                 <View style={styles.existingEmailContainer}>
+                   <View style={styles.existingEmailHeader}>
+                     <Ionicons name="information-circle" size={22} color="#FF8C00" />
+                     <Text style={[styles.existingEmailTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                       Account Already Exists
+                     </Text>
+                   </View>
+                   <Text style={[styles.existingEmailMessage, { color: Colors[colorScheme ?? 'light'].text }]}>
+                     This email is already registered. Choose an option below:
+                   </Text>
+                   <View style={styles.existingEmailButtons}>
+                     <TouchableOpacity 
+                       style={styles.signInButtonWrapper}
+                       onPress={handleSignIn}
+                       activeOpacity={0.8}
+                     >
+                       <LinearGradient
+                         colors={['#9E95BD', '#B97AFF']}
+                         start={{ x: 0, y: 0 }}
+                         end={{ x: 1, y: 1 }}
+                         style={styles.signInButton}
+                       >
+                         <Ionicons name="log-in-outline" size={18} color="white" />
+                         <Text style={styles.signInButtonText}>Sign In</Text>
+                       </LinearGradient>
+                     </TouchableOpacity>
+                     
+                     <TouchableOpacity 
+                       style={[styles.forgotPasswordButton, { 
+                         borderColor: colorScheme === 'dark' ? '#666' : '#D1D5DB',
+                         backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)'
+                       }]}
+                       onPress={handleForgotPassword}
+                       activeOpacity={0.7}
+                     >
+                       <Ionicons name="key-outline" size={18} color="#9E95BD" />
+                       <Text style={[styles.forgotPasswordText, { color: '#9E95BD' }]}>Reset Password</Text>
+                     </TouchableOpacity>
+                   </View>
+                 </View>
+               )}
             </Animated.View>
           </View>
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               onPress={handleNext}
-              disabled={!email.trim() || !!emailError}
+              disabled={!email.trim() || !!emailError || emailExists || isCheckingEmail}
               style={styles.buttonWrapper}
             >
               <LinearGradient
@@ -201,7 +323,7 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
                 locations={[0, 0.25, 0.5, 0.75, 1]}
                 style={[
                   styles.nextButton,
-                  (!email.trim() || !!emailError) && styles.disabledButton,
+                  (!email.trim() || !!emailError || emailExists || isCheckingEmail) && styles.disabledButton,
                 ]}
               >
                 <Text style={styles.nextButtonText}>Continue</Text>
@@ -344,6 +466,71 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.5,
+  },
+  existingEmailContainer: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: 'rgba(255, 140, 0, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 140, 0, 0.3)',
+  },
+  existingEmailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  existingEmailTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  existingEmailMessage: {
+    fontSize: 14,
+    opacity: 0.8,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  existingEmailButtons: {
+    flexDirection: 'column',
+    gap: 12,
+  },
+  signInButtonWrapper: {
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  signInButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    gap: 8,
+  },
+  signInButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  forgotPasswordButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    gap: 8,
+  },
+  forgotPasswordText: {
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });
 
