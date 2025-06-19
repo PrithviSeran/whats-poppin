@@ -27,7 +27,7 @@ jobs:
         
     - name: Install dependencies
       run: |
-        pip install requests python-dotenv supabase
+        pip install requests python-dotenv supabase-py
         
     - name: Get all users and train models
       env:
@@ -36,6 +36,7 @@ jobs:
         HUGGINGFACE_SPACE_URL: ${{ secrets.HUGGINGFACE_SPACE_URL }}  # e.g., https://your-space.hf.space
         SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}  # For auth bypass
         FORCE_RETRAIN: ${{ github.event.inputs.force_retrain || 'false' }}
+      working-directory: ./backend/spaces
       run: |
         python - << 'EOF'
         import os
@@ -80,19 +81,10 @@ jobs:
                 skipped_count = 0
                 
                 # Create a service account token for API calls
-                # You'll need to implement this based on your auth system
                 auth_token = None
                 if service_key:
-                    # Generate a temporary token for API calls
-                    # This depends on your Supabase setup
-                    try:
-                        auth_response = supabase.auth.sign_in_with_password({
-                            "email": "admin@yourapp.com",  # Replace with your service account
-                            "password": os.getenv('SERVICE_ACCOUNT_PASSWORD', '')
-                        })
-                        auth_token = auth_response.session.access_token if auth_response.session else None
-                    except:
-                        print("⚠️ Could not get service auth token, using service key directly")
+                    # For service role, use the key directly
+                    auth_token = service_key
                 
                 # Train each user's model
                 for i, user in enumerate(users):
@@ -111,8 +103,6 @@ jobs:
                         # Use service role key for authorization if available
                         if auth_token:
                             headers['Authorization'] = f'Bearer {auth_token}'
-                        elif service_key:
-                            headers['Authorization'] = f'Bearer {service_key}'
                         else:
                             print(f"⚠️ No auth token available for {email}, skipping...")
                             skipped_count += 1
