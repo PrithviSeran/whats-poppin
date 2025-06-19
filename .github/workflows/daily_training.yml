@@ -27,7 +27,7 @@ jobs:
         
     - name: Install dependencies
       run: |
-        pip install requests python-dotenv supabase-py
+        pip install requests python-dotenv supabase
         
     - name: Get all users and train models
       env:
