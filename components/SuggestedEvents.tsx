@@ -98,7 +98,7 @@ export default function SuggestedEvents() {
   const [expandedCard, setExpandedCard] = useState<EventCard | null>(null);
   const [cardPosition, setCardPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [isFilterVisible, setIsFilterVisible] = useState(false);
-  const [swiperVisible, setSwiperVisible] = useState(true);
+  // Removed swiperVisible state - swiper now stays visible when modal opens
   const [isSwipeInProgress, setIsSwipeInProgress] = useState(false);
 
   const swipeX = useRef(new Animated.Value(0)).current;
@@ -436,7 +436,6 @@ export default function SuggestedEvents() {
     console.log('🎯 Card press attempted:', {
       isSwipeInProgress,
       expandedCard: !!expandedCard,
-      swiperVisible,
       cardName: card.name
     });
     
@@ -454,8 +453,8 @@ export default function SuggestedEvents() {
     
     console.log('✅ Processing card press for:', card.name);
     
-    // Hide swiper immediately when card is pressed
-    setSwiperVisible(false);
+    // Keep swiper visible - don't hide it when modal opens
+    // This prevents race conditions and provides smoother UX
     
     // Measure the card position before expanding
     const cardRef = cardRefs.current[cardIndex];
@@ -472,11 +471,9 @@ export default function SuggestedEvents() {
   };
 
   const handleBackPress = () => {
-    // Only update state - modal handles its own animations
+    // Simply clear modal state - swiper stays visible throughout
     setExpandedCard(null);
     setCardPosition(null);
-    // Show swiper again immediately when modal closes - no timeout needed
-    setSwiperVisible(true);
   };
 
   const handleSwipeRight = async (cardIndex: number) => {
@@ -958,7 +955,7 @@ export default function SuggestedEvents() {
         >
           {EVENTS.length > 0 ? (
             <>
-              <View style={[styles.swiperContainer, { opacity: swiperVisible ? 1 : 0 }]}>
+              <View style={styles.swiperContainer}>
                 <Swiper
                   ref={swiperRef}
                   cards={EVENTS}
@@ -977,7 +974,7 @@ export default function SuggestedEvents() {
                         }}
                         onPressIn={() => console.log('👆 TouchableOpacity onPressIn for:', card.name)}
                         onPressOut={() => console.log('👆 TouchableOpacity onPressOut for:', card.name)}
-                        activeOpacity={0.9}
+                        activeOpacity={1}
                         disabled={isSwipeInProgress}
                         style={{ flex: 1 }}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
