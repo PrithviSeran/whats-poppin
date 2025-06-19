@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import uvicorn
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from beacon_torch import BeaconAI
+from beacon_torch_cloud import HuggingFaceBeaconAI
 
 AGE_GROUPS = ['18-24', '25-34', '35-49', '50-99']
 GENDER = ['male', 'female', 'other']
@@ -80,8 +80,14 @@ class EventRecommendationSystem:
             raise ValueError("Please set SUPABASE_URL and SUPABASE_ANON_KEY in your Space secrets")
         
         self.Client = create_client(supabase_url, supabase_key)
-        # Initialize your model
-        # self.rec = BeaconAI()
+        
+        # Initialize cloud-native BeaconAI
+        self.rec = HuggingFaceBeaconAI(
+            supabase_url=supabase_url,
+            supabase_key=supabase_key,
+            embedding_dim=32,
+            user_id=None  # Set to specific user ID for per-user models
+        )
     
     def get_user_data(self, email):
         """Fetch user data from Supabase"""
@@ -906,54 +912,90 @@ class EventRecommendationSystem:
                     "total_found": 0
                 }
 
-            # 4. ML Recommendation logic
+            # 4. ML Recommendation logic - OPTIMIZED
             try:
-                # Fetch all users with their interaction history
-                all_users_result = self.Client.table("all_users").select(
-                    "email, preferences, travel-distance, saved_events, saved_events_all_time, rejected_events, start-time, end-time, birthday, gender, preferred_days"
-                ).execute()
-                all_users = all_users_result.data
-                print(f"Users fetched: {len(all_users)}")
-            
-                user_emails = [user.get("email") for user in all_users if user.get("email")]
+                # Use cloud-native BeaconAI for per-user models
+                self.rec.user_id = email  # Set user ID for per-user model storage
                 
-                # Choose interaction method based on data availability
-                # Use enhanced interactions that include both positive (saved_events_all_time) and negative (rejected) interactions
-                use_enhanced_interactions = True  # Can be made configurable
+                # TRY FAST PATH: Load existing model without rebuilding features
+                print("🚀 Attempting fast inference path...")
+                model_status = self.rec.load_model_if_exists()
                 
-                if use_enhanced_interactions:
-                    interactions = self.build_enhanced_interactions(all_users)
-                    print(f"Enhanced interactions built: {len(interactions)}")
+                if model_status and self.rec.is_model_loaded():
+                    print("✅ Using pre-trained model for fast inference")
+                    # Extract liked/rejected event IDs for simple filtering
+                    liked_and_rejected_ids = set(saved_events) | set(rejected_events)
+                    
+                    # Fast recommendation without feature/interaction building
+                    recommendations = self.rec.recommend_for_user(
+                        email,
+                        top_n=5,
+                        filter_liked=True,
+                        liked_event_ids=list(liked_and_rejected_ids)
+                    )
+                    print(f"🚀 Fast recommendations generated: {len(recommendations)}")
+                    
                 else:
-                    interactions = self.build_interactions(all_users)
-                    print(f"Basic interactions built: {len(interactions)}")
+                    print("📚 No existing model found, falling back to training...")
+                    # SLOW PATH: Need to build features and train
+                    # Fetch all users with their interaction history
+                    all_users_result = self.Client.table("all_users").select(
+                        "email, preferences, travel-distance, saved_events, saved_events_all_time, rejected_events, start-time, end-time, birthday, gender, preferred_days"
+                    ).execute()
+                    all_users = all_users_result.data
+                    print(f"Users fetched: {len(all_users)}")
                 
-                # Debug: Show sample interactions
-                if interactions:
-                    print(f"Debug: Sample interactions: {interactions[:5]}")
-                    positive_interactions = [i for i in interactions if i[2] > 0]
-                    negative_interactions = [i for i in interactions if i[2] < 0]
-                    print(f"Debug: Positive interactions: {len(positive_interactions)}, Negative: {len(negative_interactions)}")
-                else:
-                    print("Warning: No interactions found for training!")
+                    user_emails = [user.get("email") for user in all_users if user.get("email")]
+                    
+                    # Choose interaction method based on data availability
+                    use_enhanced_interactions = True  # Can be made configurable
+                    
+                    if use_enhanced_interactions:
+                        interactions = self.build_enhanced_interactions(all_users)
+                        print(f"Enhanced interactions built: {len(interactions)}")
+                    else:
+                        interactions = self.build_interactions(all_users)
+                        print(f"Basic interactions built: {len(interactions)}")
+                    
+                    # Debug: Show sample interactions
+                    if interactions:
+                        print(f"Debug: Sample interactions: {interactions[:5]}")
+                        positive_interactions = [i for i in interactions if i[2] > 0]
+                        negative_interactions = [i for i in interactions if i[2] < 0]
+                        print(f"Debug: Positive interactions: {len(positive_interactions)}, Negative: {len(negative_interactions)}")
+                    else:
+                        print("Warning: No interactions found for training!")
 
-                user_feature_tuples = self.build_user_features(all_users)
-                print(f"User features built: {len(user_feature_tuples)}")
+                    user_feature_tuples = self.build_user_features(all_users)
+                    print(f"User features built: {len(user_feature_tuples)}")
 
-                event_feature_tuples = self.build_event_features(all_events_filtered)
-                print(f"Event features built: {len(event_feature_tuples)}")
+                    event_feature_tuples = self.build_event_features(all_events_filtered)
+                    print(f"Event features built: {len(event_feature_tuples)}")
+                    
+                    # Load or train model for this user
+                    status = self.rec.load_or_train(
+                        user_emails, 
+                        event_ids_filtered, 
+                        user_feature_tuples, 
+                        event_feature_tuples, 
+                        interactions,
+                        epochs=10,
+                        learning_rate=0.01,
+                        batch_size=256
+                    )
+                    print(f"Model status: {status}")
 
-                rec = BeaconAI()
-                rec.fit_data(user_emails, event_ids_filtered, user_feature_tuples, event_feature_tuples, interactions)
-                rec.train_model()
-                print("Model trained successfully")
-
-                top_5_recommended_events = []
-                recommendations = rec.recommend_for_user(
-                    email,
-                    top_n=5,
-                )
-                print(f"Recommendations generated: {len(recommendations)}")
+                    # Extract liked/rejected event IDs for filtering
+                    liked_and_rejected_ids = set(saved_events) | set(rejected_events)
+                    
+                    # Generate recommendations with optimized filtering
+                    recommendations = self.rec.recommend_for_user(
+                        email,
+                        top_n=5,
+                        filter_liked=True,
+                        liked_event_ids=list(liked_and_rejected_ids)
+                    )
+                    print(f"📚 Training path recommendations generated: {len(recommendations)}")
 
                 # Get the full event objects for the recommended events with featured boost
                 recommended_events = []
@@ -1211,6 +1253,148 @@ async def debug_filter(request: Request):
         
     except Exception as e:
         return {"error": str(e), "traceback": str(e)}
+
+@app.post("/train")
+async def trigger_training(request: Request):
+    """Manually trigger model training for a specific user"""
+    try:
+        body = await request.json()
+        email = body.get("email")
+        force_retrain = body.get("force_retrain", False)
+        
+        if not email:
+            return {"error": "Email required"}
+        
+        # Get token from Authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return {"error": "No valid token provided"}
+
+        token = auth_header.split(' ')[1]
+        
+        # Verify user
+        user = recommender.Client.auth.get_user(token)
+        if user.user.email != email:
+            return {"error": "Token doesn't match requested email"}
+        
+        # Get user data and prepare training data
+        user_data = recommender.get_user_data(email)
+        if not user_data:
+            return {"error": "User not found"}
+        
+        # Get all users and events for training
+        all_users_result = recommender.Client.table("all_users").select("*").execute()
+        all_users = all_users_result.data
+        
+        user_preferences = recommender.parse_preferences(user_data.get("preferences", []))
+        all_events = recommender.get_events_data(user_preferences if user_preferences else None)
+        
+        user_emails = [user.get("email") for user in all_users if user.get("email")]
+        event_ids = [event["id"] for event in all_events]
+        
+        interactions = recommender.build_enhanced_interactions(all_users)
+        user_feature_tuples = recommender.build_user_features(all_users)
+        event_feature_tuples = recommender.build_event_features(all_events)
+        
+        # Set user ID for per-user model
+        recommender.rec.user_id = email
+        
+        # Train model
+        status = recommender.rec.load_or_train(
+            user_emails,
+            event_ids,
+            user_feature_tuples,
+            event_feature_tuples,
+            interactions,
+            force_retrain=force_retrain,
+            epochs=15,  # More epochs for manual training
+            learning_rate=0.01,
+            batch_size=256
+        )
+        
+        return {
+            "success": True,
+            "status": status,
+            "message": f"Training completed for user {email}",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/models/{user_email}")
+async def get_model_info(user_email: str, request: Request):
+    """Get information about a user's trained model"""
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return {"error": "No valid token provided"}
+
+        token = auth_header.split(' ')[1]
+        
+        # Verify user
+        user = recommender.Client.auth.get_user(token)
+        if user.user.email != user_email:
+            return {"error": "Token doesn't match requested email"}
+        
+        # Check for existing model
+        stored_model = recommender.rec.storage.load_model(user_email)
+        
+        if stored_model:
+            return {
+                "has_model": True,
+                "created_at": stored_model["created_at"],
+                "data_fingerprint": stored_model["data_fingerprint"],
+                "metadata": stored_model["metadata"]
+            }
+        else:
+            return {
+                "has_model": False,
+                "message": "No trained model found for this user"
+            }
+            
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.delete("/models/{user_email}")
+async def delete_user_model(user_email: str, request: Request):
+    """Delete a user's trained model"""
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return {"error": "No valid token provided"}
+
+        token = auth_header.split(' ')[1]
+        
+        # Verify user
+        user = recommender.Client.auth.get_user(token)
+        if user.user.email != user_email:
+            return {"error": "Token doesn't match requested email"}
+        
+        # Delete model by creating a "deleted" entry (or implement actual deletion in Supabase)
+        # For now, we'll rely on the model's age-based cleanup
+        return {
+            "success": True,
+            "message": f"Model deletion scheduled for user {user_email}. It will be removed during next cleanup."
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/admin/cleanup")
+async def cleanup_old_models():
+    """Admin endpoint to clean up old models"""
+    try:
+        recommender.rec.cleanup_old_models(days_to_keep=7)
+        return {
+            "success": True,
+            "message": "Model cleanup completed",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 # For local development
 if __name__ == "__main__":

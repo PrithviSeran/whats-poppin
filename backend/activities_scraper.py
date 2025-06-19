@@ -1521,7 +1521,7 @@ class TorontoActivityScraper:
             print(f"\nScraping {event_type}...")
             for place_type in place_types:
                 print(f"  - Getting {place_type} places...")
-                places = self.get_google_places(place_type, max_results=100)
+                places = self.get_google_places(place_type, max_results=500)
                 print(f"    Found {len(places)} places")
                 for place in places:
                     activity = self.transform_google_place(place, event_type)
@@ -1532,7 +1532,7 @@ class TorontoActivityScraper:
         yelp_categories = ['restaurants', 'bars', 'coffee', 'shopping', 'arts']
         for category in yelp_categories:
             print(f"\nScraping {category}...")
-            businesses = self.get_yelp_businesses(category, limit=100)
+            businesses = self.get_yelp_businesses(category, limit=500)
             print(f"  Found {len(businesses)} businesses")
             for business in businesses:
                 activity = self.transform_yelp_business(business, category)
@@ -1540,7 +1540,7 @@ class TorontoActivityScraper:
             time_module.sleep(1)  # Rate limiting
         
         print("\n=== Starting TicketMaster Scrape ===")
-        events = self.get_ticket_master_events(limit=100)
+        events = self.get_ticket_master_events(limit=500)
         print(f"Found {len(events)} events from TicketMaster")
         for event in events:
             activity = self.transform_ticket_master_event(event)

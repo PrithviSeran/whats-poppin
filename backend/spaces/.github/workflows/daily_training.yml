@@ -1,0 +1,193 @@
+name: Daily Model Training
+
+on:
+  schedule:
+    # Run every day at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      force_retrain:
+        description: 'Force retrain all models'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  train-models:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install requests python-dotenv supabase
+        
+    - name: Get all users and train models
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        HUGGINGFACE_SPACE_URL: ${{ secrets.HUGGINGFACE_SPACE_URL }}  # e.g., https://your-space.hf.space
+        SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}  # For auth bypass
+        FORCE_RETRAIN: ${{ github.event.inputs.force_retrain || 'false' }}
+      run: |
+        python - << 'EOF'
+        import os
+        import requests
+        import json
+        from supabase import create_client
+        import time
+        from datetime import datetime
+        
+        def train_user_models():
+            # Initialize Supabase client
+            supabase_url = os.getenv('SUPABASE_URL')
+            supabase_key = os.getenv('SUPABASE_ANON_KEY')
+            service_key = os.getenv('SERVICE_ROLE_KEY')
+            space_url = os.getenv('HUGGINGFACE_SPACE_URL')
+            force_retrain = os.getenv('FORCE_RETRAIN', 'false').lower() == 'true'
+            
+            if not all([supabase_url, supabase_key, space_url]):
+                print("❌ Missing required environment variables")
+                return
+            
+            # Use service role key for admin access if available
+            auth_key = service_key if service_key else supabase_key
+            supabase = create_client(supabase_url, auth_key)
+            
+            print(f"🔍 Fetching all users...")
+            
+            try:
+                # Get all users with email addresses
+                result = supabase.table('all_users').select('email').execute()
+                users = result.data
+                
+                if not users:
+                    print("⚠️ No users found")
+                    return
+                
+                print(f"👥 Found {len(users)} users to train")
+                
+                # Training statistics
+                trained_count = 0
+                failed_count = 0
+                skipped_count = 0
+                
+                # Create a service account token for API calls
+                # You'll need to implement this based on your auth system
+                auth_token = None
+                if service_key:
+                    # Generate a temporary token for API calls
+                    # This depends on your Supabase setup
+                    try:
+                        auth_response = supabase.auth.sign_in_with_password({
+                            "email": "admin@yourapp.com",  # Replace with your service account
+                            "password": os.getenv('SERVICE_ACCOUNT_PASSWORD', '')
+                        })
+                        auth_token = auth_response.session.access_token if auth_response.session else None
+                    except:
+                        print("⚠️ Could not get service auth token, using service key directly")
+                
+                # Train each user's model
+                for i, user in enumerate(users):
+                    email = user['email']
+                    if not email:
+                        continue
+                    
+                    print(f"🏋️ [{i+1}/{len(users)}] Training model for: {email}")
+                    
+                    try:
+                        # Prepare request
+                        headers = {
+                            'Content-Type': 'application/json',
+                        }
+                        
+                        # Use service role key for authorization if available
+                        if auth_token:
+                            headers['Authorization'] = f'Bearer {auth_token}'
+                        elif service_key:
+                            headers['Authorization'] = f'Bearer {service_key}'
+                        else:
+                            print(f"⚠️ No auth token available for {email}, skipping...")
+                            skipped_count += 1
+                            continue
+                        
+                        data = {
+                            'email': email,
+                            'force_retrain': force_retrain
+                        }
+                        
+                        # Call the /train endpoint
+                        response = requests.post(
+                            f'{space_url}/train',
+                            headers=headers,
+                            json=data,
+                            timeout=600  # 10 minute timeout for training
+                        )
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            status = result.get('status', 'unknown')
+                            print(f"✅ {email}: {status}")
+                            trained_count += 1
+                        else:
+                            print(f"❌ {email}: HTTP {response.status_code} - {response.text}")
+                            failed_count += 1
+                        
+                        # Small delay to avoid overwhelming the system
+                        time.sleep(2)
+                        
+                    except requests.exceptions.Timeout:
+                        print(f"⏰ {email}: Training timeout (>10 minutes)")
+                        failed_count += 1
+                    except Exception as e:
+                        print(f"❌ {email}: {str(e)}")
+                        failed_count += 1
+                
+                # Summary
+                print(f"\n📊 Training Summary:")
+                print(f"   ✅ Trained: {trained_count}")
+                print(f"   ❌ Failed: {failed_count}")
+                print(f"   ⏭️ Skipped: {skipped_count}")
+                print(f"   📋 Total: {len(users)}")
+                print(f"   🕐 Completed at: {datetime.now().isoformat()}")
+                
+                # Exit with error if too many failures
+                failure_rate = failed_count / len(users) if users else 0
+                if failure_rate > 0.5:  # More than 50% failed
+                    print(f"❌ High failure rate: {failure_rate:.1%}")
+                    exit(1)
+                else:
+                    print(f"✅ Training completed successfully")
+                
+            except Exception as e:
+                print(f"❌ Error fetching users or training: {e}")
+                exit(1)
+        
+        if __name__ == "__main__":
+            train_user_models()
+        EOF
+        
+    - name: Send notification on failure
+      if: failure()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#alerts'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: 'Daily model training failed!'
+        
+    - name: Send success notification
+      if: success()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#ml-updates'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: 'Daily model training completed successfully! 🎉' 
