@@ -163,9 +163,16 @@ https://your-username-your-space-name.hf.space
 Test the training endpoint manually:
 
 ```bash
+# Admin endpoint (for service role key)
+curl -X POST "https://your-space.hf.space/admin/train" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_service_role_key" \
+  -d '{"email": "test@example.com", "force_retrain": false}'
+
+# User endpoint (for user tokens)
 curl -X POST "https://your-space.hf.space/train" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_token" \
+  -H "Authorization: Bearer user_auth_token" \
   -d '{"email": "test@example.com", "force_retrain": false}'
 ```
 

@@ -1254,9 +1254,9 @@ async def debug_filter(request: Request):
     except Exception as e:
         return {"error": str(e), "traceback": str(e)}
 
-@app.post("/train")
-async def trigger_training(request: Request):
-    """Manually trigger model training for a specific user"""
+@app.post("/admin/train")
+async def admin_trigger_training(request: Request):
+    """Admin endpoint to trigger model training for any user (requires service role key)"""
     try:
         body = await request.json()
         email = body.get("email")
@@ -1272,7 +1272,89 @@ async def trigger_training(request: Request):
 
         token = auth_header.split(' ')[1]
         
-        # Verify user
+        # For admin endpoint, we expect a service role key
+        # Verify the service role key works by making a privileged query
+        try:
+            # Test service role access by checking if we can query users table
+            # We'll use a new Supabase client with the provided token
+            from supabase import create_client
+            import os
+            
+            admin_client = create_client(
+                os.getenv('SUPABASE_URL'),
+                token  # Use the provided token (should be service role key)
+            )
+            
+            test_query = admin_client.table("all_users").select("email").limit(1).execute()
+            if not test_query.data:
+                return {"error": "Service role verification failed - no access to users table"}
+        except Exception as e:
+            return {"error": f"Service role verification failed: {str(e)}"}
+        
+        # Get user data and prepare training data
+        user_data = recommender.get_user_data(email)
+        if not user_data:
+            return {"error": "User not found"}
+        
+        # Get all users and events for training
+        all_users_result = recommender.Client.table("all_users").select("*").execute()
+        all_users = all_users_result.data
+        
+        user_preferences = recommender.parse_preferences(user_data.get("preferences", []))
+        all_events = recommender.get_events_data(user_preferences if user_preferences else None)
+        
+        user_emails = [user.get("email") for user in all_users if user.get("email")]
+        event_ids = [event["id"] for event in all_events]
+        
+        interactions = recommender.build_enhanced_interactions(all_users)
+        user_feature_tuples = recommender.build_user_features(all_users)
+        event_feature_tuples = recommender.build_event_features(all_events)
+        
+        # Set user ID for per-user model
+        recommender.rec.user_id = email
+        
+        # Train model
+        status = recommender.rec.load_or_train(
+            user_emails,
+            event_ids,
+            user_feature_tuples,
+            event_feature_tuples,
+            interactions,
+            force_retrain=force_retrain,
+            epochs=15,  # More epochs for manual training
+            learning_rate=0.01,
+            batch_size=256
+        )
+        
+        return {
+            "success": True,
+            "status": status,
+            "message": f"Admin training completed for user {email}",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/train")
+async def trigger_training(request: Request):
+    """User-specific training endpoint (requires user authentication)"""
+    try:
+        body = await request.json()
+        email = body.get("email")
+        force_retrain = body.get("force_retrain", False)
+        
+        if not email:
+            return {"error": "Email required"}
+        
+        # Get token from Authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return {"error": "No valid token provided"}
+
+        token = auth_header.split(' ')[1]
+        
+        # Verify user (user can only train their own model)
         user = recommender.Client.auth.get_user(token)
         if user.user.email != email:
             return {"error": "Token doesn't match requested email"}

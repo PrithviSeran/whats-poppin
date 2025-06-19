@@ -113,9 +113,9 @@ jobs:
                             'force_retrain': force_retrain
                         }
                         
-                        # Call the /train endpoint
+                        # Call the /admin/train endpoint (for service role access)
                         response = requests.post(
-                            f'{space_url}/train',
+                            f'{space_url}/admin/train',
                             headers=headers,
                             json=data,
                             timeout=600  # 10 minute timeout for training

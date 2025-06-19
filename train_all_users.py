@@ -69,7 +69,7 @@ class UserModelTrainer:
             }
             
             response = requests.post(
-                f'{self.space_url}/train',
+                f'{self.space_url}/admin/train',
                 headers=headers,
                 json=data,
                 timeout=600  # 10 minute timeout
