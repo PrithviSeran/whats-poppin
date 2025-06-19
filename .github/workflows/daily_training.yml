@@ -36,130 +36,16 @@ jobs:
         HUGGINGFACE_SPACE_URL: ${{ secrets.HUGGINGFACE_SPACE_URL }}  # e.g., https://your-space.hf.space
         SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}  # For auth bypass
         FORCE_RETRAIN: ${{ github.event.inputs.force_retrain || 'false' }}
-      working-directory: ./backend/spaces
       run: |
-        python - << 'EOF'
-        import os
-        import requests
-        import json
-        from supabase import create_client
-        import time
-        from datetime import datetime
-        
-        def train_user_models():
-            # Initialize Supabase client
-            supabase_url = os.getenv('SUPABASE_URL')
-            supabase_key = os.getenv('SUPABASE_ANON_KEY')
-            service_key = os.getenv('SERVICE_ROLE_KEY')
-            space_url = os.getenv('HUGGINGFACE_SPACE_URL')
-            force_retrain = os.getenv('FORCE_RETRAIN', 'false').lower() == 'true'
-            
-            if not all([supabase_url, supabase_key, space_url]):
-                print("❌ Missing required environment variables")
-                return
-            
-            # Use service role key for admin access if available
-            auth_key = service_key if service_key else supabase_key
-            supabase = create_client(supabase_url, auth_key)
-            
-            print(f"🔍 Fetching all users...")
-            
-            try:
-                # Get all users with email addresses
-                result = supabase.table('all_users').select('email').execute()
-                users = result.data
-                
-                if not users:
-                    print("⚠️ No users found")
-                    return
-                
-                print(f"👥 Found {len(users)} users to train")
-                
-                # Training statistics
-                trained_count = 0
-                failed_count = 0
-                skipped_count = 0
-                
-                # Create a service account token for API calls
-                auth_token = None
-                if service_key:
-                    # For service role, use the key directly
-                    auth_token = service_key
-                
-                # Train each user's model
-                for i, user in enumerate(users):
-                    email = user['email']
-                    if not email:
-                        continue
-                    
-                    print(f"🏋️ [{i+1}/{len(users)}] Training model for: {email}")
-                    
-                    try:
-                        # Prepare request
-                        headers = {
-                            'Content-Type': 'application/json',
-                        }
-                        
-                        # Use service role key for authorization if available
-                        if auth_token:
-                            headers['Authorization'] = f'Bearer {auth_token}'
-                        else:
-                            print(f"⚠️ No auth token available for {email}, skipping...")
-                            skipped_count += 1
-                            continue
-                        
-                        data = {
-                            'email': email,
-                            'force_retrain': force_retrain
-                        }
-                        
-                        # Call the /admin/train endpoint (for service role access)
-                        response = requests.post(
-                            f'{space_url}/admin/train',
-                            headers=headers,
-                            json=data,
-                            timeout=600  # 10 minute timeout for training
-                        )
-                        
-                        if response.status_code == 200:
-                            result = response.json()
-                            status = result.get('status', 'unknown')
-                            print(f"✅ {email}: {status}")
-                            trained_count += 1
-                        else:
-                            print(f"❌ {email}: HTTP {response.status_code} - {response.text}")
-                            failed_count += 1
-                        
-                        # Small delay to avoid overwhelming the system
-                        time.sleep(2)
-                        
-                    except requests.exceptions.Timeout:
-                        print(f"⏰ {email}: Training timeout (>10 minutes)")
-                        failed_count += 1
-                    except Exception as e:
-                        print(f"❌ {email}: {str(e)}")
-                        failed_count += 1
-                
-                # Summary
-                print(f"\n📊 Training Summary:")
-                print(f"   ✅ Trained: {trained_count}")
-                print(f"   ❌ Failed: {failed_count}")
-                print(f"   ⏭️ Skipped: {skipped_count}")
-                print(f"   📋 Total: {len(users)}")
-                print(f"   🕐 Completed at: {datetime.now().isoformat()}")
-                
-                # Exit with error if too many failures
-                failure_rate = failed_count / len(users) if users else 0
-                if failure_rate > 0.5:  # More than 50% failed
-                    print(f"❌ High failure rate: {failure_rate:.1%}")
-                    exit(1)
-                else:
-                    print(f"✅ Training completed successfully")
-                
-            except Exception as e:
-                print(f"❌ Error fetching users or training: {e}")
-                exit(1)
-        
-        if __name__ == "__main__":
-            train_user_models()
-        EOF
+        # Try to run from backend/spaces first, fallback to root
+        if [ -f "backend/spaces/github_train_all.py" ]; then
+          echo "🔍 Running script from backend/spaces/"
+          cd backend/spaces
+          python github_train_all.py
+        elif [ -f "github_train_all.py" ]; then
+          echo "🔍 Running script from root directory"
+          python github_train_all.py
+        else
+          echo "❌ GitHub training script not found!"
+          exit 1
+        fi

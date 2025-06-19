@@ -96,6 +96,13 @@ The training script includes built-in rate limiting:
 
 ## 📊 Monitoring & Logs
 
+### GitHub Actions Script
+The workflow uses a dedicated `github_train_all.py` script that:
+- ✅ Properly handles environment variables in GitHub Actions
+- 🔍 Provides detailed debugging output
+- 📊 Tracks comprehensive training statistics  
+- 🔄 Includes robust error handling and recovery
+
 ### GitHub Actions Logs
 - View logs in your repository's "Actions" tab
 - Each run shows detailed progress and statistics
