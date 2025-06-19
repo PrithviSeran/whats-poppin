@@ -163,21 +163,3 @@ jobs:
         if __name__ == "__main__":
             train_user_models()
         EOF
-        
-    - name: Send notification on failure
-      if: failure()
-      uses: 8398a7/action-slack@v3
-      with:
-        status: ${{ job.status }}
-        channel: '#alerts'
-        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-        text: 'Daily model training failed!'
-        
-    - name: Send success notification
-      if: success()
-      uses: 8398a7/action-slack@v3
-      with:
-        status: ${{ job.status }}
-        channel: '#ml-updates'
-        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-        text: 'Daily model training completed successfully! 🎉' 
