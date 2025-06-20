@@ -52,6 +52,8 @@ export default function Discover() {
   const translateYAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const cardOpacity = useRef(new Animated.Value(1)).current;
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
 
   const colorScheme = useColorScheme();
   const dataManager = GlobalDataManager.getInstance();
@@ -198,6 +200,31 @@ export default function Discover() {
     };
   }, []);
 
+  // Start loading animations
+  useEffect(() => {
+    Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.timing(rotateAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
   // Clean up animations when component unmounts
   useEffect(() => {
     return () => {
@@ -206,6 +233,8 @@ export default function Discover() {
       translateYAnim.stopAnimation();
       fadeAnim.stopAnimation();
       cardOpacity.stopAnimation();
+      pulseAnim.stopAnimation();
+      rotateAnim.stopAnimation();
     };
   }, []);
 
@@ -541,13 +570,19 @@ export default function Discover() {
         toValue: 1,
         duration: 200,
         useNativeDriver: true,
-      }).start();
+      }).start(() => {
+        // Ensure the opacity is fully reset after animation completes
+        cardOpacity.setValue(1);
+      });
     }
 
     setModalVisible(false);
     
     // Clear the hidden card immediately to prevent flickering
     setHiddenCardId(null);
+    
+    // Ensure opacity is reset as a fallback
+    cardOpacity.setValue(1);
     
     // Don't clear the selected event immediately to allow for smooth animation
     setTimeout(() => {
@@ -583,7 +618,29 @@ export default function Discover() {
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors[colorScheme].tint} />
+          <Animated.View
+            style={[
+              styles.loadingCircle,
+              {
+                transform: [
+                  { scale: pulseAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.8, 1.2],
+                  })}, 
+                  { rotate: rotateAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0deg', '360deg'],
+                  })}
+                ],
+                borderColor: '#FF1493',
+              },
+            ]}
+          >
+            <View style={styles.innerCircle} />
+          </Animated.View>
+          <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
+            Discovering events...
+          </Text>
         </View>
       );
     }
@@ -621,8 +678,8 @@ export default function Discover() {
             onRefresh={handleRefresh}
             enabled={pullToRefreshEnabled}
             progressViewOffset={10}
-            tintColor={Colors[colorScheme].tint}
-            colors={[Colors[colorScheme].tint]}
+            tintColor="#9E95BD"
+            colors={["#9E95BD", "#F45B5B"]}
             progressBackgroundColor={Colors[colorScheme].background}
           />
         }
@@ -702,13 +759,57 @@ export default function Discover() {
                     source={{ uri: event.image }}
                     style={styles.cardImage}
                     onError={(e) => {
-                      console.log('Image failed to load, showing placeholder');
-                      // Update the event to remove the broken image URL
-                      setEvents(prevEvents => 
-                        prevEvents.map(evt => 
-                          evt.id === event.id ? { ...evt, image: null } : evt
-                        )
-                      );
+                      console.log('Image failed to load, trying next image for event:', event.id);
+                      // Try to find a working image systematically
+                      if (event.allImages && event.allImages.length > 0) {
+                        // Get current failed image and find its index
+                        const currentImageUrl = event.image;
+                        let currentIndex = -1;
+                        
+                        // Find current index, handling the case where it might not be found
+                        if (currentImageUrl) {
+                          currentIndex = event.allImages.findIndex(url => url === currentImageUrl);
+                        }
+                        
+                        // Determine next image to try
+                        const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+                        let foundWorkingImage = false;
+                        
+                        // Try up to 3 different images
+                        for (let i = 0; i < Math.min(3, event.allImages.length); i++) {
+                          const tryIndex = (startIndex + i) % event.allImages.length;
+                          const tryImageUrl = event.allImages[tryIndex];
+                          
+                          // Skip if this is the same image that just failed
+                          if (tryImageUrl !== currentImageUrl) {
+                                                         console.log(`Trying image ${tryIndex} for event ${event.id}`);
+                             setEvents(prevEvents => 
+                               prevEvents.map(evt => 
+                                 evt.id === event.id ? { ...evt, image: tryImageUrl } : evt
+                               )
+                             );
+                            foundWorkingImage = true;
+                            break;
+                          }
+                        }
+                        
+                        if (!foundWorkingImage) {
+                          console.log('No more images to try for event:', event.id);
+                          setEvents(prevEvents => 
+                            prevEvents.map(evt => 
+                              evt.id === event.id ? { ...evt, image: null } : evt
+                            )
+                          );
+                        }
+                      } else {
+                        // No allImages array, just show placeholder
+                        console.log('No allImages array for event:', event.id);
+                        setEvents(prevEvents => 
+                          prevEvents.map(evt => 
+                            evt.id === event.id ? { ...evt, image: null } : evt
+                          )
+                        );
+                      }
                     }}
                   />
                 ) : (
@@ -746,10 +847,13 @@ export default function Discover() {
                 </TouchableOpacity>
                 <View style={styles.cardContent}>
                   <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{event.name}</Text>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.start_date}</Text>
-                  </View>
+                  {/* Only show calendar icon and date if date information is available */}
+                  {event.start_date && (
+                    <View style={styles.infoRow}>
+                      <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                      <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.start_date}</Text>
+                    </View>
+                  )}
                   <View style={styles.infoRow}>
                     <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
                     <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.location}</Text>
@@ -761,7 +865,7 @@ export default function Discover() {
         </Animated.View>
         {isLoadingMore && (
           <View style={styles.loadingMoreContainer}>
-            <ActivityIndicator size="small" color="#F45B5B" />
+            <ActivityIndicator size="small" color="#FF1493" />
             <Text style={[styles.loadingMoreText, { color: Colors[colorScheme ?? 'light'].text }]}>
               Loading more events...
             </Text>
@@ -1019,4 +1123,25 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 3,
   },
+  loadingCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 3,
+    borderColor: '#FF1493',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  innerCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 20, 147, 0.1)',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 20,
+  },
+
 }); 

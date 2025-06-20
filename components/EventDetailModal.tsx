@@ -178,10 +178,30 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
     return `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${currentImageIndex}.jpg`;
   };
 
+  // Helper function to get the actual number of available images
+  const getActualImageCount = () => {
+    if (!event || !event.id) return 1; // No event or no ID, assume 1 image
+    
+    // If allImages array is available, use its length
+    if (event.allImages && event.allImages.length > 0) {
+      return event.allImages.length;
+    }
+    
+    // If no allImages array but there's an image, assume at least 1
+    if (event.image) {
+      return 1;
+    }
+    
+    return 1; // Default to 1 image
+  };
+
   const navigateImage = (direction: 'prev' | 'next') => {
     if (!event) return;
     
-    const totalImages = event.allImages?.length || 5; // Default to 5 if allImages not available
+    const totalImages = getActualImageCount();
+    
+    // Don't navigate if there's only one image
+    if (totalImages <= 1) return;
     
     setCurrentImageIndex(prevIndex => {
       if (direction === 'next') {
@@ -427,8 +447,9 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               style={styles.imageExpanded}
               onError={(e) => {
                 console.log('Image failed to load in modal, trying next image');
-                // If current image fails, try to move to next image
-                if (event && event.allImages && event.allImages.length > 1 && currentImageIndex < event.allImages.length - 1) {
+                const totalImages = getActualImageCount();
+                // If current image fails and there are more images, try to move to next image
+                if (event && totalImages > 1 && currentImageIndex < totalImages - 1) {
                   navigateImage('next');
                 } else {
                   // If no more images to try, set current image to null to show placeholder
@@ -445,8 +466,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             </View>
           )}
           
-          {/* Image Navigation Controls */}
-          {event && ((event.allImages && event.allImages.length > 1) || event.id) && (
+          {/* Image Navigation Controls - only show if there are multiple images */}
+          {event && getActualImageCount() > 1 && (
             <>
               {/* Previous Button */}
               <Animated.View style={[styles.imageNavButton, styles.imageNavLeft, { opacity: imageControlsOpacity }]}>
@@ -480,7 +501,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               
               {/* Image Dots Indicator */}
               <Animated.View style={[styles.imageDotsContainer, { opacity: imageControlsOpacity }]}>
-                {Array.from({ length: event.allImages?.length || 5 }, (_, index) => (
+                {Array.from({ length: getActualImageCount() }, (_, index) => (
                   <TouchableOpacity
                     key={index}
                     style={[
@@ -753,7 +774,10 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 <View style={styles.infoTextContainer}>
                   <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Cost</Text>
                   <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    ${event.cost}
+                    {event.cost !== undefined && event.cost !== null 
+                      ? (event.cost === 0 ? 'FREE' : `$${event.cost}`)
+                      : 'Please check website'
+                    }
                   </Text>
                 </View>
               </View>

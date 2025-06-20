@@ -21,6 +21,7 @@ type RootStackParamList = {
   };
   'edit-profile': { currentProfile: UserProfile };
   'edit-images': { currentProfile: UserProfile };
+  'social-sign-in': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -100,7 +101,12 @@ export default function Profile() {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      navigation.navigate('(tabs)', {});
+      
+      // Reset the navigation stack completely and navigate to sign-in
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'social-sign-in' }],
+      });
     } catch (error) {
       console.error('Error signing out:', error);
     }

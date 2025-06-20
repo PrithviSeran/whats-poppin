@@ -136,7 +136,7 @@ export default function SuggestedEvents() {
   const lastFetchTimeRef = useRef<number>(0);
 
   // Debounced fetch function
-  const debouncedFetchRef = useRef<any>();
+  const debouncedFetchRef = useRef<any>(null);
 
   const debouncedFetchBackend = useCallback(() => {
     if (debouncedFetchRef.current) {
@@ -362,6 +362,7 @@ export default function SuggestedEvents() {
 
       const eventsData = await response.json();
       const processedEvents = processEvents(eventsData.events);
+
       
       // Update state efficiently
       setCardIndex(0);
@@ -979,61 +980,232 @@ export default function SuggestedEvents() {
                         style={{ flex: 1 }}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
-                        <Animated.View 
-                          style={[
-                            styles.card,
-                            isTopCard ? { backgroundColor: interpolateColor } : { backgroundColor: Colors[colorScheme ?? 'light'].background }
-                          ]}
-                          onTouchStart={() => console.log('👆 Card touch detected for:', card.name)}
-                        >
-                            {eventImageUrl ? (
-                              <Image 
-                                source={{ uri: eventImageUrl }}
-                                style={styles.image} 
-                                onError={(e) => {
-                                  console.log('Image failed to load, showing placeholder');
-                                  // Update the event to remove the broken image URL
-                                  setEVENTS(prevEvents => 
-                                    prevEvents.map(event => 
-                                      event.id === card.id ? { ...event, image: null } : event
-                                    )
-                                  );
-                                }}
+                        <View style={styles.cardContainer}>
+                          <LinearGradient
+                            colors={colorScheme === 'dark' 
+                              ? ['#2A2A2A', '#1F1F1F', '#252525'] 
+                              : ['#FFFFFF', '#F8F9FA', '#FFFFFF']
+                            }
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={[styles.card]}
+                          >
+                            {/* Image Container with Overlay */}
+                            <View style={styles.imageContainer}>
+                              {eventImageUrl ? (
+                                <Image 
+                                  source={{ uri: eventImageUrl }}
+                                  style={styles.modernImage} 
+                                  onError={(e) => {
+                                    console.log('Image failed to load, trying next image for event:', card.id);
+                                    // Try to find a working image systematically
+                                    if (card.allImages && card.allImages.length > 0) {
+                                      // Get current failed image and find its index
+                                      const currentImageUrl = eventImageUrl;
+                                      let currentIndex = -1;
+                                      
+                                      // Find current index, handling the case where it might not be found
+                                      if (currentImageUrl) {
+                                        currentIndex = card.allImages.findIndex(url => url === currentImageUrl);
+                                      }
+                                      
+                                      // Determine next image to try
+                                      const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+                                      let foundWorkingImage = false;
+                                      
+                                      // Try up to 3 different images
+                                      for (let i = 0; i < Math.min(3, card.allImages.length); i++) {
+                                        const tryIndex = (startIndex + i) % card.allImages.length;
+                                        const tryImageUrl = card.allImages[tryIndex];
+                                        
+                                        // Skip if this is the same image that just failed
+                                        if (tryImageUrl !== currentImageUrl) {
+                                          console.log(`Trying image ${tryIndex} for event ${card.id}`);
+                                          setEVENTS(prevEvents => 
+                                            prevEvents.map(event => 
+                                              event.id === card.id ? { ...event, image: tryImageUrl } : event
+                                            )
+                                          );
+                                          foundWorkingImage = true;
+                                          break;
+                                        }
+                                      }
+                                      
+                                      if (!foundWorkingImage) {
+                                        console.log('No more images to try for event:', card.id);
+                                        setEVENTS(prevEvents => 
+                                          prevEvents.map(event => 
+                                            event.id === card.id ? { ...event, image: null } : event
+                                          )
+                                        );
+                                      }
+                                    } else {
+                                      // No allImages array, just show placeholder
+                                      console.log('No allImages array for event:', card.id);
+                                      setEVENTS(prevEvents => 
+                                        prevEvents.map(event => 
+                                          event.id === card.id ? { ...event, image: null } : event
+                                        )
+                                      );
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <View style={[styles.modernImage, styles.imagePlaceholder]}>
+                                  <LinearGradient
+                                    colors={['#E8E8E8', '#F5F5F5', '#E8E8E8']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.placeholderGradient}
+                                  >
+                                    <Ionicons name="image-outline" size={48} color="#999" />
+                                    <Text style={styles.placeholderText}>No Image Available</Text>
+                                  </LinearGradient>
+                                </View>
+                              )}
+                              
+                              {/* Image Overlay for Better Text Readability */}
+                              <LinearGradient
+                                colors={['transparent', 'transparent', 'rgba(0,0,0,0.3)']}
+                                style={styles.imageOverlay}
                               />
-                            ) : (
-                              <View style={[styles.image, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                                <Ionicons name="image-outline" size={40} color="#666" />
-                                <Text style={{ color: '#666', marginTop: 8, fontSize: 12, textAlign: 'center' }}>
-                                  No Image Found
+                              
+                              {/* Featured Badge */}
+                              {card.featured && (
+                                <View style={styles.modernFeaturedBadge}>
+                                  <LinearGradient
+                                    colors={['#FFD700', '#FFA500', '#FF8C00']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.featuredBadgeGradient}
+                                  >
+                                    <Ionicons name="star" size={14} color="white" />
+                                    <Text style={styles.modernFeaturedText}>FEATURED</Text>
+                                  </LinearGradient>
+                                </View>
+                              )}
+                              
+
+                            </View>
+
+                            {/* Content Section */}
+                            <View style={styles.cardContent}>
+                              {/* Title and Organization */}
+                              <View style={styles.titleSection}>
+                                <Text style={[styles.modernTitle, { color: colorScheme === 'dark' ? '#FFFFFF' : '#1A1A1A' }]} numberOfLines={2}>
+                                  {card.name}
                                 </Text>
+                                {card.organization && (
+                                  <Text style={[styles.organizationLabel, { color: colorScheme === 'dark' ? '#B0B0B0' : '#666666' }]} numberOfLines={1}>
+                                    by {card.organization}
+                                  </Text>
+                                )}
                               </View>
-                            )}
-                            
-                            {/* Featured Badge */}
-                            {card.featured && (
-                              <View style={styles.featuredBadge}>
-                                <LinearGradient
-                                  colors={['#FFD700', '#FFA500']}
-                                  start={{ x: 0, y: 0 }}
-                                  end={{ x: 1, y: 1 }}
-                                  style={styles.featuredBadgeContainer}
-                                >
-                                  <Ionicons name="star" size={16} color="white" />
-                                  <Text style={styles.featuredText}>Featured</Text>
-                                </LinearGradient>
+
+                              {/* Tags Row */}
+                              {card.event_type && (
+                                <View style={styles.tagsContainer}>
+                                  <View style={styles.eventTypeTag}>
+                                    <Text style={styles.tagText}>{card.event_type}</Text>
+                                  </View>
+                                </View>
+                              )}
+
+                              {/* Cost, Distance, and Date Row */}
+                              <View style={[
+                                styles.bottomRow,
+                                { justifyContent: card.start_date ? 'space-around' : 'flex-start' }
+                              ]}>
+                                {/* Cost and Distance Group when no date */}
+                                {!card.start_date ? (
+                                  <View style={styles.costDistanceGroup}>
+                                    {/* Cost - only show if cost information is available */}
+                                    {(card.cost !== undefined && card.cost !== null) && (
+                                      <View style={styles.costContainer}>
+                                        <LinearGradient
+                                          colors={['#9E95BD', '#B8AECC', '#9E95BD']}
+                                          start={{ x: 0, y: 0 }}
+                                          end={{ x: 1, y: 1 }}
+                                          style={styles.costBadge}
+                                        >
+                                          <Ionicons 
+                                            name="cash" 
+                                            size={12} 
+                                            color="white" 
+                                          />
+                                          <Text style={styles.costText}>
+                                            {card.cost === 0 ? 'FREE' : `$${card.cost}`}
+                                          </Text>
+                                        </LinearGradient>
+                                      </View>
+                                    )}
+
+                                    {/* Distance */}
+                                    {typeof card.distance === 'number' && (
+                                      <View style={styles.distanceContainer}>
+                                        <View style={styles.infoIconBackground}>
+                                          <Ionicons name="walk" size={12} color="#9E95BD" />
+                                        </View>
+                                        <Text style={[styles.distanceText, { color: colorScheme === 'dark' ? '#D0D0D0' : '#555555' }]}>
+                                          {card.distance.toFixed(1)} km
+                                        </Text>
+                                      </View>
+                                    )}
+                                  </View>
+                                ) : (
+                                  <>
+                                    {/* Cost - only show if cost information is available */}
+                                    {(card.cost !== undefined && card.cost !== null) && (
+                                      <View style={styles.costContainer}>
+                                        <LinearGradient
+                                          colors={['#9E95BD', '#B8AECC', '#9E95BD']}
+                                          start={{ x: 0, y: 0 }}
+                                          end={{ x: 1, y: 1 }}
+                                          style={styles.costBadge}
+                                        >
+                                          <Ionicons 
+                                            name="cash" 
+                                            size={12} 
+                                            color="white" 
+                                          />
+                                          <Text style={styles.costText}>
+                                            {card.cost === 0 ? 'FREE' : `$${card.cost}`}
+                                          </Text>
+                                        </LinearGradient>
+                                      </View>
+                                    )}
+
+                                    {/* Distance */}
+                                    {typeof card.distance === 'number' && (
+                                      <View style={styles.distanceContainer}>
+                                        <View style={styles.infoIconBackground}>
+                                          <Ionicons name="walk" size={12} color="#9E95BD" />
+                                        </View>
+                                        <Text style={[styles.distanceText, { color: colorScheme === 'dark' ? '#D0D0D0' : '#555555' }]}>
+                                          {card.distance.toFixed(1)} km
+                                        </Text>
+                                      </View>
+                                    )}
+
+                                    {/* Date */}
+                                    <View style={styles.dateContainer}>
+                                      <Ionicons name="calendar-outline" size={12} color={colorScheme === 'dark' ? '#B0B0B0' : '#888888'} />
+                                      <Text style={[styles.dateText, { color: colorScheme === 'dark' ? '#B0B0B0' : '#888888' }]}>
+                                        {new Date(card.start_date).toLocaleDateString('en-US', { 
+                                          month: 'short', 
+                                          day: 'numeric' 
+                                        })}
+                                      </Text>
+                                    </View>
+                                  </>
+                                )}
                               </View>
-                            )}
-                          <Text style={[styles.title, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>{card.name}</Text>
-                            {/* Distance Display */}
-                            {typeof card.distance === 'number' && (
-                              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                                <Ionicons name="walk-outline" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-                                <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}>
-                                  {card.distance.toFixed(2)} km
-                                </Text>
-                              </View>
-                            )}
-                        </Animated.View>
+                            </View>
+
+                            {/* Subtle Card Border */}
+                            <View style={[styles.cardBorder, { borderColor: colorScheme === 'dark' ? '#333333' : '#E5E5E5' }]} />
+                          </LinearGradient>
+                        </View>
                       </TouchableOpacity>
                     );
                   }}
@@ -1482,43 +1654,246 @@ const styles = StyleSheet.create({
     height: FOOTER_HEIGHT,
     zIndex: 10, // Ensure footer is above swiper
   },
+  cardContainer: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
   card: {
     width: width * 0.85,
-    // Reduce card height to be proportional to the container
-    height: height * 0.5, // Reduced from 0.6
+    height: height * 0.5,
     borderRadius: 24,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 8,
-    paddingBottom: 32,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    elevation: 16,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
-  imageExpanded: {
-    marginTop: 20,
+  imageContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  modernImage: {
+    flex: 1,
     width: '100%',
-    height: height * 0.4,
+    height: '100%',
     resizeMode: 'cover',
   },
-  image: {
-    width: '88%',
-    height: '70%',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    resizeMode: 'cover',
-    marginTop: 16,
-    alignSelf: 'center',
+  imagePlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  title: {
-    fontSize: 24,
+  placeholderGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
+    color: '#999',
+    fontSize: 16,
     fontWeight: 'bold',
-    textAlign: 'center',
+    marginTop: 8,
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  modernFeaturedBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    zIndex: 2,
+  },
+  featuredBadgeGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  modernFeaturedText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
+  categoryBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 2,
+  },
+  categoryBadgeContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  categoryText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  cardContent: {
+    padding: 20,
+    backgroundColor: 'transparent',
+  },
+  titleSection: {
+    marginBottom: 12,
+  },
+  modernTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 4,
+    lineHeight: 26,
+  },
+  organizationLabel: {
+    fontSize: 16,
+    opacity: 0.8,
+    fontStyle: 'italic',
+  },
+  infoRowContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+    marginBottom: 4,
+  },
+  infoIconBackground: {
+    backgroundColor: 'rgba(158, 149, 189, 0.2)',
+    padding: 6,
+    borderRadius: 12,
+    marginRight: 6,
+  },
+  infoLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    width: '100%',
+  },
+  costDistanceGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  costContainer: {
+    alignItems: 'center',
+  },
+  costBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignSelf: 'flex-start',
+  },
+  costText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
+  distanceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  distanceText: {
+    fontSize: 14,
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  dateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dateText: {
+    fontSize: 14,
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  cardBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: 1,
+    borderRadius: 24,
+    opacity: 0.1,
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    flexWrap: 'wrap',
+  },
+  eventTypeTag: {
+    backgroundColor: 'rgba(158, 149, 189, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.3)',
+  },
+  tagText: {
+    color: '#9E95BD',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  // Add back missing styles
+  topButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 20,
     marginTop: 10,
+    position: 'absolute',
+    top: 40,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  topButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  gradientButton: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -1549,71 +1924,6 @@ const styles = StyleSheet.create({
   likeButton: {
     borderColor: 'green',
     borderWidth: 2,
-  },
-  topButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    paddingHorizontal: 20,
-    marginTop: 10,
-    position: 'absolute',
-    top: 40,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-  },
-  topButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  gradientButton: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  expandedCard: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#fff',
-    overflow: 'hidden',
-  },
-  expandedContent: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingBottom: 100, // Add padding to account for the action buttons
-  },
-  expandedTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 40,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    minHeight: 48, // ensure enough height for icon and day circles
-  },
-  infoText: {
-    fontSize: 16,
-    marginLeft: 10,
-  },
-  description: {
-    fontSize: 16,
-    lineHeight: 24,
-    marginTop: 20,
   },
   expandedOverlay: {
     position: 'absolute',
@@ -1665,6 +1975,62 @@ const styles = StyleSheet.create({
     color: '#FF1493',
     marginTop: 20,
   },
+  imageExpanded: {
+    marginTop: 20,
+    width: '100%',
+    height: height * 0.4,
+    resizeMode: 'cover',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    minHeight: 48,
+  },
+  infoText: {
+    fontSize: 16,
+    marginLeft: 10,
+  },
+  description: {
+    fontSize: 16,
+    lineHeight: 24,
+    marginTop: 20,
+  },
+  infoIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+    alignSelf: 'center',
+  },
+  infoTextContainer: {
+    flex: 1,
+  },
+  organizationText: {
+    fontSize: 18,
+    opacity: 0.7,
+  },
+  expandedHeader: {
+    marginTop: 20,
+    marginBottom: 30,
+  },
+  infoLabel: {
+    fontSize: 14,
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  infoValue: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1694,45 +2060,66 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 20,
   },
-  expandedHeader: {
-    marginTop: 20,
-    marginBottom: 30,
+  expandedCard: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  expandedContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 100, // Add padding to account for the action buttons
+  },
+  expandedTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 40,
   },
   infoSection: {
     marginBottom: 30,
   },
-  infoIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-    alignSelf: 'center', // ensure icon is centered vertically
-  },
-  infoTextContainer: {
+  contentContainer: {
     flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  infoLabel: {
-    fontSize: 14,
-    opacity: 0.7,
+  reloadButton: {
+    borderColor: '#9E95BD',
+    borderWidth: 2,
+  },
+  dayButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 4,
     marginBottom: 4,
+    minHeight: 40,
   },
-  infoValue: {
-    fontSize: 16,
-    fontWeight: '500',
+  dayCircleButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+    marginHorizontal: 2,
   },
-  descriptionSection: {
-    marginBottom: 30,
+  dayCircleButtonSelected: {
+    backgroundColor: 'white',
+    borderColor: '#FF3366',
   },
-  descriptionTitle: {
-    fontSize: 20,
+  dayCircleButtonText: {
+    fontSize: 14,
     fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  descriptionText: {
-    fontSize: 16,
-    lineHeight: 24,
   },
   mapContainer: {
     height: 300,
@@ -1781,218 +2168,16 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  descriptionSection: {
+    marginBottom: 30,
   },
-  contentContainer: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  organizationText: {
-    fontSize: 18,
-    opacity: 0.7,
-  },
-  savedLikesOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    zIndex: 200,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  savedLikesContent: {
-    width: '100%',
-    height: height * 0.8, // 80% of screen height
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20, // Changed from paddingTop: 60
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  savedLikesHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  savedLikesTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  savedLikesCloseButton: {
-    padding: 5,
-  },
-  savedLikesEmptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 100,
-  },
-  savedLikesEmptyText: {
+  descriptionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 20,
-    color: '#888',
+    marginBottom: 10,
   },
-  savedLikesEmptySubtext: {
+  descriptionText: {
     fontSize: 16,
-    marginTop: 10,
-    opacity: 0.7,
-    color: '#888',
-  },
-  savedLikesScroll: {
-    width: '100%',
-    paddingHorizontal: 10, // Reduced from 20 to give more space for cards
-  },
-  savedLikesCardGradientBorder: {
-    borderRadius: 22,
-    padding: 2.5,
-    marginBottom: 18,
-  },
-  savedLikesCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    height: 100,
-    overflow: 'hidden',
-    padding: 8,
-    width: '100%',
-  },
-  savedLikesCardImage: {
-    width: 100,
-    height: 84,
-    borderRadius: 16,
-    resizeMode: 'cover',
-  },
-  savedLikesCardTextColumn: {
-    flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    justifyContent: 'center',
-  },
-  savedLikesCardInfoContainer: {
-    gap: 4,
-  },
-  savedLikesCardInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 2,
-  },
-  savedLikesCardInfoText: {
-    fontSize: 16,
-    opacity: 0.8,
-  },
-  savedLikesCardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 6,
-  },
-  dayPill: {
-    backgroundColor: '#FF1493',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginRight: 4,
-    marginBottom: 4,
-  },
-  dayPillText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
-  dayButtonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    width: '100%',
-    marginTop: 4,
-    marginBottom: 4,
-    minHeight: 40, // match icon height
-  },
-  dayCircleButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'transparent',
-    marginHorizontal: 2,
-  },
-  dayCircleButtonSelected: {
-    backgroundColor: 'white',
-    borderColor: '#FF3366',
-  },
-  dayCircleButtonText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  clearSavedButton: {
-    position: 'absolute',
-    bottom: 30,
-    right: 30,
-    borderRadius: 30,
-    width: 56,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 6,
-    zIndex: 1000,
-  },
-  clearSavedButtonGradient: {
-    borderRadius: 30,
-    width: 56,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reloadButton: {
-    borderColor: '#9E95BD',
-    borderWidth: 2,
-  },
-  featuredBadge: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    zIndex: 2,
-  },
-  featuredBadgeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  featuredText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginLeft: 4,
+    lineHeight: 24,
   },
 });

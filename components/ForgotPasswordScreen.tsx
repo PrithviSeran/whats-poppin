@@ -66,19 +66,22 @@ const ForgotPasswordScreen = () => {
 
   const checkEmailExists = async (email: string): Promise<boolean> => {
     try {
-      // Use signUp to check if email exists - this doesn't create a user
-      // but returns different responses based on whether email exists
-      const { data } = await supabase.auth.signUp({
-        email: email,
-        password: 'temporary-password-for-check', // This won't be used if email exists
-      });
+      // Check if email exists in the all_users table (doesn't create any users)
+      const { data, error } = await supabase
+        .from('all_users')
+        .select('email')
+        .eq('email', email)
+        .limit(1);
 
-      // If identities array is empty, the email already exists and is confirmed
-      // If identities array has content, the email is new or unconfirmed
-      return Boolean(data.user?.identities && data.user.identities.length === 0);
+      if (error) {
+        console.error('Error checking email existence:', error);
+        return false; // On error, allow the process to continue
+      }
+
+      return data && data.length > 0;
     } catch (error) {
       console.error('Error checking email existence:', error);
-      return false; // Assume email doesn't exist on error to allow process to continue
+      return false; // On error, allow the process to continue
     }
   };
 
@@ -90,7 +93,7 @@ const ForgotPasswordScreen = () => {
     setEmailError('');
 
     try {
-      // First check if the email exists in Supabase Auth
+      // First check if the email exists in our user database
       const emailExists = await checkEmailExists(email);
       
       if (!emailExists) {
