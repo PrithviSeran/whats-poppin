@@ -107,7 +107,7 @@ class GlobalDataManager extends EventEmitter {
       // Increase timeout and add timeout protection
       const initializationPromise = this.performInitialization();
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Initialization timeout after 60 seconds')), 60000);
+        setTimeout(() => reject(new Error('Initialization timeout after 60 seconds')), 5000);
       });
       
       await Promise.race([initializationPromise, timeoutPromise]);

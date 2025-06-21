@@ -2022,11 +2022,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 30,
   },
-  infoLabel: {
-    fontSize: 14,
-    opacity: 0.7,
-    marginBottom: 4,
-  },
   infoValue: {
     fontSize: 16,
     fontWeight: '500',

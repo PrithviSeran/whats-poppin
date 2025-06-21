@@ -3,15 +3,19 @@ import { View, Text, StyleSheet, Animated, Dimensions, Image } from 'react-nativ
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { supabase } from '@/lib/supabase';
 
 const { width, height } = Dimensions.get('window');
 
 interface MainLoadingScreenProps {
-  onLoadingComplete?: () => void;
+  onLoadingComplete?: (destination: 'suggested-events' | 'social-sign-in') => void;
 }
 
 export default function MainLoadingScreen({ onLoadingComplete }: MainLoadingScreenProps) {
   const colorScheme = useColorScheme();
+  
+  // Debug mode - set to true for quick testing
+  const DEBUG_MODE = false;
   
   // Animation refs
   const logoScaleAnim = useRef(new Animated.Value(0)).current;
@@ -22,8 +26,18 @@ export default function MainLoadingScreen({ onLoadingComplete }: MainLoadingScre
   const gradientAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Add a failsafe timeout to prevent infinite loading
+    const failsafeTimeout = setTimeout(() => {
+      console.log('⚠️ MainLoadingScreen: Failsafe timeout triggered - forcing navigation to social-sign-in');
+      if (onLoadingComplete) {
+        onLoadingComplete('social-sign-in');
+      }
+    }, 15000); // 15 seconds max
+
     // Start the loading animation sequence
     const startAnimations = () => {
+      console.log('🎨 MainLoadingScreen: Starting animations...');
+      
       // Logo entrance animation
       Animated.parallel([
         Animated.spring(logoScaleAnim, {
@@ -80,11 +94,85 @@ export default function MainLoadingScreen({ onLoadingComplete }: MainLoadingScre
         }).start();
       }, 400);
 
-      // Auto-complete loading after 3 seconds (optional)
-      if (onLoadingComplete) {
+      // Check authentication and auto-complete after animations
+      if (DEBUG_MODE) {
+        console.log('🐛 MainLoadingScreen: DEBUG MODE - Quick routing to social-sign-in');
         setTimeout(() => {
-          onLoadingComplete();
+          if (onLoadingComplete) {
+            onLoadingComplete('social-sign-in');
+          }
         }, 3000);
+      } else {
+        checkAuthAndComplete();
+      }
+    };
+
+    const checkAuthAndComplete = async () => {
+      console.log('🚀 MainLoadingScreen: Starting checkAuthAndComplete...');
+      
+      try {
+        // Wait at least 2 seconds for animations to show
+        console.log('⏱️ MainLoadingScreen: Waiting 2 seconds for animations...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        console.log('🔍 MainLoadingScreen: Checking authentication status...');
+        
+        // Check authentication status with timeout
+        const authPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Auth check timeout')), 10000)
+        );
+        
+        const { data: { session }, error } = await Promise.race([authPromise, timeoutPromise]) as any;
+        
+        console.log('📊 MainLoadingScreen: Auth check result:', {
+          hasSession: !!session,
+          hasUser: !!(session?.user),
+          userEmail: session?.user?.email,
+          error: error?.message
+        });
+        
+        if (error) {
+          console.error('❌ MainLoadingScreen: Error checking auth status:', error);
+          // Default to sign-in on error
+          if (onLoadingComplete) {
+            clearTimeout(failsafeTimeout);
+            console.log('🔄 MainLoadingScreen: Calling onLoadingComplete with social-sign-in (error fallback)');
+            onLoadingComplete('social-sign-in');
+          }
+          return;
+        }
+
+        // Wait up to 5 seconds total for the full loading experience
+        const remainingTime = Math.max(0, 5000 - 2000); // 3 seconds remaining
+        console.log(`⏱️ MainLoadingScreen: Waiting ${remainingTime}ms more for full experience...`);
+        await new Promise(resolve => setTimeout(resolve, remainingTime));
+
+        // Route based on authentication status
+        if (onLoadingComplete) {
+          // Clear the failsafe timeout since we're completing normally
+          clearTimeout(failsafeTimeout);
+          
+          if (session && session.user) {
+            console.log('✅ MainLoadingScreen: User is authenticated, calling onLoadingComplete with suggested-events');
+            console.log('👤 User email:', session.user.email);
+            onLoadingComplete('suggested-events');
+          } else {
+            console.log('🔒 MainLoadingScreen: User is not authenticated, calling onLoadingComplete with social-sign-in');
+            onLoadingComplete('social-sign-in');
+          }
+        } else {
+          console.error('❌ MainLoadingScreen: onLoadingComplete callback is undefined!');
+        }
+      } catch (error) {
+        console.error('❌ MainLoadingScreen: Error in checkAuthAndComplete:', error);
+        if (onLoadingComplete) {
+          clearTimeout(failsafeTimeout);
+          console.log('🔄 MainLoadingScreen: Calling onLoadingComplete with social-sign-in (catch fallback)');
+          onLoadingComplete('social-sign-in');
+        } else {
+          console.error('❌ MainLoadingScreen: onLoadingComplete callback is undefined in catch block!');
+        }
       }
     };
 
@@ -92,6 +180,8 @@ export default function MainLoadingScreen({ onLoadingComplete }: MainLoadingScre
 
     // Cleanup function
     return () => {
+      console.log('🧹 MainLoadingScreen: Cleaning up animations and timers...');
+      clearTimeout(failsafeTimeout);
       logoScaleAnim.stopAnimation();
       logoOpacityAnim.stopAnimation();
       pulseAnim.stopAnimation();
@@ -147,8 +237,8 @@ export default function MainLoadingScreen({ onLoadingComplete }: MainLoadingScre
           <View style={styles.logoWrapper}>
             <Image 
               source={colorScheme === 'dark' 
-                ? require('@/assets/images/logo-light.png')
-                : require('@/assets/images/logo.png')
+                ? require('@/assets/images/logo.png')
+                : require('@/assets/images/logo-light.png')
               }
               style={styles.logo}
               resizeMode="contain"
@@ -158,10 +248,10 @@ export default function MainLoadingScreen({ onLoadingComplete }: MainLoadingScre
 
         {/* App Title */}
         <Animated.View style={[styles.titleContainer, { opacity: textFadeAnim }]}>
-          <Text style={[styles.appTitle, { color: Colors[colorScheme ?? 'light'].background === '#FFFFFF' ? '#FFFFFF' : '#1A1A1A' }]}>
+          <Text style={[styles.appTitle, { color: colorScheme === 'dark' ? '#FFFFFF' : '#1A1A1A' }]}>
             What's Poppin
           </Text>
-          <Text style={[styles.appSubtitle, { color: Colors[colorScheme ?? 'light'].background === '#FFFFFF' ? 'rgba(255,255,255,0.8)' : 'rgba(26,26,26,0.8)' }]}>
+          <Text style={[styles.appSubtitle, { color: colorScheme === 'dark' ? 'rgba(255,255,255,0.8)' : 'rgba(26,26,26,0.8)' }]}>
             Discover Amazing Events
           </Text>
         </Animated.View>
@@ -173,21 +263,21 @@ export default function MainLoadingScreen({ onLoadingComplete }: MainLoadingScre
               styles.loadingCircle,
               {
                 transform: [{ scale }, { rotate: spin }],
-                borderColor: Colors[colorScheme ?? 'light'].background === '#FFFFFF' ? '#FFFFFF' : '#FF1493',
+                borderColor: colorScheme === 'dark' ? '#FFFFFF' : '#FF1493',
               },
             ]}
           >
             <View style={[styles.innerCircle, {
-              backgroundColor: Colors[colorScheme ?? 'light'].background === '#FFFFFF' 
+              backgroundColor: colorScheme === 'dark' 
                 ? 'rgba(255, 255, 255, 0.2)' 
                 : 'rgba(255, 20, 147, 0.1)'
             }]} />
           </Animated.View>
           <Text style={[styles.loadingText, { 
-            color: Colors[colorScheme ?? 'light'].background === '#FFFFFF' ? '#FFFFFF' : '#1A1A1A',
+            color: colorScheme === 'dark' ? '#FFFFFF' : '#1A1A1A',
             marginTop: 20 
           }]}>
-            Loading amazing events...
+            Preparing your experience...
           </Text>
         </Animated.View>
       </View>

@@ -7,10 +7,9 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import { supabase } from '@/lib/supabase';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import GlobalDataManager, { UserProfile } from '@/lib/GlobalDataManager';
-
 
 type RootStackParamList = {
   '(tabs)': {
@@ -21,11 +20,10 @@ type RootStackParamList = {
   };
   'edit-profile': { currentProfile: UserProfile };
   'edit-images': { currentProfile: UserProfile };
-  'social-sign-in': undefined;
+  'create-event': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
 
 export default function Profile() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -102,10 +100,11 @@ export default function Profile() {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
-      // Reset the navigation stack completely and navigate to sign-in
+      // Reset the navigation stack completely and navigate to main tabs
+      // The index.tsx will handle showing SignInScreen when there's no session
       navigation.reset({
         index: 0,
-        routes: [{ name: 'social-sign-in' }],
+        routes: [{ name: '(tabs)' }],
       });
     } catch (error) {
       console.error('Error signing out:', error);
@@ -124,7 +123,9 @@ export default function Profile() {
     }
   };
 
-    
+  const handleCreateEvent = () => {
+    navigation.navigate('create-event');
+  };
 
   const handleSaveImages = async () => {
     console.log("uyfedycgv")
@@ -425,14 +426,29 @@ export default function Profile() {
               </TouchableOpacity>
             </View>
           )}
+
+          {/* Create Event Button */}
+          <TouchableOpacity style={styles.createEventButton} onPress={handleCreateEvent}>
+            <LinearGradient
+              colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.25, 0.5, 0.75, 1]}
+              style={styles.createEventGradient}
+            >
+              <Ionicons name="add-circle" size={24} color="#fff" style={styles.buttonIcon} />
+              <Text style={styles.createEventText}>Create Event</Text>
+            </LinearGradient>
+          </TouchableOpacity>
           
           <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
             <LinearGradient
-              colors={['#9E95BD', '#9E95BD']}
+              colors={['#B97AFF', '#9E95BD']}
               start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+              end={{ x: 1, y: 1 }}
               style={styles.signOutGradient}
             >
+              <Ionicons name="log-out-outline" size={20} color="#fff" style={styles.buttonIcon} />
               <Text style={styles.signOutText}>Sign Out</Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -610,19 +626,51 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  signOutButton: {
+  createEventButton: {
     marginTop: 30,
     borderRadius: 25,
     overflow: 'hidden',
-    elevation: 3,
+    shadowColor: '#FF0005',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  createEventGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  createEventText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 18,
+    letterSpacing: 0.5,
+  },
+  signOutButton: {
+    marginTop: 20,
+    borderRadius: 25,
+    overflow: 'hidden',
+    shadowColor: '#FF0005',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
   signOutGradient: {
-    paddingVertical: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
   },
   signOutText: {
     color: '#fff',
     fontWeight: 'bold',
+    fontSize: 16,
+    letterSpacing: 0.3,
   },
   footerContainer: {
     position: 'absolute',

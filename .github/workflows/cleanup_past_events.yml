@@ -1,0 +1,157 @@
+name: Cleanup Past Events
+
+on:
+  schedule:
+    # Run every day at 3 AM UTC (1 hour after training to avoid conflicts)
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      dry_run:
+        description: 'Dry run mode (only show what would be deleted)'
+        required: false
+        default: 'false'
+        type: boolean
+      days_buffer:
+        description: 'Days buffer before deleting (default: 1)'
+        required: false
+        default: '1'
+        type: string
+
+jobs:
+  cleanup-past-events:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install supabase python-dotenv
+        
+    - name: Cleanup past events
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        DAYS_BUFFER: ${{ github.event.inputs.days_buffer || '1' }}
+      run: |
+        python -c "
+        import os
+        from datetime import datetime, timedelta
+        from supabase import create_client, Client
+        
+        # Initialize Supabase client with service role for admin operations
+        url = os.environ.get('SUPABASE_URL')
+        # Use service role key for admin operations
+        key = os.environ.get('SERVICE_ROLE_KEY') or os.environ.get('SUPABASE_ANON_KEY')
+        dry_run = os.environ.get('DRY_RUN', 'false').lower() == 'true'
+        days_buffer = int(os.environ.get('DAYS_BUFFER', '1'))
+        
+        if not url or not key:
+            print('❌ Missing required environment variables')
+            exit(1)
+        
+        supabase: Client = create_client(url, key)
+        
+        print(f'🔍 Starting cleanup process (DRY_RUN: {dry_run}, DAYS_BUFFER: {days_buffer})')
+        
+        try:
+            # Calculate cutoff date (today - buffer days)
+            cutoff_date = (datetime.now() - timedelta(days=days_buffer)).strftime('%Y-%m-%d')
+            print(f'📅 Cutoff date: {cutoff_date}')
+            
+            # Query for past one-time events
+            # We only delete one-time events, keep recurring/weekly events
+            result = supabase.table('all_events').select('id, name, start_date, end_date, occurrence').execute()
+            
+            if not result.data:
+                print('✅ No events found in database')
+                exit(0)
+            
+            events_to_delete = []
+            total_events = len(result.data)
+            
+            for event in result.data:
+                event_id = event.get('id')
+                event_name = event.get('name', 'Unknown')
+                start_date = event.get('start_date')
+                end_date = event.get('end_date')
+                occurrence = event.get('occurrence', '').lower()
+                
+                # Only consider deleting one-time events
+                if occurrence in ['one-time', 'single']:
+                    # Use end_date if available, otherwise use start_date
+                    event_date = end_date if end_date else start_date
+                    
+                    if event_date and event_date < cutoff_date:
+                        events_to_delete.append({
+                            'id': event_id,
+                            'name': event_name,
+                            'date': event_date,
+                            'occurrence': occurrence
+                        })
+            
+            print(f'📊 Found {len(events_to_delete)} past events out of {total_events} total events')
+            
+            if not events_to_delete:
+                print('✅ No past events to delete')
+                exit(0)
+            
+            # Display events to be deleted
+            print('📋 Events to be deleted:')
+            for event in events_to_delete[:10]:  # Show first 10
+                print(f'  - ID: {event[\"id\"]}, Date: {event[\"date\"]}, Name: {event[\"name\"][:50]}...')
+            
+            if len(events_to_delete) > 10:
+                print(f'  ... and {len(events_to_delete) - 10} more events')
+            
+            if dry_run:
+                print(f'🔍 DRY RUN: Would delete {len(events_to_delete)} events (no actual deletion performed)')
+                exit(0)
+            
+            # Perform deletion in batches
+            batch_size = 50
+            deleted_count = 0
+            
+            for i in range(0, len(events_to_delete), batch_size):
+                batch = events_to_delete[i:i + batch_size]
+                batch_ids = [event['id'] for event in batch]
+                
+                try:
+                    delete_result = supabase.table('all_events').delete().in_('id', batch_ids).execute()
+                    batch_deleted = len(batch_ids)
+                    deleted_count += batch_deleted
+                    print(f'✅ Deleted batch {i//batch_size + 1}: {batch_deleted} events')
+                    
+                except Exception as e:
+                    print(f'❌ Error deleting batch {i//batch_size + 1}: {str(e)}')
+                    continue
+            
+            print(f'🎉 Cleanup completed! Deleted {deleted_count} past events')
+            
+            # Log summary
+            remaining_result = supabase.table('all_events').select('id', count='exact').execute()
+            remaining_count = remaining_result.count if remaining_result.count else 0
+            
+            print(f'📈 Summary:')
+            print(f'  - Total events before: {total_events}')
+            print(f'  - Events deleted: {deleted_count}')
+            print(f'  - Events remaining: {remaining_count}')
+            
+        except Exception as e:
+            print(f'❌ Error during cleanup: {str(e)}')
+            exit(1)
+        "
+        
+    - name: Cleanup Summary
+      if: always()
+      run: |
+        echo "🏁 Cleanup workflow completed"
+        echo "Check the logs above for detailed results" 
