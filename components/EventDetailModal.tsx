@@ -525,13 +525,116 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             removeClippedSubviews={true}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.expandedHeader}>
-              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {event.name}
-              </Text>
-              <Text style={[styles.organizationText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {event.organization}
-              </Text>
+            {/* Modern Header Section */}
+            <View style={styles.modernHeaderSection}>
+              <View style={styles.titleContainer}>
+                <Text style={[styles.modernTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {event.name}
+                </Text>
+                {event.organization && (
+                  <Text style={[styles.modernOrganization, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    by {event.organization}
+                  </Text>
+                )}
+              </View>
+
+              {/* Event Type Tags - Moved up for better hierarchy */}
+              {event.event_type && (
+                <View style={styles.modernTagsContainer}>
+                  {(() => {
+                    // Parse event types - handle both comma-separated strings and arrays
+                    let eventTypes: string[] = [];
+                    
+                    if (typeof event.event_type === 'string') {
+                      // Split by common separators and clean up
+                      eventTypes = event.event_type
+                        .split(/[,;|&+]/) // Split by comma, semicolon, pipe, ampersand, or plus
+                        .map(type => type.trim())
+                        .filter(type => type.length > 0);
+                    } else if (Array.isArray(event.event_type)) {
+                      eventTypes = event.event_type;
+                    }
+                    
+                    // If no valid types found, use the original string
+                    if (eventTypes.length === 0) {
+                      eventTypes = [event.event_type];
+                    }
+                    
+                    return eventTypes.map((eventType, index) => (
+                      <View key={index} style={styles.modernEventTag}>
+                        <Text style={styles.modernEventTagText}>{eventType}</Text>
+                      </View>
+                    ));
+                  })()}
+                </View>
+              )}
+
+              {/* Friends Who Saved This Event - Hero Section */}
+              {event.friendsWhoSaved && event.friendsWhoSaved.length > 0 && (
+                <View style={styles.modernFriendsSection}>
+                  <LinearGradient
+                    colors={colorScheme === 'dark' 
+                      ? ['rgba(158, 149, 189, 0.15)', 'rgba(184, 174, 204, 0.15)', 'rgba(158, 149, 189, 0.15)']
+                      : ['rgba(158, 149, 189, 0.08)', 'rgba(184, 174, 204, 0.08)', 'rgba(158, 149, 189, 0.08)']
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.modernFriendsCard}
+                  >
+                    <View style={styles.modernFriendsHeader}>
+                      <View style={styles.modernFriendsIconBadge}>
+                        <Ionicons name="people" size={18} color="#9E95BD" />
+                      </View>
+                      <View style={styles.modernFriendsText}>
+                        <Text style={[styles.modernFriendsTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          {event.friendsWhoSaved.length === 1 
+                            ? `${event.friendsWhoSaved[0].name} saved this`
+                            : event.friendsWhoSaved.length === 2
+                            ? `${event.friendsWhoSaved[0].name} and ${event.friendsWhoSaved[1].name} saved this`
+                            : `${event.friendsWhoSaved[0].name} and ${event.friendsWhoSaved.length - 1} others saved this`
+                          }
+                        </Text>
+                        <Text style={[styles.modernFriendsSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          {event.friendsWhoSaved.length} friend{event.friendsWhoSaved.length !== 1 ? 's' : ''} interested
+                        </Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.modernFriendsList}>
+                      {event.friendsWhoSaved.slice(0, 8).map((friend, index) => (
+                        <View 
+                          key={friend.id} 
+                          style={[
+                            styles.modernFriendAvatar, 
+                            { 
+                              marginLeft: index > 0 ? -12 : 0, 
+                              zIndex: 8 - index,
+                              borderColor: Colors[colorScheme ?? 'light'].background
+                            }
+                          ]}
+                        >
+                          <Image 
+                            source={{ 
+                              uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${friend.email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+                            }}
+                            style={styles.modernFriendAvatarImage}
+                            defaultSource={require('../assets/images/icon.png')}
+                            onError={() => {
+                              // Fallback to icon if image fails to load
+                              console.log(`Failed to load profile image for friend ${friend.email}`);
+                            }}
+                          />
+                        </View>
+                      ))}
+                      {event.friendsWhoSaved.length > 8 && (
+                        <View style={[styles.modernFriendAvatar, styles.modernMoreAvatar, { marginLeft: -12, zIndex: 0 }]}>
+                          <Text style={styles.modernMoreText}>+{event.friendsWhoSaved.length - 8}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </LinearGradient>
+                </View>
+              )}
 
               <View style={styles.buttonContainer}>
                 {/* Link Button */}
@@ -583,146 +686,70 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
-
-              {/* Event Type Tags */}
-              {event.event_type && (
-                <View style={styles.eventTagsContainer}>
-                  {(() => {
-                    // Parse event types - handle both comma-separated strings and arrays
-                    let eventTypes: string[] = [];
-                    
-                    if (typeof event.event_type === 'string') {
-                      // Split by common separators and clean up
-                      eventTypes = event.event_type
-                        .split(/[,;|&+]/) // Split by comma, semicolon, pipe, ampersand, or plus
-                        .map(type => type.trim())
-                        .filter(type => type.length > 0);
-                    } else if (Array.isArray(event.event_type)) {
-                      eventTypes = event.event_type;
-                    }
-                    
-                    // If no valid types found, use the original string
-                    if (eventTypes.length === 0) {
-                      eventTypes = [event.event_type];
-                    }
-                    
-                    return eventTypes.map((eventType, index) => (
-                      <View key={index} style={styles.eventTag}>
-                        <LinearGradient
-                          colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          locations={[0, 0.25, 0.5, 0.75, 1]}
-                          style={styles.eventTagGradient}
-                        >
-                          <Ionicons name="pricetag" size={14} color="white" style={styles.tagIcon} />
-                          <Text style={styles.eventTagText}>{eventType}</Text>
-                        </LinearGradient>
-                      </View>
-                    ));
-                  })()}
-                </View>
-              )}
             </View>
 
-            <View style={styles.infoSection}>
-              {/* Opening Hours Section */}
-              {event.times && Object.keys(event.times).length > 0 ? (
-                <View style={styles.hoursSection}>
-                  <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text, marginBottom: 8 }]}>Hours Today</Text>
-                  <View style={styles.hoursContainer}>
-                    <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+            {/* Modern Opening Hours Section - Right after friends and buttons */}
+            {event.times && Object.keys(event.times).length > 0 && (
+              <View style={[styles.modernHoursCard, { backgroundColor: Colors[colorScheme ?? 'light'].card, margin: 20 }]}>
+                <View style={styles.modernHoursHeader}>
+                  <View style={[styles.modernInfoIconBadge, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
+                    <Ionicons name="time" size={18} color="#9E95BD" />
+                  </View>
+                  <View style={styles.modernHoursHeaderText}>
+                    <Text style={[styles.modernInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Opening Hours</Text>
+                    <Text style={[styles.modernInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
                       {formatOpeningHours(event.times).display}
                     </Text>
                     {formatOpeningHours(event.times).statusText && (
                       <View style={[
-                        styles.statusBadge,
+                        styles.modernStatusBadge,
                         { backgroundColor: formatOpeningHours(event.times).status === 'open' ? '#4CAF50' : 
                                          formatOpeningHours(event.times).status === 'open_24h' ? '#2196F3' : '#F44336' }
                       ]}>
-                        <Text style={styles.statusText}>
+                        <Text style={styles.modernStatusText}>
                           {formatOpeningHours(event.times).statusText}
                         </Text>
                       </View>
                     )}
                   </View>
-                  
-                  {/* Weekly Hours */}
-                  <View style={styles.weeklyHoursContainer}>
-                    {getWeeklyHours(event.times).map(({ day, hours }) => (
-                      <View key={day} style={[
-                        styles.dayHoursRow,
-                        { backgroundColor: day === getCurrentDayName() ? 
-                          (colorScheme === 'dark' ? 'rgba(158, 149, 189, 0.2)' : 'rgba(158, 149, 189, 0.1)') : 
-                          'transparent' 
+                </View>
+                
+                {/* Weekly Hours */}
+                <View style={styles.modernWeeklyHours}>
+                  {getWeeklyHours(event.times).map(({ day, hours }) => (
+                    <View key={day} style={[
+                      styles.modernDayRow,
+                      { backgroundColor: day === getCurrentDayName() ? 
+                        'rgba(103, 126, 234, 0.1)' : 'transparent' 
+                      }
+                    ]}>
+                      <Text style={[
+                        styles.modernDayText,
+                        { 
+                          color: Colors[colorScheme ?? 'light'].text,
+                          fontWeight: day === getCurrentDayName() ? 'bold' : '500'
                         }
                       ]}>
-                        <Text style={[
-                          styles.dayText,
-                          { 
-                            color: Colors[colorScheme ?? 'light'].text,
-                            fontWeight: day === getCurrentDayName() ? 'bold' : 'normal'
-                          }
-                        ]}>
-                          {day.slice(0, 3)}
-                        </Text>
-                        <Text style={[
-                          styles.hoursText,
-                          { 
-                            color: Colors[colorScheme ?? 'light'].text,
-                            fontWeight: day === getCurrentDayName() ? 'bold' : 'normal'
-                          }
-                        ]}>
-                          {hours}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              ) : (
-                Array.isArray(event.days_of_the_week) && event.days_of_the_week.length > 0 ? (
-                  <View style={styles.infoRow}>
-                    <LinearGradient
-                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      locations={[0, 0.3, 0.7, 1]}
-                      style={styles.infoIconContainer}
-                    >
-                      <Ionicons name="calendar-outline" size={20} color="white" />
-                    </LinearGradient>
-                    <View style={styles.infoTextContainer}>
-                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Days of the Week</Text>
-                      <View style={styles.daysContainer}>
-                        {event.days_of_the_week.map((day, index) => (
-                          <View key={day} style={styles.dayPill}>
-                            <Text style={styles.dayPillText}>{day}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.infoRow}>
-                    <LinearGradient
-                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      locations={[0, 0.3, 0.7, 1]}
-                      style={styles.infoIconContainer}
-                    >
-                      <Ionicons name="calendar-outline" size={20} color="white" />
-                    </LinearGradient>
-                    <View style={styles.infoTextContainer}>
-                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date</Text>
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text, fontWeight: 'bold', marginTop: 2 }]}> 
-                        {event.start_date ? new Date(event.start_date).toLocaleDateString() : "please check organizer's page"}
+                        {day.slice(0, 3)}
+                      </Text>
+                      <Text style={[
+                        styles.modernHoursText,
+                        { 
+                          color: Colors[colorScheme ?? 'light'].text,
+                          fontWeight: day === getCurrentDayName() ? 'bold' : '500'
+                        }
+                      ]}>
+                        {hours}
                       </Text>
                     </View>
-                  </View>
-                )
-              )}
+                  ))}
+                </View>
+              </View>
+            )}
 
+            {/* Back to Original Event Information Design */}
+            <View style={styles.infoSection}>
+              {/* Location */}
               <View style={styles.infoRow}>
                 <LinearGradient
                   colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -741,6 +768,26 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 </View>
               </View>
 
+              {/* Date/Time */}
+              <View style={styles.infoRow}>
+                <LinearGradient
+                  colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  locations={[0, 0.3, 0.7, 1]}
+                  style={styles.infoIconContainer}
+                >
+                  <Ionicons name="calendar-outline" size={20} color="white" />
+                </LinearGradient>
+                <View style={styles.infoTextContainer}>
+                  <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date</Text>
+                  <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    {event.start_date ? new Date(event.start_date).toLocaleDateString() : "Please check organizer's page"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Distance */}
               {typeof event.distance === 'number' && (
                 <View style={styles.infoRow}>
                   <LinearGradient
@@ -761,6 +808,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 </View>
               )}
 
+              {/* Cost */}
               <View style={styles.infoRow}>
                 <LinearGradient
                   colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -782,6 +830,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 </View>
               </View>
 
+              {/* Age Restriction */}
               <View style={styles.infoRow}>
                 <LinearGradient
                   colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -800,6 +849,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 </View>
               </View>
 
+              {/* Reservation */}
               <View style={styles.infoRow}>
                 <LinearGradient
                   colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -817,15 +867,19 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   </Text>
                 </View>
               </View>
-
-
             </View>
 
-            <View style={styles.descriptionSection}>
-              <Text style={[styles.descriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                About this event
-              </Text>
-              <Text style={[styles.descriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
+            {/* Modern Description Section */}
+            <View style={[styles.modernDescriptionCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <View style={styles.modernDescriptionHeader}>
+                <View style={[styles.modernInfoIconBadge, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
+                  <Ionicons name="document-text" size={18} color="#9E95BD" />
+                </View>
+                <Text style={[styles.modernDescriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  About this event
+                </Text>
+              </View>
+              <Text style={[styles.modernDescriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
                 {event.description}
               </Text>
             </View>
@@ -1339,5 +1393,405 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 14,
     fontWeight: '500',
+  },
+  // Friends who saved event styles
+  friendsSavedSection: {
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+  },
+  friendsSavedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  friendsSavedIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  friendsSavedTextContainer: {
+    flex: 1,
+  },
+  friendsSavedTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  friendsSavedSubtitle: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  friendsSavedList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  friendSavedItem: {
+    alignItems: 'center',
+    marginBottom: 12,
+    width: 80,
+  },
+  friendSavedAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#9E95BD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  moreFriendsAvatar: {
+    backgroundColor: 'rgba(158, 149, 189, 0.7)',
+  },
+  moreFriendsText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  friendSavedName: {
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  
+  // Modern Header Styles
+  modernHeaderSection: {
+    padding: 24,
+    paddingBottom: 16,
+  },
+  titleContainer: {
+    marginBottom: 16,
+  },
+  modernTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    lineHeight: 34,
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  modernOrganization: {
+    fontSize: 16,
+    opacity: 0.8,
+    fontWeight: '500',
+  },
+  
+  // Modern Tags
+  modernTagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+  },
+  modernEventTag: {
+    backgroundColor: 'rgba(103, 126, 234, 0.1)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(103, 126, 234, 0.2)',
+  },
+  modernEventTagText: {
+    color: '#667eea',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  
+  // Modern Friends Section
+  modernFriendsSection: {
+    marginBottom: 20,
+  },
+  modernFriendsCard: {
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  modernFriendsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modernFriendsIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  modernFriendsText: {
+    flex: 1,
+  },
+  modernFriendsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 2,
+    lineHeight: 20,
+  },
+  modernFriendsSubtitle: {
+    fontSize: 13,
+    opacity: 0.7,
+    fontWeight: '500',
+  },
+  modernFriendsList: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  modernFriendAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#9E95BD',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  modernMoreAvatar: {
+    backgroundColor: 'rgba(158, 149, 189, 0.8)',
+  },
+  modernMoreText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  
+  // Modern Action Buttons
+  modernActionContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+  modernPrimaryButton: {
+    flex: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  modernButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  modernButtonIcon: {
+    marginRight: 8,
+  },
+  modernButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    letterSpacing: 0.3,
+  },
+  modernSecondaryButton: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(158, 149, 189, 0.3)',
+    overflow: 'hidden',
+  },
+  modernSecondaryButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  modernSecondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  
+  // Modern Details Section
+  modernDetailsSection: {
+    padding: 20,
+    gap: 16,
+  },
+  modernQuickInfoGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modernInfoCard: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  modernInfoIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  modernInfoLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  modernInfoValue: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    lineHeight: 20,
+  },
+  modernFullWidthCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  modernFullWidthCardContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  modernHoursCard: {
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  modernHoursHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modernHoursHeaderText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  modernStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  modernStatusText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  modernWeeklyHours: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+  },
+  modernDayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(158, 149, 189, 0.1)',
+  },
+  modernDayText: {
+    fontSize: 14,
+    minWidth: 40,
+  },
+  modernHoursText: {
+    fontSize: 14,
+    flex: 1,
+    textAlign: 'right',
+  },
+  
+  // Modern Description Section
+  modernDescriptionCard: {
+    margin: 20,
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  modernDescriptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modernDescriptionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginLeft: 12,
+  },
+  modernDescriptionText: {
+    fontSize: 15,
+    lineHeight: 22,
+    opacity: 0.9,
+  },
+  
+  // Modern Friend Avatar Image Styles
+  modernFriendAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
+  },
+  modernFriendAvatarFallback: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(158, 149, 189, 0.8)',
+    borderRadius: 16,
   },
 }); 

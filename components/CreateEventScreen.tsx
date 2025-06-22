@@ -44,6 +44,7 @@ interface CreateEventForm {
   event_type: string;
   start_date: string;
   end_date: string;
+  start_time: string;
   days_of_the_week: string[];
   times: { [key: string]: string | [string, string] };
   featured: boolean;
@@ -182,6 +183,7 @@ export default function CreateEventScreen() {
     event_type: EVENT_TYPES[0],
     start_date: '',
     end_date: '',
+    start_time: '',
     days_of_the_week: [],
     times: {},
     featured: true,
@@ -224,16 +226,23 @@ export default function CreateEventScreen() {
     
     if (selectedDate && showTimePicker.visible) {
       const timeString = dateToTimeString(selectedDate);
-      const newTimes = { ...eventForm.times };
-      const currentTime = Array.isArray(newTimes[showTimePicker.day]) ? newTimes[showTimePicker.day] : ['', ''];
       
-      if (showTimePicker.type === 'start') {
-        newTimes[showTimePicker.day] = [timeString, currentTime[1] || ''];
+      // Handle general start time
+      if (showTimePicker.day === 'start_time') {
+        setEventForm({ ...eventForm, start_time: timeString });
       } else {
-        newTimes[showTimePicker.day] = [currentTime[0] || '', timeString];
+        // Handle weekly event times
+        const newTimes = { ...eventForm.times };
+        const currentTime = Array.isArray(newTimes[showTimePicker.day]) ? newTimes[showTimePicker.day] : ['', ''];
+        
+        if (showTimePicker.type === 'start') {
+          newTimes[showTimePicker.day] = [timeString, currentTime[1] || ''];
+        } else {
+          newTimes[showTimePicker.day] = [currentTime[0] || '', timeString];
+        }
+        
+        setEventForm({ ...eventForm, times: newTimes });
       }
-      
-      setEventForm({ ...eventForm, times: newTimes });
     }
     
     if (Platform.OS === 'ios') {
@@ -306,6 +315,7 @@ export default function CreateEventScreen() {
         event_type: eventForm.event_type,
         start_date: eventForm.occurrence === 'one-time' ? eventForm.start_date : null,
         end_date: eventForm.occurrence === 'one-time' ? eventForm.end_date || eventForm.start_date : null,
+        start_time: eventForm.start_time || null,
         days_of_the_week: eventForm.occurrence === 'Weekly' ? eventForm.days_of_the_week : null,
         times: Object.keys(eventForm.times).length > 0 ? eventForm.times : null,
         featured: eventForm.featured,
@@ -394,10 +404,10 @@ export default function CreateEventScreen() {
     <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       {/* Header extending to status bar */}
       <LinearGradient
-        colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+        colors={['#9E95BD', '#B97AFF', '#9E95BD']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        locations={[0, 0.25, 0.5, 0.75, 1]}
+        locations={[0, 0.5, 1]}
         style={styles.headerGradient}
       >
         <View style={styles.headerContent}>
@@ -519,6 +529,27 @@ export default function CreateEventScreen() {
                 ))}
               </View>
             </View>
+
+            {/* Start Time (for one-time events only) */}
+            {eventForm.occurrence === 'one-time' && (
+              <View style={styles.formGroup}>
+                <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Start Time</Text>
+                <TouchableOpacity
+                  style={[styles.timePickerButton, styles.fullWidthTimeButton, { 
+                    backgroundColor: Colors[colorScheme ?? 'light'].card,
+                    borderColor: colorScheme === 'dark' ? '#333' : '#eee'
+                  }]}
+                  onPress={() => setShowTimePicker({ visible: true, day: 'start_time', type: 'start' })}
+                >
+                  <Ionicons name="time-outline" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ marginRight: 10 }} />
+                  <Text style={[styles.timePickerText, { 
+                    color: eventForm.start_time ? Colors[colorScheme ?? 'light'].text : Colors[colorScheme ?? 'light'].text + '60'
+                  }]}>
+                    {formatTimeDisplay(eventForm.start_time)}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* Days of Week (for Weekly events) */}
             {eventForm.occurrence === 'Weekly' && (
@@ -755,10 +786,16 @@ export default function CreateEventScreen() {
                   <View style={styles.timePickerHeaderContent}>
                     <View style={styles.timePickerTitleContainer}>
                       <Text style={styles.timePickerMainTitle}>
-                        {showTimePicker.type === 'start' ? 'Start Time' : 'End Time'}
+                        {showTimePicker.day === 'start_time' 
+                          ? 'Event Start Time' 
+                          : showTimePicker.type === 'start' ? 'Start Time' : 'End Time'
+                        }
                       </Text>
                       <Text style={styles.timePickerSubtitle}>
-                        {showTimePicker.day}
+                        {showTimePicker.day === 'start_time' 
+                          ? 'When does your event begin?' 
+                          : showTimePicker.day
+                        }
                       </Text>
                     </View>
                     <TouchableOpacity 
@@ -776,9 +813,11 @@ export default function CreateEventScreen() {
                   <View style={styles.timePickerSection}>
                     <DateTimePicker
                       value={timeStringToDate(
-                        showTimePicker.type === 'start' 
-                          ? (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][0] : '') 
-                          : (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][1] : '')
+                        showTimePicker.day === 'start_time' 
+                          ? eventForm.start_time
+                          : showTimePicker.type === 'start' 
+                            ? (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][0] : '') 
+                            : (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][1] : '')
                       )}
                       mode="time"
                       is24Hour={false}
@@ -811,9 +850,11 @@ export default function CreateEventScreen() {
           ) : (
             <DateTimePicker
               value={timeStringToDate(
-                showTimePicker.type === 'start' 
-                  ? (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][0] : '') 
-                  : (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][1] : '')
+                showTimePicker.day === 'start_time' 
+                  ? eventForm.start_time
+                  : showTimePicker.type === 'start' 
+                    ? (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][0] : '') 
+                    : (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][1] : '')
               )}
               mode="time"
               is24Hour={false}
@@ -1125,6 +1166,14 @@ const styles = StyleSheet.create({
   timePickerText: {
     fontSize: 15,
     fontWeight: '500',
+  },
+  fullWidthTimeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   timeSeparator: {
     fontSize: 14,

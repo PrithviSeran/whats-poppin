@@ -177,17 +177,35 @@ export default function SuggestedEvents() {
     return result;
   }, []);
 
-  // Optimized event processing
-  const processEvents = useCallback((events: EventCard[]) => {
-    return events.map((event) => {
-      const urls = getEventImageUrls(event.id);
-      return {
-        ...event,
-        image: urls.imageUrl,
-        allImages: urls.allImages
-      };
-    });
-  }, [getEventImageUrls]);
+  // Optimized event processing with friends data
+  const processEvents = useCallback(async (events: EventCard[]) => {
+    console.log('🔄 Processing events with friends data...');
+    
+    // Process events with image URLs and friends data in parallel
+    const processedEvents = await Promise.all(
+      events.map(async (event) => {
+        const urls = getEventImageUrls(event.id);
+        
+        // Fetch friends who saved this event
+        let friendsWhoSaved: { id: number; name: string; email: string }[] = [];
+        try {
+          friendsWhoSaved = await dataManager.getFriendsWhoSavedEvent(event.id);
+        } catch (error) {
+          console.error(`Error fetching friends for event ${event.id}:`, error);
+        }
+        
+        return {
+          ...event,
+          image: urls.imageUrl,
+          allImages: urls.allImages,
+          friendsWhoSaved
+        };
+      })
+    );
+    
+    console.log('✅ Events processed with friends data');
+    return processedEvents;
+  }, [getEventImageUrls, dataManager]);
 
   // Memoized location permission request
   const requestLocationPermission = useCallback(async () => {
@@ -361,7 +379,7 @@ export default function SuggestedEvents() {
       }
 
       const eventsData = await response.json();
-      const processedEvents = processEvents(eventsData.events);
+      const processedEvents = await processEvents(eventsData.events);
 
       
       // Update state efficiently
@@ -1107,6 +1125,51 @@ export default function SuggestedEvents() {
                                 <View style={styles.tagsContainer}>
                                   <View style={styles.eventTypeTag}>
                                     <Text style={styles.tagText}>{card.event_type}</Text>
+                                  </View>
+                                </View>
+                              )}
+
+                              {/* Friends Who Saved This Event */}
+                              {card.friendsWhoSaved && card.friendsWhoSaved.length > 0 && (
+                                <View style={styles.friendsContainer}>
+                                  <View style={styles.friendsHeader}>
+                                    <Ionicons name="people" size={16} color="#9E95BD" />
+                                    <Text style={[styles.friendsText, { color: colorScheme === 'dark' ? '#B0B0B0' : '#666666' }]}>
+                                      {card.friendsWhoSaved.length === 1 
+                                        ? `${card.friendsWhoSaved[0].name} saved this`
+                                        : card.friendsWhoSaved.length === 2
+                                        ? `${card.friendsWhoSaved[0].name} and ${card.friendsWhoSaved[1].name} saved this`
+                                        : `${card.friendsWhoSaved[0].name} and ${card.friendsWhoSaved.length - 1} others saved this`
+                                      }
+                                    </Text>
+                                  </View>
+                                  <View style={styles.friendsAvatars}>
+                                    {card.friendsWhoSaved.slice(0, 3).map((friend, friendIndex) => (
+                                      <View 
+                                        key={friend.id} 
+                                        style={[
+                                          styles.friendAvatar, 
+                                          { marginLeft: friendIndex > 0 ? -8 : 0, zIndex: 3 - friendIndex }
+                                        ]}
+                                      >
+                                        <Image 
+                                          source={{ 
+                                            uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${friend.email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+                                          }}
+                                          style={styles.friendAvatarImage}
+                                          defaultSource={require('../assets/images/icon.png')}
+                                          onError={() => {
+                                            // Fallback to icon if image fails to load
+                                            console.log(`Failed to load profile image for friend ${friend.email}`);
+                                          }}
+                                        />
+                                      </View>
+                                    ))}
+                                    {card.friendsWhoSaved.length > 3 && (
+                                      <View style={[styles.friendAvatar, styles.moreAvatar, { marginLeft: -8, zIndex: 0 }]}>
+                                        <Text style={styles.moreAvatarText}>+{card.friendsWhoSaved.length - 3}</Text>
+                                      </View>
+                                    )}
                                   </View>
                                 </View>
                               )}
@@ -2174,5 +2237,63 @@ const styles = StyleSheet.create({
   descriptionText: {
     fontSize: 16,
     lineHeight: 24,
+  },
+  // Friends styles
+  friendsContainer: {
+    marginBottom: 8,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+  },
+  friendsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  friendsText: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginLeft: 6,
+    flex: 1,
+  },
+  friendsAvatars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  friendAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#9E95BD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  moreAvatar: {
+    backgroundColor: 'rgba(158, 149, 189, 0.8)',
+  },
+  moreAvatarText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  friendAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  friendAvatarFallback: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(158, 149, 189, 0.8)',
+    borderRadius: 12,
   },
 });

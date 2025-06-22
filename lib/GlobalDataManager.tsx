@@ -32,6 +32,7 @@ export interface EventCard {
   allImages?: string[];  // Array of all 5 image URLs for the event
   link?: string;  // Source URL for the event/activity
   featured?: boolean;  // Whether the event is featured
+  friendsWhoSaved?: { id: number; name: string; email: string }[];  // Friends who have saved this event
 };
 
 export interface UserProfile {
@@ -1179,6 +1180,73 @@ class GlobalDataManager extends EventEmitter {
       this.lastApiCallTime = now;
       await this.refreshAllDataImmediate();
     }, 300);
+  }
+
+  // Get friends who have saved a specific event
+  async getFriendsWhoSavedEvent(eventId: number): Promise<{ id: number; name: string; email: string }[]> {
+    try {
+      const user = await this.getUserProfile();
+      if (!user?.id) {
+        console.log('No user profile found when checking friends who saved event');
+        return [];
+      }
+
+      // Create a query to get friends who saved this event
+      // First, get all friends of the current user
+      const { data: friendsData, error: friendsError } = await supabase.rpc('get_user_friends', {
+        target_user_id: user.id
+      });
+
+      if (friendsError) {
+        console.error('Error fetching friends:', friendsError);
+        return [];
+      }
+
+      if (!friendsData || friendsData.length === 0) {
+        return [];
+      }
+
+      // Get all friend IDs
+      const friendIds = friendsData.map((friend: any) => friend.friend_id);
+
+      // Query all_users to find which friends have saved this event
+      const { data: friendsWithSavedEvent, error: savedEventError } = await supabase
+        .from('all_users')
+        .select('id, name, email, saved_events')
+        .in('id', friendIds);
+
+      if (savedEventError) {
+        console.error('Error checking friends saved events:', savedEventError);
+        return [];
+      }
+
+      // Filter friends who have saved this specific event
+      const friendsWhoSaved = (friendsWithSavedEvent || []).filter((friend: any) => {
+        if (!friend.saved_events) return false;
+        
+        let savedEvents: number[] = [];
+        if (Array.isArray(friend.saved_events)) {
+          savedEvents = friend.saved_events;
+        } else if (typeof friend.saved_events === 'string' && friend.saved_events) {
+          savedEvents = friend.saved_events
+            .replace(/[{}"']+/g, '')
+            .split(',')
+            .map((s: string) => parseInt(s.trim(), 10))
+            .filter(Boolean);
+        }
+        
+        return savedEvents.includes(eventId);
+      }).map((friend: any) => ({
+        id: friend.id,
+        name: friend.name,
+        email: friend.email
+      }));
+
+      return friendsWhoSaved;
+    } catch (error) {
+      console.error('Error in getFriendsWhoSavedEvent:', error);
+      return [];
+    }
   }
 }
 

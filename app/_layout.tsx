@@ -28,50 +28,50 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+        <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="social-sign-in" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="create-account" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="create-account-email" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="create-account-birthday" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="create-account-gender" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="create-account-password" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="create-account-location" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="create-account-finished" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="edit-profile" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="edit-images" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="social-sign-in" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-email" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-birthday" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-gender" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-password" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-location" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-finished" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="edit-profile" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="edit-images" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="create-event" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="forgot-password" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="reset-password" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen 
-          name="suggested-events" 
-          options={{ 
-            headerShown: false, 
-            gestureEnabled: false, 
-            animation: 'fade',
-            animationDuration: 100
-          }} 
-        />
-        <Stack.Screen 
-          name="discover" 
-          options={{ 
-            headerShown: false, 
-            gestureEnabled: false, 
-            animation: 'fade',
-            animationDuration: 100
-          }} 
-        />
-        <Stack.Screen 
-          name="me" 
-          options={{ 
-            headerShown: false, 
-            gestureEnabled: false, 
-            animation: 'fade',
-            animationDuration: 100
-          }} 
-        />
+          <Stack.Screen name="forgot-password" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="reset-password" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen 
+            name="suggested-events" 
+            options={{ 
+              headerShown: false, 
+              gestureEnabled: false, 
+              animation: 'fade',
+              animationDuration: 100
+            }} 
+          />
+          <Stack.Screen 
+            name="discover" 
+            options={{ 
+              headerShown: false, 
+              gestureEnabled: false, 
+              animation: 'fade',
+              animationDuration: 100
+            }} 
+          />
+          <Stack.Screen 
+            name="me" 
+            options={{ 
+              headerShown: false, 
+              gestureEnabled: false, 
+              animation: 'fade',
+              animationDuration: 100
+            }} 
+          />
         <Stack.Screen name="+not-found" options={{ gestureEnabled: false }} />
-      </Stack>
+        </Stack>
     </ThemeProvider>
   );
 }

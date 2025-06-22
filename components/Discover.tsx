@@ -104,15 +104,25 @@ export default function Discover() {
           const savedEvents = await dataManager.getSavedEvents();
           const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
 
-          // Filter out saved events and map the remaining ones
-          const eventsWithLikes = events
-            .filter(event => !savedEventIds.has(event.id))
-            .map(event => {
+          // Filter out saved events
+          const filteredEvents = events.filter(event => !savedEventIds.has(event.id));
+          
+          // Process events with friends data
+          const eventsWithLikes = await Promise.all(
+            filteredEvents.map(async (event) => {
               // Randomly select one of the 5 images (0-4) or leave null if no ID
               const randomImageIndex = Math.floor(Math.random() * 5);
               const imageUrl = event.id ? 
                 `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
                 null;
+
+              // Fetch friends who saved this event
+              let friendsWhoSaved: { id: number; name: string; email: string }[] = [];
+              try {
+                friendsWhoSaved = await dataManager.getFriendsWhoSavedEvent(event.id);
+              } catch (error) {
+                console.error(`Error fetching friends for event ${event.id} in initializeData:`, error);
+              }
 
               return {
                 ...event,
@@ -120,9 +130,11 @@ export default function Discover() {
                 isLiked: false, // These are unsaved events
                 allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
                   `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
-                ) : []
+                ) : [],
+                friendsWhoSaved
               } as ExtendedEventCard;
-            });
+            })
+          );
 
           // Shuffle the events array only once during initialization
           const shuffledEvents = [...eventsWithLikes].sort(() => Math.random() - 0.5);
@@ -291,14 +303,24 @@ export default function Discover() {
       const savedEventIds = new Set(savedEvents.map(event => event.id));
 
       // Filter out already loaded events and saved events, then map the remaining ones
-      const newEvents = eventsData
-        .filter(event => !loadedEventIds.has(event.id) && !savedEventIds.has(event.id))
-        .map(event => {
+      const filteredEvents = eventsData.filter(event => !loadedEventIds.has(event.id) && !savedEventIds.has(event.id));
+      
+      // Process events with friends data
+      const newEvents = await Promise.all(
+        filteredEvents.map(async (event) => {
           // Randomly select one of the 5 images (0-4) or leave null if no ID
           const randomImageIndex = Math.floor(Math.random() * 5);
           const imageUrl = event.id ? 
             `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
             null;
+
+          // Fetch friends who saved this event
+          let friendsWhoSaved: { id: number; name: string; email: string }[] = [];
+          try {
+            friendsWhoSaved = await dataManager.getFriendsWhoSavedEvent(event.id);
+          } catch (error) {
+            console.error(`Error fetching friends for event ${event.id} in Discover:`, error);
+          }
 
           return {
             ...event,
@@ -307,9 +329,11 @@ export default function Discover() {
             occurrence: event.occurrence || 'one-time',
             allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
               `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
-            ) : []
+            ) : [],
+            friendsWhoSaved
           };
-        });
+        })
+      );
 
       if (newEvents.length === 0) {
         setHasMore(false);
@@ -795,11 +819,11 @@ export default function Discover() {
                         
                         if (!foundWorkingImage) {
                           console.log('No more images to try for event:', event.id);
-                          setEvents(prevEvents => 
-                            prevEvents.map(evt => 
-                              evt.id === event.id ? { ...evt, image: null } : evt
-                            )
-                          );
+                      setEvents(prevEvents => 
+                        prevEvents.map(evt => 
+                          evt.id === event.id ? { ...evt, image: null } : evt
+                        )
+                      );
                         }
                       } else {
                         // No allImages array, just show placeholder
@@ -849,10 +873,10 @@ export default function Discover() {
                   <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{event.name}</Text>
                   {/* Only show calendar icon and date if date information is available */}
                   {event.start_date && (
-                    <View style={styles.infoRow}>
-                      <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                      <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.start_date}</Text>
-                    </View>
+                  <View style={styles.infoRow}>
+                    <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.start_date}</Text>
+                  </View>
                   )}
                   <View style={styles.infoRow}>
                     <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />

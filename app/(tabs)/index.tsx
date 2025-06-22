@@ -14,7 +14,7 @@ export default function HomeScreen() {
   const [isDataLoading, setIsDataLoading] = useState(false);
   
   const colorScheme = useColorScheme();
-  
+
   // Get the singleton instance
   const dataManager = GlobalDataManager.getInstance();
 
