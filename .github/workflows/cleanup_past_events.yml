@@ -9,7 +9,7 @@ on:
       dry_run:
         description: 'Dry run mode (only show what would be deleted)'
         required: false
-        default: 'false'
+        default: false
         type: boolean
       days_buffer:
         description: 'Days buffer before deleting (default: 1)'
