@@ -923,17 +923,49 @@ class EventRecommendationSystem:
                 
                 if model_status and self.rec.is_model_loaded():
                     print("✅ Using pre-trained model for fast inference")
-                    # Extract liked/rejected event IDs for simple filtering
-                    liked_and_rejected_ids = set(saved_events) | set(rejected_events)
                     
-                    # Fast recommendation without feature/interaction building
-                    recommendations = self.rec.recommend_for_user(
-                        email,
-                        top_n=5,
-                        filter_liked=True,
-                        liked_event_ids=list(liked_and_rejected_ids)
-                    )
-                    print(f"🚀 Fast recommendations generated: {len(recommendations)}")
+                    # CHECK MODEL CONSISTENCY: Verify model was trained on compatible events
+                    model_event_ids = set(self.rec.internal_to_item.values()) if hasattr(self.rec, 'internal_to_item') else set()
+                    current_event_ids = set(event_ids_filtered)
+                    
+                    overlap_ratio = len(model_event_ids & current_event_ids) / len(model_event_ids) if model_event_ids else 0
+                    print(f"🔍 Model-current event overlap: {overlap_ratio:.2%} ({len(model_event_ids & current_event_ids)}/{len(model_event_ids)})")
+                    
+                    # CHECK DATA STALENESS: Look for cleanup invalidation signal
+                    data_change_detected = False
+                    try:
+                        result = self.Client.table('model_metadata').select('last_data_change, events_deleted_count').eq('id', 'global').execute()
+                        if result.data:
+                            metadata = result.data[0]
+                            last_change = metadata.get('last_data_change')
+                            deleted_count = metadata.get('events_deleted_count', 0)
+                            
+                            if last_change:
+                                # Check if model was created before this data change
+                                model_created = getattr(self.rec, 'model_created_at', None)
+                                if model_created and last_change > model_created and deleted_count > 10:
+                                    data_change_detected = True
+                                    print(f"⚠️  Data staleness detected: {deleted_count} events deleted after model creation")
+                    except Exception as e:
+                        print(f"ℹ️  Could not check data staleness: {e}")
+                    
+                    # If overlap is too low or data is stale, force retrain
+                    if overlap_ratio < 0.7 or data_change_detected:
+                        reason = "low overlap" if overlap_ratio < 0.7 else "data staleness"
+                        print(f"⚠️  Model-data mismatch detected ({reason}). Forcing retrain...")
+                        model_status = False  # Force training path
+                    else:
+                        # Extract liked/rejected event IDs for simple filtering
+                        liked_and_rejected_ids = set(saved_events) | set(rejected_events)
+                        
+                        # Fast recommendation without feature/interaction building
+                        recommendations = self.rec.recommend_for_user(
+                            email,
+                            top_n=5,
+                            filter_liked=True,
+                            liked_event_ids=list(liked_and_rejected_ids)
+                        )
+                        print(f"🚀 Fast recommendations generated: {len(recommendations)}")
                     
                 else:
                     print("📚 No existing model found, falling back to training...")
@@ -1002,10 +1034,22 @@ class EventRecommendationSystem:
                 featured_events = []
                 regular_events = []
                 
+                # Debug: Check what event IDs were recommended vs what's available
+                recommended_ids = [eid for eid, score in recommendations]
+                available_ids = [event["id"] for event in all_events_filtered]
+                print(f"🔍 Recommended event IDs: {recommended_ids}")
+                print(f"🔍 Available filtered event IDs (first 10): {available_ids[:10]}")
+                print(f"🔍 Available filtered events count: {len(available_ids)}")
+                
+                found_events = 0
+                missing_events = []
+                
                 for eid, score in recommendations:
                     # Find the full event object from all_events_filtered
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
+                        found_events += 1
+                        print(f"✅ Found event {eid} in filtered list")
                         # FEATURED POST-PROCESSING BOOST: Separate featured and regular events
                         if event_obj.get("featured", False):
                             # Apply additional score boost to featured events
@@ -1013,6 +1057,31 @@ class EventRecommendationSystem:
                             featured_events.append((event_obj, boosted_score))
                         else:
                             regular_events.append((event_obj, score))
+                    else:
+                        missing_events.append(eid)
+                        print(f"❌ Event {eid} not found in filtered list (score: {score})")
+                
+                print(f"🔍 Found {found_events} events out of {len(recommendations)} recommendations")
+                if missing_events:
+                    print(f"🔍 Missing events: {missing_events}")
+                
+                # If no model recommendations were found in filtered events, use fallback
+                if found_events == 0 and all_events_filtered:
+                    print("⚠️  No model recommendations found in filtered events. Using fallback selection...")
+                    # Use the first 5 filtered events as fallback, prioritizing featured
+                    fallback_featured = [e for e in all_events_filtered[:20] if e.get("featured", False)]
+                    fallback_regular = [e for e in all_events_filtered[:20] if not e.get("featured", False)]
+                    
+                    # Mix featured and regular events
+                    fallback_count = 0
+                    for event in fallback_featured[:3]:  # Max 3 featured
+                        featured_events.append((event, 1.0))  # Default score
+                        fallback_count += 1
+                    
+                    for event in fallback_regular[:5-fallback_count]:  # Fill remaining with regular
+                        regular_events.append((event, 0.8))  # Slightly lower score
+                    
+                    print(f"🔄 Added {len(featured_events)} featured and {len(regular_events)} regular fallback events")
                 
                 # Sort each group by score and interleave them with featured preference
                 featured_events.sort(key=lambda x: x[1], reverse=True)

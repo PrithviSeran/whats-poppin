@@ -350,6 +350,21 @@ class EventCleanupManager:
                 for occurrence, count in final_stats['occurrence_breakdown'].items():
                     self.logger.info(f"  - {occurrence}: {count}")
             
+            # INVALIDATE ML MODELS: Mark models as stale when events are deleted
+            if cleanup_stats['deleted'] > 0 and not self.dry_run:
+                self.logger.info(f"🔄 Invalidating ML models due to {cleanup_stats['deleted']} deleted events...")
+                try:
+                    # Create model_metadata table if it doesn't exist and update timestamp
+                    self.supabase.table('model_metadata').upsert({
+                        'id': 'global',
+                        'last_data_change': datetime.now().isoformat(),
+                        'events_deleted_count': cleanup_stats['deleted'],
+                        'reason': 'cleanup_past_events'
+                    }).execute()
+                    self.logger.info('✅ Model invalidation completed')
+                except Exception as e:
+                    self.logger.warning(f'⚠️  Model invalidation failed: {e} (models will still work but may be less accurate)')
+            
             # Create summary report
             self._create_summary_report(cleanup_stats, final_stats, duration)
             
