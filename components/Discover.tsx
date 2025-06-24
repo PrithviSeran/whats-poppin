@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -8,14 +8,32 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
-import GlobalDataManager, { EventCard } from '@/lib/GlobalDataManager';
+import GlobalDataManager, { EventCard, UserProfile } from '@/lib/GlobalDataManager';
 import EventDetailModal from './EventDetailModal';
 import * as Location from 'expo-location';
 import EventCardComponent from './EventCard';
+import UserProfileModal from './UserProfileModal';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 const ITEMS_PER_PAGE = 10;
+
+// User search interfaces
+interface SearchUser {
+  user_id: number; // This handles BIGINT from PostgreSQL
+  name: string;
+  email: string;
+  friendship_status: 'pending' | 'accepted' | 'blocked' | 'declined' | null;
+}
+
+interface Friend {
+  friend_id: number;
+  friend_name: string;
+  friend_email: string;
+  friendship_id: number;
+  status: 'pending' | 'accepted' | 'blocked' | 'declined';
+  created_at: string;
+}
 
 // We'll show a "No Image Found" placeholder instead of a default image
 
@@ -75,6 +93,20 @@ export default function Discover() {
   const [refreshTriggered, setRefreshTriggered] = useState(false);
   const refreshAnimation = useRef(new Animated.Value(0)).current;
 
+  // Search mode state
+  const [searchMode, setSearchMode] = useState<'events' | 'users'>('events');
+  
+  // User search states
+  const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
+  const [userLoading, setUserLoading] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  
+  // UserProfileModal state
+  const [userProfileModalVisible, setUserProfileModalVisible] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<number>(0);
+  const [selectedUserName, setSelectedUserName] = useState<string>('');
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string>('');
+
   // Animation refs
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const translateXAnim = useRef(new Animated.Value(0)).current;
@@ -90,6 +122,68 @@ export default function Discover() {
   // Add cardRefs at the top of the component
   const cardRefs = useRef<{ [key: number]: any }>({});
 
+  // User search functions
+  const searchUsers = async (query: string) => {
+    if (!userProfile?.id || query.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    
+    try {
+      setUserLoading(true);
+      const { data, error } = await supabase.rpc('search_users_with_follow_status', {
+        searcher_id: userProfile.id,
+        search_query: query.trim(),
+        limit_count: 10
+      });
+
+      if (error) throw error;
+      setSearchResults(data || []);
+    } catch (error) {
+      console.error('Error searching users:', error);
+      Alert.alert('Error', 'Failed to search users');
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
+  const sendFriendRequest = async (receiverId: number) => {
+    if (!userProfile?.id) return;
+    
+    try {
+      const { data, error } = await supabase.rpc('send_friend_request', {
+        sender_id: userProfile.id,
+        receiver_id: receiverId
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; message: string };
+      if (result.success) {
+        Alert.alert('Success', result.message);
+        // Refresh search results to update button states
+        if (searchQuery.trim().length >= 2) {
+          searchUsers(searchQuery);
+        }
+      } else {
+        Alert.alert('Info', result.message);
+      }
+    } catch (error) {
+      console.error('Error sending friend request:', error);
+      Alert.alert('Error', 'Failed to send friend request');
+    }
+  };
+
+
+
+  // Open user profile modal
+  const handleUserProfileNavigation = (userId: number, userName: string, userEmail: string) => {
+    setSelectedUserId(userId);
+    setSelectedUserName(userName);
+    setSelectedUserEmail(userEmail);
+    setUserProfileModalVisible(true);
+  };
+
   useEffect(() => {
     let isMounted = true;
 
@@ -101,6 +195,10 @@ export default function Discover() {
           if (!dataManager.isDataInitialized()) {
             await dataManager.initialize();
           }
+
+          // Get user profile for user search functionality
+          const profile = await dataManager.getUserProfile();
+          setUserProfile(profile);
 
           // Get user location
           const { data: userData } = await supabase.auth.getUser();
@@ -453,13 +551,24 @@ export default function Discover() {
 
   const handleSearch = (text: string) => {
     setSearchQuery(text);
-    if (text.trim() === '') {
-      setEvents(allEvents);
+    
+    if (searchMode === 'events') {
+      // Handle event search
+      if (text.trim() === '') {
+        setEvents(allEvents);
+      } else {
+        const filtered = allEvents.filter(event =>
+          event.name.toLowerCase().includes(text.toLowerCase())
+        );
+        setEvents(filtered);
+      }
     } else {
-      const filtered = allEvents.filter(event =>
-        event.name.toLowerCase().includes(text.toLowerCase())
-      );
-      setEvents(filtered);
+      // Handle user search
+      if (text.trim().length < 2) {
+        setSearchResults([]);
+      } else {
+        searchUsers(text);
+      }
     }
   };
 
@@ -668,7 +777,7 @@ export default function Discover() {
   }, []);
 
   const renderContent = () => {
-    if (loading) {
+    if (loading && searchMode === 'events') {
       return (
         <View style={styles.loadingContainer}>
           <Animated.View
@@ -698,7 +807,7 @@ export default function Discover() {
       );
     }
 
-    if (error) {
+    if (error && searchMode === 'events') {
       return (
         <View style={styles.errorContainer}>
           <Text style={[styles.errorText, { color: Colors[colorScheme].text }]}>{error}</Text>
@@ -706,6 +815,115 @@ export default function Discover() {
       );
     }
 
+    // User search mode
+    if (searchMode === 'users') {
+      if (searchQuery && searchResults.length === 0 && !userLoading) {
+        return (
+          <View style={styles.noResultsContainer}>
+            <Ionicons name="search-outline" size={48} color={Colors[colorScheme ?? 'light'].text} />
+            <Text style={[styles.noResultsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {searchQuery.trim().length >= 2 ? `No users found for "${searchQuery}"` : 'Search for friends'}
+            </Text>
+            <Text style={[styles.noResultsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {searchQuery.trim().length >= 2 ? 'Try different keywords' : 'Type at least 2 characters to search'}
+            </Text>
+          </View>
+        );
+      }
+
+      return (
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {userLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#FF1493" />
+              <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Searching users...
+              </Text>
+            </View>
+          ) : searchResults.length === 0 ? (
+            <View style={styles.noResultsContainer}>
+              <Ionicons name="people-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
+              <Text style={[styles.noResultsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {searchQuery.trim().length >= 2 ? 'No users found' : 'Search for friends'}
+              </Text>
+              <Text style={[styles.noResultsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {searchQuery.trim().length >= 2 ? 'Try different keywords' : 'Type at least 2 characters to search'}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.userResultsContainer}>
+              {searchResults.map((user) => (
+                <View key={user.user_id} style={[styles.userItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                  <TouchableOpacity 
+                    style={styles.userInfo}
+                    onPress={() => handleUserProfileNavigation(user.user_id, user.name, user.email)}
+                  >
+                    <View style={styles.userAvatar}>
+                      <Image 
+                        source={{ 
+                          uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${user.email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+                        }}
+                        style={styles.userAvatarImage}
+                        defaultSource={require('../assets/images/icon.png')}
+                        onError={() => {
+                          console.log(`Failed to load profile image for user ${user.email}`);
+                        }}
+                      />
+                    </View>
+                    <View style={styles.userDetails}>
+                      <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {user.name}
+                      </Text>
+                      <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {user.email}
+                      </Text>
+                      <View style={styles.userStatusContainer}>
+                        <Ionicons 
+                          name={user.friendship_status === 'accepted' ? 'checkmark-circle-outline' : 
+                                user.friendship_status === 'pending' ? 'time-outline' : 'person-add-outline'} 
+                          size={12} 
+                          color="#9E95BD" 
+                        />
+                        <Text style={[styles.userStatusText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          {user.friendship_status === 'accepted' ? 'Friends' :
+                           user.friendship_status === 'pending' ? 'Friend request pending' : 'Not friends'}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  {/* Action buttons container */}
+                  <View style={styles.userActionButtons}>
+                    {/* Friend request button */}
+                    <TouchableOpacity
+                      style={[
+                        styles.addFriendButton,
+                        user.friendship_status === 'pending' && styles.addFriendButtonPending,
+                        user.friendship_status === 'accepted' && styles.addFriendButtonAccepted
+                      ]}
+                      onPress={() => sendFriendRequest(user.user_id)}
+                      disabled={user.friendship_status !== null}
+                    >
+                      {user.friendship_status === null && (
+                        <Ionicons name="person-add" size={18} color="#fff" />
+                      )}
+                      {user.friendship_status === 'pending' && (
+                        <Ionicons name="hourglass" size={18} color="#fff" />
+                      )}
+                      {user.friendship_status === 'accepted' && (
+                        <Ionicons name="checkmark" size={18} color="#fff" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      );
+    }
+
+    // Event search mode (existing code)
     if (searchQuery && events.length === 0) {
       return (
         <View style={styles.noResultsContainer}>
@@ -957,7 +1175,7 @@ export default function Discover() {
             <Ionicons name="search" size={20} color="#000" />
             <TextInput
               style={[styles.searchInput, { color: '#000' }]}
-              placeholder="Search events..."
+              placeholder={searchMode === 'events' ? 'Search events...' : 'Search users...'}
               placeholderTextColor="#666"
               value={searchQuery}
               onChangeText={handleSearch}
@@ -965,13 +1183,57 @@ export default function Discover() {
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => {
                 setSearchQuery('');
-                fetchEvents();
+                if (searchMode === 'events') {
+                  setEvents(allEvents);
+                } else {
+                  setSearchResults([]);
+                }
               }}>
                 <Ionicons name="close-circle" size={20} color="#000" />
               </TouchableOpacity>
             )}
           </View>
         </LinearGradient>
+
+        {/* Search Mode Toggle - Moved below search bar */}
+        <View style={styles.searchModeToggle}>
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              searchMode === 'events' && styles.toggleButtonActive
+            ]}
+            onPress={() => {
+              setSearchMode('events');
+              setSearchQuery('');
+              setSearchResults([]);
+            }}
+          >
+            <Text style={[
+              styles.toggleButtonText,
+              { color: searchMode === 'events' ? '#fff' : Colors[colorScheme ?? 'light'].text }
+            ]}>
+              Events
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              searchMode === 'users' && styles.toggleButtonActive
+            ]}
+            onPress={() => {
+              setSearchMode('users');
+              setSearchQuery('');
+              setEvents(allEvents);
+            }}
+          >
+            <Text style={[
+              styles.toggleButtonText,
+              { color: searchMode === 'users' ? '#fff' : Colors[colorScheme ?? 'light'].text }
+            ]}>
+              Users
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {renderContent()}
@@ -985,6 +1247,14 @@ export default function Discover() {
       />
 
       <MainFooter activeTab="discover" />
+
+      <UserProfileModal
+        visible={userProfileModalVisible}
+        onClose={() => setUserProfileModalVisible(false)}
+        userId={selectedUserId}
+        userName={selectedUserName}
+        userEmail={selectedUserEmail}
+      />
     </SafeAreaView>
   );
 }
@@ -1211,5 +1481,122 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 20,
   },
-
+  searchModeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 15,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    borderRadius: 25,
+    padding: 4,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleButtonActive: {
+    backgroundColor: '#9E95BD',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  toggleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  userResultsContainer: {
+    padding: 15,
+  },
+  userItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    marginVertical: 8,
+    marginHorizontal: 4,
+    borderRadius: 16,
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  userAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#9E95BD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  userAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 24,
+  },
+  userDetails: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    marginBottom: 4,
+    letterSpacing: 0.3,
+  },
+  userEmail: {
+    fontSize: 14,
+    opacity: 0.8,
+    fontWeight: '500',
+  },
+  userStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  userStatusText: {
+    fontSize: 12,
+    opacity: 0.7,
+    marginLeft: 4,
+    fontStyle: 'italic',
+  },
+  addFriendButton: {
+    backgroundColor: '#9E95BD',
+    borderRadius: 20,
+    padding: 10,
+    minWidth: 36,
+    alignItems: 'center',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  addFriendButtonPending: {
+    backgroundColor: '#FFA500',
+  },
+  addFriendButtonAccepted: {
+    backgroundColor: '#888',
+  },
+  userActionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
 }); 

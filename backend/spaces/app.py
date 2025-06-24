@@ -100,29 +100,49 @@ class EventRecommendationSystem:
             print(f"Error fetching user data: {e}")
             return None
     
-    def get_user_friends(self, user_id):
-        """Get list of user's friends with their saved events"""
+    def get_user_social_connections(self, user_id):
+        """Get list of user's friends and following with their saved events for social recommendations"""
         try:
+            social_connections = []
+            
             # Get user's friends using the RPC function
-            result = self.Client.rpc('get_user_friends', {
+            friends_result = self.Client.rpc('get_user_friends', {
                 'target_user_id': user_id
             }).execute()
             
-            if result.data:
-                # Get the friend emails for further queries
-                friend_emails = [friend['friend_email'] for friend in result.data]
+            # Get user's following using the RPC function
+            following_result = self.Client.rpc('get_user_following', {
+                'target_user_id': user_id
+            }).execute()
+            
+            # Collect all connection emails
+            connection_emails = []
+            
+            if friends_result.data:
+                friend_emails = [friend['friend_email'] for friend in friends_result.data]
+                connection_emails.extend(friend_emails)
+                print(f"🤝 Found {len(friend_emails)} friends for user {user_id}")
+            
+            if following_result.data:
+                following_emails = [following['following_email'] for following in following_result.data]
+                connection_emails.extend(following_emails)
+                print(f"👥 Found {len(following_emails)} following for user {user_id}")
+            
+            # Remove duplicates (some people might be both friends and followed)
+            unique_emails = list(set(connection_emails))
+            
+            # Get social connections' saved events
+            if unique_emails:
+                connections_data = self.Client.table("all_users").select(
+                    "email, saved_events, saved_events_all_time"
+                ).in_("email", unique_emails).execute()
                 
-                # Get friends' saved events
-                if friend_emails:
-                    friends_data = self.Client.table("all_users").select(
-                        "email, saved_events, saved_events_all_time"
-                    ).in_("email", friend_emails).execute()
-                    
-                    return friends_data.data
+                print(f"🌐 Total unique social connections: {len(unique_emails)}")
+                return connections_data.data
             
             return []
         except Exception as e:
-            print(f"Error fetching user friends: {e}")
+            print(f"Error fetching user social connections: {e}")
             return []
         
     def get_age_group(self, age):
@@ -614,28 +634,28 @@ class EventRecommendationSystem:
         except Exception:
             return False
     
-    def build_enhanced_interactions(self, users, target_user_email=None, friends_data=None):
-        """Build enhanced interactions including both positive (saved) and negative (rejected) interactions with friend boosting"""
+    def build_enhanced_interactions(self, users, target_user_email=None, social_connections_data=None):
+        """Build enhanced interactions including both positive (saved) and negative (rejected) interactions with social boosting"""
         interactions = []
         total_users_with_interactions = 0
         
-        # Build friend events set for boosting
-        friend_saved_events = set()
-        if target_user_email and friends_data:
-            for friend in friends_data:
-                friend_saved = friend.get("saved_events_all_time", []) or friend.get("saved_events", [])
-                if friend_saved:
-                    if isinstance(friend_saved, str):
+        # Build social connections events set for boosting
+        social_saved_events = set()
+        if target_user_email and social_connections_data:
+            for connection in social_connections_data:
+                connection_saved = connection.get("saved_events_all_time", []) or connection.get("saved_events", [])
+                if connection_saved:
+                    if isinstance(connection_saved, str):
                         try:
-                            friend_saved = [int(e.strip()) for e in friend_saved.strip('{}').split(',') if e.strip()]
+                            connection_saved = [int(e.strip()) for e in connection_saved.strip('{}').split(',') if e.strip()]
                         except (ValueError, AttributeError):
-                            friend_saved = []
-                    elif not isinstance(friend_saved, (list, tuple)):
-                        friend_saved = []
+                            connection_saved = []
+                    elif not isinstance(connection_saved, (list, tuple)):
+                        connection_saved = []
                     
-                    friend_saved_events.update(friend_saved)
+                    social_saved_events.update(connection_saved)
             
-            print(f"🤝 Friend network: {len(friends_data)} friends with {len(friend_saved_events)} unique saved events")
+            print(f"🌐 Social network: {len(social_connections_data)} connections with {len(social_saved_events)} unique saved events")
         
         for user in users:
             user_name = user.get("email")
@@ -686,26 +706,26 @@ class EventRecommendationSystem:
                     is_featured = self.is_featured_event(event_id)
                     featured_multiplier = 1.5 if is_featured else 1.0
                     
-                    # FRIEND BOOST: For target user, boost events that friends have saved
-                    friend_multiplier = 1.0
-                    if is_target_user and event_id in friend_saved_events:
-                        friend_multiplier = 1.8  # 80% boost for friend-saved events
-                        print(f"🎯 Friend boost applied to event {event_id} for user {user_name}")
+                    # SOCIAL BOOST: For target user, boost events that social connections have saved
+                    social_multiplier = 1.0
+                    if is_target_user and event_id in social_saved_events:
+                        social_multiplier = 1.8  # 80% boost for socially-saved events
+                        print(f"🎯 Social boost applied to event {event_id} for user {user_name}")
                     
-                    final_weight = base_weight * featured_multiplier * friend_multiplier
+                    final_weight = base_weight * featured_multiplier * social_multiplier
                     interactions.append((user_name, event_id, final_weight))
                     user_has_interactions = True
                 except (ValueError, TypeError):
                     continue
             
-            # FRIEND RECOMMENDATION INJECTION: Add virtual interactions for friend-saved events
-            if is_target_user and friend_saved_events:
+            # SOCIAL RECOMMENDATION INJECTION: Add virtual interactions for socially-saved events
+            if is_target_user and social_saved_events:
                 target_saved_set = set(saved_events_all_time)
-                for friend_event_id in friend_saved_events:
-                    if friend_event_id not in target_saved_set:  # Don't duplicate existing interactions
-                        # Add synthetic positive interaction based on friend recommendation
-                        friend_rec_weight = 1.2  # Medium positive weight for friend recommendations
-                        interactions.append((user_name, friend_event_id, friend_rec_weight))
+                for social_event_id in social_saved_events:
+                    if social_event_id not in target_saved_set:  # Don't duplicate existing interactions
+                        # Add synthetic positive interaction based on social recommendation
+                        social_rec_weight = 1.2  # Medium positive weight for social recommendations
+                        interactions.append((user_name, social_event_id, social_rec_weight))
                         user_has_interactions = True
             
             # Negative interactions from rejected_events (with reduced penalty for featured)
@@ -728,10 +748,10 @@ class EventRecommendationSystem:
                     is_featured = self.is_featured_event(event_id)
                     base_negative_weight = -0.25 if is_featured else -0.5
                     
-                    # FRIEND PROTECTION: Reduce negative impact if friends have saved this event
-                    if is_target_user and event_id in friend_saved_events:
-                        base_negative_weight *= 0.5  # Halve the negative impact for friend-saved events
-                        print(f"🛡️ Friend protection applied to rejected event {event_id} for user {user_name}")
+                    # SOCIAL PROTECTION: Reduce negative impact if social connections have saved this event
+                    if is_target_user and event_id in social_saved_events:
+                        base_negative_weight *= 0.5  # Halve the negative impact for socially-saved events
+                        print(f"🛡️ Social protection applied to rejected event {event_id} for user {user_name}")
                     
                     interactions.append((user_name, event_id, base_negative_weight))
                     user_has_interactions = True
@@ -747,11 +767,11 @@ class EventRecommendationSystem:
         if interactions:
             positive_interactions = [i for i in interactions if i[2] > 0]
             negative_interactions = [i for i in interactions if i[2] < 0]
-            friend_boosted = [i for i in interactions if i[2] > 2.5]  # Likely friend-boosted
+            social_boosted = [i for i in interactions if i[2] > 2.5]  # Likely socially-boosted
             unique_users = len(set(interaction[0] for interaction in interactions))
             unique_events = len(set(interaction[1] for interaction in interactions))
             
-            print(f"Enhanced interaction stats: {len(positive_interactions)} positive, {len(negative_interactions)} negative, {len(friend_boosted)} friend-boosted")
+            print(f"Enhanced interaction stats: {len(positive_interactions)} positive, {len(negative_interactions)} negative, {len(social_boosted)} socially-boosted")
             print(f"Users: {unique_users}, Events: {unique_events}")
         
         return interactions
@@ -980,11 +1000,11 @@ class EventRecommendationSystem:
 
             # 4. ML Recommendation logic - OPTIMIZED
             try:
-                # GET FRIEND DATA for social boosting (needed for both fast and slow paths)
-                friends_data = []
+                # GET SOCIAL CONNECTIONS DATA for social boosting (needed for both fast and slow paths)
+                social_connections_data = []
                 if user_data and user_data.get("id"):
-                    friends_data = self.get_user_friends(user_data.get("id"))
-                    print(f"🤝 Found {len(friends_data)} friends for user {email}")
+                    social_connections_data = self.get_user_social_connections(user_data.get("id"))
+                    print(f"🌐 Found {len(social_connections_data)} social connections for user {email}")
                 
                 # Use cloud-native BeaconAI for per-user models
                 self.rec.user_id = email  # Set user ID for per-user model storage
@@ -1023,7 +1043,7 @@ class EventRecommendationSystem:
                     use_enhanced_interactions = True  # Can be made configurable
                     
                     if use_enhanced_interactions:
-                        interactions = self.build_enhanced_interactions(all_users, target_user_email=email, friends_data=friends_data)
+                        interactions = self.build_enhanced_interactions(all_users, target_user_email=email, social_connections_data=social_connections_data)
                         print(f"Enhanced interactions built: {len(interactions)}")
                     else:
                         interactions = self.build_interactions(all_users)
@@ -1069,36 +1089,37 @@ class EventRecommendationSystem:
                     )
                     print(f"📚 Training path recommendations generated: {len(recommendations)}")
 
-                # Get friends' saved events for post-processing boost
-                friends_saved_events = set()
+                # Get social connections' saved events for post-processing boost
+                social_connections_saved_events = set()
                 if user_data and user_data.get("id"):
-                    for friend in friends_data:
-                        friend_saved = friend.get("saved_events_all_time", []) or friend.get("saved_events", [])
-                        if friend_saved:
-                            if isinstance(friend_saved, str):
+                    for connection in social_connections_data:
+                        connection_saved = connection.get("saved_events_all_time", []) or connection.get("saved_events", [])
+                        if connection_saved:
+                            if isinstance(connection_saved, str):
                                 try:
-                                    friend_saved = [int(e.strip()) for e in friend_saved.strip('{}').split(',') if e.strip()]
+                                    connection_saved = [int(e.strip()) for e in connection_saved.strip('{}').split(',') if e.strip()]
                                 except (ValueError, AttributeError):
-                                    friend_saved = []
-                            elif not isinstance(friend_saved, (list, tuple)):
-                                friend_saved = []
-                            friends_saved_events.update(friend_saved)
+                                    connection_saved = []
+                            elif not isinstance(connection_saved, (list, tuple)):
+                                connection_saved = []
+                            social_connections_saved_events.update(connection_saved)
                 
                 # Get the full event objects for the recommended events with enhanced scoring
+                                                 # Get the full event objects for the recommended events with enhanced scoring
                 recommended_events = []
                 featured_events = []
                 regular_events = []
-                friend_events = []
+                social_events = []
                 
                 for eid, score in recommendations:
                     # Find the full event object from all_events_filtered
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
-                        # FRIEND POST-PROCESSING BOOST: Additional boost for friend-saved events
-                        if eid in friends_saved_events:
-                            friend_boosted_score = score * 1.4  # 40% additional boost for friend recommendations
-                            print(f"🎯 Post-processing friend boost applied to event {eid}")
-                            friend_events.append((event_obj, friend_boosted_score))
+                        # SOCIAL POST-PROCESSING BOOST: Additional boost for socially-saved events
+                        if eid in social_connections_saved_events:
+                            social_boosted_score = score * 1.4  # 40% additional boost for social recommendations
+                            print(f"🎯 Post-processing social boost applied to event {eid}")
+                            social_events.append((event_obj, social_boosted_score))
                         # FEATURED POST-PROCESSING BOOST: Separate featured and regular events
                         elif event_obj.get("featured", False):
                             # Apply additional score boost to featured events
@@ -1108,20 +1129,20 @@ class EventRecommendationSystem:
                             regular_events.append((event_obj, score))
                 
                 # Sort each group by score
-                friend_events.sort(key=lambda x: x[1], reverse=True)
+                social_events.sort(key=lambda x: x[1], reverse=True)
                 featured_events.sort(key=lambda x: x[1], reverse=True)
                 regular_events.sort(key=lambda x: x[1], reverse=True)
                 
-                # Interleave with priority: Friend events > Featured events > Regular events
+                # Interleave with priority: Social events > Featured events > Regular events
                 recommended_events = []
-                fr_idx = f_idx = r_idx = 0
+                s_idx = f_idx = r_idx = 0
                 position = 0
                 
-                while len(recommended_events) < 5 and (fr_idx < len(friend_events) or f_idx < len(featured_events) or r_idx < len(regular_events)):
-                    # Highest priority: friend-saved events (positions 0, 2, 4...)
-                    if position % 2 == 0 and fr_idx < len(friend_events):
-                        recommended_events.append(friend_events[fr_idx][0])
-                        fr_idx += 1
+                while len(recommended_events) < 5 and (s_idx < len(social_events) or f_idx < len(featured_events) or r_idx < len(regular_events)):
+                    # Highest priority: socially-saved events (positions 0, 2, 4...)
+                    if position % 2 == 0 and s_idx < len(social_events):
+                        recommended_events.append(social_events[s_idx][0])
+                        s_idx += 1
                     # Medium priority: featured events
                     elif position % 3 != 2 and f_idx < len(featured_events):
                         recommended_events.append(featured_events[f_idx][0])
@@ -1131,16 +1152,16 @@ class EventRecommendationSystem:
                         recommended_events.append(regular_events[r_idx][0])
                         r_idx += 1
                     # Fill remaining slots with any available events
-                    elif fr_idx < len(friend_events):
-                        recommended_events.append(friend_events[fr_idx][0])
-                        fr_idx += 1
+                    elif s_idx < len(social_events):
+                        recommended_events.append(social_events[s_idx][0])
+                        s_idx += 1
                     elif f_idx < len(featured_events):
                         recommended_events.append(featured_events[f_idx][0])
                         f_idx += 1
                     
                     position += 1
                 
-                print(f"Final recommendations: {len([e for e in recommended_events if e.get('id') in friends_saved_events])} friend-recommended, {len([e for e in recommended_events if e.get('featured')])} featured, {len([e for e in recommended_events if not e.get('featured') and e.get('id') not in friends_saved_events])} regular")
+                print(f"Final recommendations: {len([e for e in recommended_events if e.get('id') in social_connections_saved_events])} socially-recommended, {len([e for e in recommended_events if e.get('featured')])} featured, {len([e for e in recommended_events if not e.get('featured') and e.get('id') not in social_connections_saved_events])} regular")
                 
                 return {
                     "summary": f"Found {len(recommended_events)} recommended events for {email}",

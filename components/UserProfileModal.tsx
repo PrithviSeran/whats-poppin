@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Modal, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Alert, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 interface UserProfile {
   id: number;
@@ -17,6 +18,7 @@ interface UserProfile {
   preferences?: string[];
   profileImage?: string;
   bannerImage?: string;
+  location?: string;
 }
 
 interface UserProfileModalProps {
@@ -34,11 +36,13 @@ export default function UserProfileModal({
   userName,
   userEmail
 }: UserProfileModalProps) {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [eventsCreated, setEventsCreated] = useState(0);
-  const [eventsSaved, setEventsSaved] = useState(0);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(false);
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+  const [friendshipStatus, setFriendshipStatus] = useState<'accepted' | 'pending' | 'incoming' | 'none'>('none');
+  const [isFollowing, setIsFollowing] = useState(false);
   const colorScheme = useColorScheme();
+  const dataManager = GlobalDataManager.getInstance();
 
   const fetchUserProfile = async () => {
     try {
@@ -60,39 +64,238 @@ export default function UserProfileModal({
         bannerImage: userData.banner_image || `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${userData.email.replace('@', '_').replace(/\./g, '_')}/banner.jpg`
       };
 
-      setProfile(userProfile);
-
-      // Note: Events don't currently track creator, so showing 0 for now
-      // This could be implemented in the future by adding a created_by_user_id field
-      setEventsCreated(0);
-
-      // Count saved events
-      let savedCount = 0;
-      if (userData.saved_events) {
-        if (Array.isArray(userData.saved_events)) {
-          savedCount = userData.saved_events.length;
-        } else if (typeof userData.saved_events === 'string' && userData.saved_events) {
-                     const savedEventIds = userData.saved_events
-             .replace(/[{}"']+/g, '')
-             .split(',')
-             .filter((id: string) => id.trim());
-          savedCount = savedEventIds.length;
-        }
-      }
-      setEventsSaved(savedCount);
+      setUserProfile(userProfile);
 
     } catch (error) {
       console.error('Error fetching user profile:', error);
+      Alert.alert('Error', 'Failed to load user profile');
     } finally {
       setLoading(false);
+    }
+  };
+
+
+
+  const fetchCurrentUserProfile = async () => {
+    try {
+      const profile = await dataManager.getUserProfile();
+      setCurrentUserProfile(profile);
+    } catch (error) {
+      console.error('Error fetching current user profile:', error);
+    }
+  };
+
+  const fetchRelationshipStatus = async () => {
+    if (!currentUserProfile?.email) return;
+    
+    try {
+      // Check both friendship and follow status
+      const { data: statusData, error: statusError } = await supabase.rpc('check_follow_status', {
+        follower_email: currentUserProfile.email,
+        following_email: userEmail
+      });
+
+      if (!statusError && statusData.success) {
+        setIsFollowing(statusData.is_following);
+        
+        if (statusData.are_friends) {
+          setFriendshipStatus('accepted');
+        } else if (statusData.pending_friend_request) {
+          setFriendshipStatus('pending');
+        } else {
+          // Check if there's an incoming friend request
+          const { data: incomingRequest } = await supabase
+            .from('friend_requests')
+            .select('status')
+            .eq('sender_id', userId)
+            .eq('receiver_id', currentUserProfile.id)
+            .eq('status', 'pending')
+            .single();
+
+          if (incomingRequest) {
+            setFriendshipStatus('incoming');
+          } else {
+            setFriendshipStatus('none');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching relationship status:', error);
+    }
+  };
+
+  const handleFollow = async () => {
+    if (!currentUserProfile?.email) return;
+    
+    try {
+      const { data, error } = await supabase.rpc('follow_user', {
+        target_email: userEmail
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; message: string };
+      if (result.success) {
+        setIsFollowing(true);
+        Alert.alert('Success', result.message);
+      } else {
+        Alert.alert('Info', result.message);
+      }
+    } catch (error) {
+      console.error('Error following user:', error);
+      Alert.alert('Error', 'Failed to follow user');
+    }
+  };
+
+  const handleUnfollow = async () => {
+    if (!currentUserProfile?.email) return;
+    
+    try {
+      const { data, error } = await supabase.rpc('unfollow_user', {
+        target_email: userEmail
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; message: string };
+      if (result.success) {
+        setIsFollowing(false);
+        Alert.alert('Success', result.message);
+      } else {
+        Alert.alert('Info', result.message);
+      }
+    } catch (error) {
+      console.error('Error unfollowing user:', error);
+      Alert.alert('Error', 'Failed to unfollow user');
+    }
+  };
+
+  const handleFriendRequest = async () => {
+    if (!currentUserProfile?.email) return;
+    
+    try {
+      const { data, error } = await supabase.rpc('send_friend_request', {
+        target_email: userEmail
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; message: string };
+      if (result.success) {
+        // Refresh the relationship status
+        await fetchRelationshipStatus();
+        Alert.alert('Success', result.message);
+      } else {
+        Alert.alert('Info', result.message);
+      }
+    } catch (error) {
+      console.error('Error sending friend request:', error);
+      Alert.alert('Error', 'Failed to send friend request');
+    }
+  };
+
+  const handleAcceptFriendRequest = async () => {
+    if (!currentUserProfile?.id) return;
+    
+    try {
+      // First, find the friend request
+      const { data: requestData, error: requestError } = await supabase
+        .from('friend_requests')
+        .select('id')
+        .eq('sender_id', userId)
+        .eq('receiver_id', currentUserProfile.id)
+        .eq('status', 'pending')
+        .single();
+
+      if (requestError) throw requestError;
+
+      if (!requestData) {
+        Alert.alert('Error', 'Friend request not found');
+        return;
+      }
+
+      // Accept the friend request
+      const { data, error } = await supabase.rpc('respond_to_friend_request', {
+        request_id: requestData.id,
+        response: 'accepted'
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; message: string };
+      if (result.success) {
+        // Refresh the relationship status
+        await fetchRelationshipStatus();
+        Alert.alert('Success', result.message);
+      } else {
+        Alert.alert('Error', result.message);
+      }
+    } catch (error) {
+      console.error('Error accepting friend request:', error);
+      Alert.alert('Error', 'Failed to accept friend request');
+    }
+  };
+
+  const handleDeclineFriendRequest = async () => {
+    if (!currentUserProfile?.id) return;
+    
+    try {
+      // First, find the friend request
+      const { data: requestData, error: requestError } = await supabase
+        .from('friend_requests')
+        .select('id')
+        .eq('sender_id', userId)
+        .eq('receiver_id', currentUserProfile.id)
+        .eq('status', 'pending')
+        .single();
+
+      if (requestError) throw requestError;
+
+      if (!requestData) {
+        Alert.alert('Error', 'Friend request not found');
+        return;
+      }
+
+      // Decline the friend request
+      const { data, error } = await supabase.rpc('respond_to_friend_request', {
+        request_id: requestData.id,
+        response: 'declined'
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; message: string };
+      if (result.success) {
+        // Refresh the relationship status
+        await fetchRelationshipStatus();
+        Alert.alert('Success', result.message);
+      } else {
+        Alert.alert('Info', result.message);
+      }
+    } catch (error) {
+      console.error('Error declining friend request:', error);
+      Alert.alert('Error', 'Failed to decline friend request');
     }
   };
 
   useEffect(() => {
     if (visible && userId) {
       fetchUserProfile();
+      fetchCurrentUserProfile();
     }
   }, [visible, userId]);
+
+  useEffect(() => {
+    if (visible && userId && currentUserProfile?.email) {
+      fetchRelationshipStatus();
+    }
+  }, [visible, userId, currentUserProfile?.email]);
+
+  const profileImageUrl = userProfile?.profileImage || 
+    `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${userEmail.replace('@', '_').replace(/\./g, '_')}/profile.jpg`;
+
+  const bannerImageUrl = userProfile?.bannerImage || 
+    `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${userEmail.replace('@', '_').replace(/\./g, '_')}/banner.jpg`;
 
   return (
     <Modal
@@ -101,11 +304,15 @@ export default function UserProfileModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-        {/* Close Button */}
-        <TouchableOpacity onPress={onClose} style={styles.floatingCloseButton}>
-          <Ionicons name="close" size={24} color="#fff" />
-        </TouchableOpacity>
+      <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Profile</Text>
+          <View style={styles.placeholder} />
+        </View>
 
         {loading ? (
           <View style={styles.loadingContainer}>
@@ -115,136 +322,168 @@ export default function UserProfileModal({
             </Text>
           </View>
         ) : (
-          <ScrollView 
-            style={styles.scrollContainer} 
-            contentContainerStyle={styles.content}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Header with Banner and Profile Image */}
-            <View style={styles.headerContainer}>
-              {profile?.bannerImage && (
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            {/* Profile Section */}
+            <View style={styles.profileSection}>
+              {/* Banner Image */}
+              <View style={styles.bannerContainer}>
                 <Image 
-                  source={{ uri: profile.bannerImage }} 
+                  source={{ uri: bannerImageUrl }}
                   style={styles.bannerImage}
-                  resizeMode="cover"
+                  defaultSource={require('../assets/images/balloons.png')}
                 />
-              )}
-              <LinearGradient
-                colors={['rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
-                style={styles.headerGradient}
-              >
-                <View style={styles.profileImageContainer}>
-                  <View style={styles.profileImageWrapper}>
-                    {profile?.profileImage ? (
-                      <Image 
-                        source={{ uri: profile.profileImage }} 
-                        style={styles.profileImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={[styles.profileImage, styles.placeholderImage]}>
-                        <Ionicons name="person" size={50} color="#fff" />
-                      </View>
-                    )}
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.3)']}
+                  style={styles.bannerOverlay}
+                />
+              </View>
+
+              {/* Profile Image */}
+              <View style={styles.profileImageContainer}>
+                <Image 
+                  source={{ uri: profileImageUrl }}
+                  style={styles.profileImage}
+                  defaultSource={require('../assets/images/icon.png')}
+                  onError={() => {
+                    console.log(`Failed to load profile image for user ${userEmail}`);
+                  }}
+                />
+              </View>
+
+              {/* User Info */}
+              <View style={styles.userInfo}>
+                <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {userProfile?.name || userName}
+                </Text>
+                <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  {userProfile?.email || userEmail}
+                </Text>
+              </View>
+
+
+
+              {/* Action Buttons */}
+              <View style={styles.actionButtonsContainer}>
+                {/* Follow/Unfollow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.actionButton,
+                    { backgroundColor: isFollowing ? '#ff4444' : '#9E95BD' }
+                  ]}
+                  onPress={isFollowing ? handleUnfollow : handleFollow}
+                >
+                  <Ionicons 
+                    name={isFollowing ? "person-remove" : "person-add"} 
+                    size={16} 
+                    color="white" 
+                  />
+                  <Text style={styles.actionButtonText}>
+                    {isFollowing ? 'Unfollow' : 'Follow'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Friend Request Button */}
+                {friendshipStatus === 'none' && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: '#4ECDC4' }]}
+                    onPress={handleFriendRequest}
+                  >
+                    <Ionicons name="people" size={16} color="white" />
+                    <Text style={styles.actionButtonText}>Add Friend</Text>
+                  </TouchableOpacity>
+                )}
+
+                {friendshipStatus === 'pending' && (
+                  <View style={[styles.actionButton, { backgroundColor: '#999' }]}>
+                    <Ionicons name="time" size={16} color="white" />
+                    <Text style={styles.actionButtonText}>Request Sent</Text>
                   </View>
-                </View>
-                <Text style={styles.name}>{profile?.name || userName}</Text>
-              </LinearGradient>
+                )}
+
+                {friendshipStatus === 'accepted' && (
+                  <View style={[styles.actionButton, { backgroundColor: '#4CAF50' }]}>
+                    <Ionicons name="checkmark-circle" size={16} color="white" />
+                    <Text style={styles.actionButtonText}>Friends</Text>
+                  </View>
+                )}
+
+                {friendshipStatus === 'incoming' && (
+                  <View style={styles.friendRequestButtons}>
+                    <TouchableOpacity
+                      style={[styles.actionButton, { backgroundColor: '#4ECDC4', flex: 1, marginRight: 8 }]}
+                      onPress={handleAcceptFriendRequest}
+                    >
+                      <Ionicons name="checkmark" size={16} color="white" />
+                      <Text style={styles.actionButtonText}>Accept</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, { backgroundColor: '#ff4444', flex: 1, marginLeft: 8 }]}
+                      onPress={handleDeclineFriendRequest}
+                    >
+                      <Ionicons name="close" size={16} color="white" />
+                      <Text style={styles.actionButtonText}>Decline</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             </View>
 
-            {/* Content Container */}
-            <View style={styles.modernContentContainer}>
-              {/* Quick Stats Section */}
-              <View style={styles.quickStatsSection}>
-                <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 107, 157, 0.1)' }]}>
-                    <Ionicons name="calendar" size={24} color="#FF6B9D" />
+            {/* Additional Info */}
+            {userProfile && (
+              <View style={[styles.infoSection, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                <Text style={[styles.infoSectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  About
+                </Text>
+                {userProfile.birthday && (
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoIconContainer}>
+                      <Ionicons name="calendar-outline" size={20} color="#9E95BD" />
+                    </View>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Birthday
+                      </Text>
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {userProfile.birthday}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{eventsCreated}</Text>
-                  <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Created</Text>
-                </View>
-                
-                <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(78, 205, 196, 0.1)' }]}>
-                    <Ionicons name="bookmark" size={24} color="#4ECDC4" />
+                )}
+                {userProfile.gender && (
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoIconContainer}>
+                      <Ionicons name="person-outline" size={20} color="#9E95BD" />
+                    </View>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Gender
+                      </Text>
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {userProfile.gender}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{eventsSaved}</Text>
-                  <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Saved</Text>
-                </View>
-                
-                <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
-                    <Ionicons name="time" size={24} color="#9E95BD" />
+                )}
+                {userProfile.location && (
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoIconContainer}>
+                      <Ionicons name="location-outline" size={20} color="#9E95BD" />
+                    </View>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Location
+                      </Text>
+                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        {userProfile.location}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    {profile?.created_at ? new Date(profile.created_at).getFullYear() : '----'}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Joined</Text>
-                </View>
+                )}
               </View>
-
-              {/* Profile Information Card */}
-              <View style={[styles.profileInfoCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                <View style={[styles.profileInfoHeader, { borderBottomColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]}>
-                  <Text style={[styles.profileInfoTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Profile Information</Text>
-                </View>
-                
-                <View style={styles.profileInfoContent}>
-                  <View style={styles.profileInfoRow}>
-                    <View style={styles.profileInfoIconContainer}>
-                      <Ionicons name="mail-outline" size={20} color="#9E95BD" />
-                    </View>
-                    <View style={styles.profileInfoDetails}>
-                      <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Email</Text>
-                      <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.email || userEmail}</Text>
-                    </View>
-                  </View>
-
-                  <View style={[styles.profileInfoDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
-
-                  <View style={styles.profileInfoRow}>
-                    <View style={styles.profileInfoIconContainer}>
-                      <Ionicons name="calendar-outline" size={20} color="#FF6B9D" />
-                    </View>
-                    <View style={styles.profileInfoDetails}>
-                      <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Birthday</Text>
-                      <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.birthday || 'Not provided'}</Text>
-                    </View>
-                  </View>
-
-                  <View style={[styles.profileInfoDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
-
-                  <View style={styles.profileInfoRow}>
-                    <View style={styles.profileInfoIconContainer}>
-                      <Ionicons name="person-outline" size={20} color="#4ECDC4" />
-                    </View>
-                    <View style={styles.profileInfoDetails}>
-                      <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Gender</Text>
-                      <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.gender || 'Not provided'}</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Member Since Card */}
-              <View style={[styles.additionalInfoCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                <View style={styles.joinedDateContainer}>
-                  <Ionicons name="calendar" size={16} color="#9E95BD" />
-                  <Text style={[styles.joinedDateText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Member since {profile?.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { 
-                      month: 'long', 
-                      year: 'numeric' 
-                    }) : 'Unknown'}
-                  </Text>
-                </View>
-              </View>
-            </View>
+            )}
           </ScrollView>
         )}
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -253,190 +492,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  floatingCloseButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  scrollContainer: {
-    flex: 1,
-  },
-  content: {
-    paddingBottom: 20,
-  },
-  headerContainer: {
-    width: '100%',
-    height: 280,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  headerGradient: {
-    width: '100%',
-    height: '100%',
-    paddingTop: 50,
-    paddingBottom: 20,
-    alignItems: 'center',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1,
-  },
-  bannerImage: {
-    width: '100%',
-    height: 280,
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 0,
-  },
-  profileImageContainer: {
-    marginTop: 40,
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  profileImageWrapper: {
-    position: 'relative',
-    width: 120,
-    height: 120,
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    borderColor: '#fff',
-  },
-  placeholderImage: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  name: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-  },
-  modernContentContainer: {
-    padding: 20,
-  },
-  quickStatsSection: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
-  },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    marginHorizontal: 4,
-    borderRadius: 16,
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  statIconContainer: {
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    opacity: 0.8,
-  },
-  profileInfoCard: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
-    marginBottom: 20,
-  },
-  profileInfoHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
     borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
   },
-  profileInfoTitle: {
+  closeButton: {
+    padding: 5,
+  },
+  headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
   },
-  profileInfoContent: {
-    padding: 20,
-  },
-  profileInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  profileInfoIconContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    padding: 8,
-    marginRight: 12,
-  },
-  profileInfoDetails: {
-    flex: 1,
-  },
-  profileInfoLabel: {
-    fontSize: 14,
-    opacity: 0.9,
-  },
-  profileInfoValue: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  profileInfoDivider: {
-    height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    marginVertical: 12,
-  },
-  additionalInfoCard: {
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  joinedDateContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  joinedDateText: {
-    fontSize: 14,
-    marginLeft: 8,
-    opacity: 0.8,
+  placeholder: {
+    width: 34,
   },
   loadingContainer: {
     flex: 1,
@@ -444,8 +517,128 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+  },
+  content: {
+    flex: 1,
+  },
+  profileSection: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  bannerContainer: {
+    width: '100%',
+    height: 150,
+    position: 'relative',
+  },
+  bannerImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  bannerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  profileImageContainer: {
+    marginTop: -50,
+    marginBottom: 15,
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 4,
+    borderColor: 'white',
+  },
+  userInfo: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  userName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  userEmail: {
+    fontSize: 16,
+    opacity: 0.7,
+  },
+
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    flex: 1,
+  },
+  actionButtonText: {
+    color: 'white',
+    marginLeft: 6,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  friendRequestButtons: {
+    flexDirection: 'row',
+    flex: 1,
+  },
+  infoSection: {
+    margin: 20,
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  infoSectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  infoIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  infoTextContainer: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 14,
+    opacity: 0.7,
+    marginBottom: 2,
+  },
+  infoValue: {
     fontSize: 16,
     fontWeight: '500',
-    marginTop: 20,
   },
 }); 

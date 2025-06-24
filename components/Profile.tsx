@@ -74,37 +74,6 @@ export default function Profile() {
 
   const dataManager = GlobalDataManager.getInstance();
 
-  // Removed old fetchFriendsData function - now using direct fetch functions in loadInitialData
-
-  // Initial data loading function
-  const loadInitialData = async () => {
-    try {
-      setLoading(true);
-      console.log('Starting complete data load...');
-      
-      // First get the user profile
-      await fetchUserProfile();
-      
-      // Get user profile from data manager to ensure we have the ID
-      const userProfile = await dataManager.getUserProfile();
-      if (userProfile?.id) {
-        console.log('User ID found, fetching friends data...');
-        // Now fetch friends data with the confirmed user ID
-        await Promise.all([
-          fetchFriendsWithUserId(userProfile.id),
-          fetchFriendRequestsWithUserId(userProfile.id)
-        ]);
-        console.log('All data loaded successfully');
-      } else {
-        console.log('No user ID found, skipping friends data');
-      }
-    } catch (error) {
-      console.error('Error loading initial data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Direct friends fetching with user ID (for initial load)
   const fetchFriendsWithUserId = async (userId: number) => {
     try {
@@ -143,6 +112,36 @@ export default function Profile() {
       setLastViewedRequestsCount(lastRequestsCount ? parseInt(lastRequestsCount) : 0);
     } catch (error) {
       console.error('Error loading notification state:', error);
+    }
+  };
+
+  // Initial data loading function
+  const loadInitialData = async () => {
+    try {
+      setLoading(true);
+      console.log('Starting complete data load...');
+      
+      // First get the user profile
+      await fetchUserProfile();
+      
+      // Get user profile from data manager to ensure we have the ID
+      const userProfile = await dataManager.getUserProfile();
+      if (userProfile?.id) {
+        console.log('User ID found, fetching social data...');
+        // Now fetch all social data with the confirmed user ID
+        await Promise.all([
+          fetchFriendsWithUserId(userProfile.id),
+          fetchFriendRequestsWithUserId(userProfile.id),
+          fetchFollowCounts()
+        ]);
+        console.log('All social data loaded successfully');
+      } else {
+        console.log('No user ID found, skipping social data');
+      }
+    } catch (error) {
+      console.error('Error loading initial data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -296,6 +295,10 @@ export default function Profile() {
     setShowPrivacyModal(true);
   };
 
+  // State for follow counts
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+
   // Simplified friends functions for Profile component
   const fetchFriends = async () => {
     if (!profile?.id) return;
@@ -324,6 +327,30 @@ export default function Profile() {
       setFriendRequests(data || []);
     } catch (error) {
       console.error('Error fetching friend requests:', error);
+    }
+  };
+
+  const fetchFollowCounts = async () => {
+    if (!profile?.id) return;
+    
+    try {
+      // Get followers count
+      const { data: followersData, error: followersError } = await supabase.rpc('get_followers_count', {
+        target_user_id: profile.id
+      });
+      if (!followersError) {
+        setFollowersCount(followersData || 0);
+      }
+
+      // Get following count
+      const { data: followingData, error: followingError } = await supabase.rpc('get_following_count', {
+        target_user_id: profile.id
+      });
+      if (!followingError) {
+        setFollowingCount(followingData || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching follow counts:', error);
     }
   };
 
@@ -611,30 +638,38 @@ export default function Profile() {
         {/* Modern Content Container */}
         <View style={styles.modernContentContainer}>
           {/* Quick Stats Section */}
-                     <View style={styles.quickStatsSection}>
-             <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-               <View style={[styles.statIconContainer, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
-                 <Ionicons name="people" size={24} color="#9E95BD" />
-                    </View>
-               <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friends.length}</Text>
-               <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Friends</Text>
-                  </View>
+          <View style={styles.quickStatsSection}>
+            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
+                <Ionicons name="people" size={24} color="#9E95BD" />
+              </View>
+              <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friends.length}</Text>
+              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Friends</Text>
+            </View>
+            
+            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
+                <Ionicons name="person" size={24} color="#4CAF50" />
+              </View>
+              <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{followersCount}</Text>
+              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Followers</Text>
+            </View>
+            
+            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 193, 7, 0.1)' }]}>
+                <Ionicons name="person-add" size={24} color="#FFC107" />
+              </View>
+              <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{followingCount}</Text>
+              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Following</Text>
+            </View>
                   
-             <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-               <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 107, 157, 0.1)' }]}>
-                 <Ionicons name="calendar" size={24} color="#FF6B9D" />
-                          </View>
-               <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>0</Text>
-               <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Events</Text>
-                          </View>
-                  
-             <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-               <View style={[styles.statIconContainer, { backgroundColor: 'rgba(78, 205, 196, 0.1)' }]}>
-                 <Ionicons name="mail" size={24} color="#4ECDC4" />
-                  </View>
-               <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friendRequests.length}</Text>
-               <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Requests</Text>
-                </View>
+            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 107, 157, 0.1)' }]}>
+                <Ionicons name="mail" size={24} color="#FF6B9D" />
+              </View>
+              <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friendRequests.length}</Text>
+              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Requests</Text>
+            </View>
           </View>
 
           {/* Action Cards Grid */}
@@ -1134,15 +1169,16 @@ const styles = StyleSheet.create({
   },
   quickStatsSection: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
   },
   statCard: {
-    flex: 1,
+    width: '23%', // Adjusted for 4 cards per row
     alignItems: 'center',
-    padding: 16,
-    marginHorizontal: 4,
+    padding: 12,
+    marginBottom: 12,
     borderRadius: 16,
     shadowColor: '#9E95BD',
     shadowOffset: { width: 0, height: 4 },

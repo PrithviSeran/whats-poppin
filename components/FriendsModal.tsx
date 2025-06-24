@@ -26,11 +26,19 @@ interface FriendRequest {
   created_at: string;
 }
 
-interface SearchUser {
-  user_id: number;
-  name: string;
-  email: string;
-  friendship_status: 'pending' | 'accepted' | 'blocked' | 'declined' | null;
+// Follow interfaces
+interface Follower {
+  follower_id: number;
+  follower_name: string;
+  follower_email: string;
+  created_at: string;
+}
+
+interface Following {
+  following_id: number;
+  following_name: string;
+  following_email: string;
+  created_at: string;
 }
 
 interface FriendsModalProps {
@@ -53,10 +61,12 @@ export default function FriendsModal({
   onRequestsUpdate
 }: FriendsModalProps) {
   const colorScheme = useColorScheme();
-  const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [friendsLoading, setFriendsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'search'>('friends');
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'friends' | 'followers' | 'following' | 'requests'>('friends');
+  
+  // Follow state
+  const [followers, setFollowers] = useState<Follower[]>([]);
+  const [following, setFollowing] = useState<Following[]>([]);
   
   // UserProfileModal state
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false);
@@ -124,7 +134,7 @@ export default function FriendsModal({
     if (!profile?.id) return;
     
     try {
-      if (showLoading) setFriendsLoading(true);
+      if (showLoading) setLoading(true);
       const { data, error } = await supabase.rpc('get_user_friends', {
         target_user_id: profile.id
       });
@@ -135,7 +145,7 @@ export default function FriendsModal({
       console.error('Error fetching friends:', error);
       if (showLoading) Alert.alert('Error', 'Failed to load friends');
     } finally {
-      if (showLoading) setFriendsLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
@@ -143,7 +153,7 @@ export default function FriendsModal({
     if (!profile?.id) return;
     
     try {
-      if (showLoading) setFriendsLoading(true);
+      if (showLoading) setLoading(true);
       const { data, error } = await supabase.rpc('get_pending_friend_requests', {
         target_user_id: profile.id
       });
@@ -154,60 +164,45 @@ export default function FriendsModal({
       console.error('Error fetching friend requests:', error);
       if (showLoading) Alert.alert('Error', 'Failed to load friend requests');
     } finally {
-      if (showLoading) setFriendsLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
-  const searchUsers = async (query: string) => {
-    if (!profile?.id || query.trim().length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    
-    try {
-      setFriendsLoading(true);
-      const { data, error } = await supabase.rpc('search_users_for_friends', {
-        searcher_id: profile.id,
-        search_query: query.trim(),
-        limit_count: 10
-      });
-
-      if (error) throw error;
-      setSearchResults(data || []);
-    } catch (error) {
-      console.error('Error searching users:', error);
-      Alert.alert('Error', 'Failed to search users');
-    } finally {
-      setFriendsLoading(false);
-    }
-  };
-
-  const sendFriendRequest = async (receiverId: number) => {
+  const fetchFollowers = async (showLoading: boolean = true) => {
     if (!profile?.id) return;
     
     try {
-      const { data, error } = await supabase.rpc('send_friend_request', {
-        sender_id: profile.id,
-        receiver_id: receiverId
+      if (showLoading) setLoading(true);
+      const { data, error } = await supabase.rpc('get_user_followers', {
+        target_user_id: profile.id
       });
 
       if (error) throw error;
-
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        Alert.alert('Success', result.message);
-        // Refresh search results to update button states
-        if (searchQuery.trim().length >= 2) {
-          searchUsers(searchQuery);
-        }
-        // Refresh friends list if request was accepted automatically
-        fetchFriends(false); // Background refresh since user is still in search tab
-      } else {
-        Alert.alert('Info', result.message);
-      }
+      setFollowers(data || []);
     } catch (error) {
-      console.error('Error sending friend request:', error);
-      Alert.alert('Error', 'Failed to send friend request');
+      console.error('Error fetching followers:', error);
+      if (showLoading) Alert.alert('Error', 'Failed to load followers');
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
+
+  const fetchFollowing = async (showLoading: boolean = true) => {
+    if (!profile?.id) return;
+    
+    try {
+      if (showLoading) setLoading(true);
+      const { data, error } = await supabase.rpc('get_user_following', {
+        target_user_id: profile.id
+      });
+
+      if (error) throw error;
+      setFollowing(data || []);
+    } catch (error) {
+      console.error('Error fetching following:', error);
+      if (showLoading) Alert.alert('Error', 'Failed to load following');
+    } finally {
+      if (showLoading) setLoading(false);
     }
   };
 
@@ -272,8 +267,29 @@ export default function FriendsModal({
     );
   };
 
+  const handleUnfollow = async (targetEmail: string) => {
+    try {
+      const { data, error } = await supabase.rpc('unfollow_user', {
+        target_email: targetEmail
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; message: string };
+      if (result.success) {
+        Alert.alert('Success', result.message);
+        fetchFollowing(true); // Refresh following list
+      } else {
+        Alert.alert('Error', result.message);
+      }
+    } catch (error) {
+      console.error('Error unfollowing user:', error);
+      Alert.alert('Error', 'Failed to unfollow user');
+    }
+  };
+
   // Handle tab switching and mark as viewed
-  const handleTabSwitch = (tab: 'friends' | 'requests' | 'search') => {
+  const handleTabSwitch = (tab: 'friends' | 'followers' | 'following' | 'requests') => {
     setActiveTab(tab);
     
     // Mark as viewed when switching to tabs
@@ -282,14 +298,32 @@ export default function FriendsModal({
     } else if (tab === 'requests') {
       setTimeout(() => markRequestsAsViewed(), 200);
     }
+    
+    // Fetch data for the active tab
+    switch (tab) {
+      case 'friends':
+        fetchFriends(false);
+        break;
+      case 'followers':
+        fetchFollowers(false);
+        break;
+      case 'following':
+        fetchFollowing(false);
+        break;
+      case 'requests':
+        fetchFriendRequests(false);
+        break;
+    }
   };
 
   const handleModalOpen = () => {
     setActiveTab('friends');
-    // Refresh friends data when user explicitly opens the modal
-    console.log('Refreshing friends data for modal interaction...');
+    // Refresh all data when user explicitly opens the modal
+    console.log('Refreshing all social data for modal interaction...');
     fetchFriends(true);
     fetchFriendRequests(true);
+    fetchFollowers(false);
+    fetchFollowing(false);
     // Mark friends as viewed when opening modal (defaults to friends tab)
     setTimeout(() => markFriendsAsViewed(), 500);
   };
@@ -309,6 +343,156 @@ export default function FriendsModal({
     setUserProfileModalVisible(true);
   };
 
+  const renderUserItem = (user: any, type: 'friend' | 'follower' | 'following' | 'request') => {
+    const userId = user.friend_id || user.follower_id || user.following_id || user.sender_id;
+    const userName = user.friend_name || user.follower_name || user.following_name || user.sender_name;
+    const userEmail = user.friend_email || user.follower_email || user.following_email || user.sender_email;
+    const key = user.friendship_id || user.request_id || `${type}-${userId}`;
+
+    return (
+      <View key={key} style={[styles.userItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+        <TouchableOpacity 
+          style={styles.userInfo}
+          onPress={() => handleUserProfileNavigation(userId, userName, userEmail)}
+        >
+          <View style={styles.userAvatar}>
+            <Image 
+              source={{ 
+                uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${userEmail.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+              }}
+              style={styles.userAvatarImage}
+              defaultSource={require('../assets/images/icon.png')}
+              onError={() => {
+                console.log(`Failed to load profile image for ${type} ${userEmail}`);
+              }}
+            />
+          </View>
+          <View style={styles.userDetails}>
+            <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {userName}
+            </Text>
+            <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {userEmail}
+            </Text>
+            {type === 'request' && (
+              <View style={styles.dateContainer}>
+                <Ionicons name="time-outline" size={12} color="#9E95BD" />
+                <Text style={[styles.dateText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Sent {new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </Text>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+        
+        {/* Action buttons based on type */}
+        {type === 'friend' && (
+          <TouchableOpacity
+            style={styles.removeButton}
+            onPress={() => removeFriend(userId)}
+          >
+            <Ionicons name="person-remove" size={20} color="#ff4444" />
+          </TouchableOpacity>
+        )}
+        
+        {type === 'following' && (
+          <TouchableOpacity
+            style={styles.unfollowButton}
+            onPress={() => handleUnfollow(userEmail)}
+          >
+            <Text style={styles.unfollowButtonText}>Unfollow</Text>
+          </TouchableOpacity>
+        )}
+        
+        {type === 'request' && (
+          <View style={styles.requestActions}>
+            <TouchableOpacity
+              style={styles.acceptButton}
+              onPress={() => respondToFriendRequest(user.request_id, 'accepted')}
+            >
+              <Ionicons name="checkmark" size={18} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.declineButton}
+              onPress={() => respondToFriendRequest(user.request_id, 'declined')}
+            >
+              <Ionicons name="close" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderTabContent = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#9E95BD" style={styles.loader} />
+        </View>
+      );
+    }
+
+    let data: any[] = [];
+    let emptyIcon = 'people-outline';
+    let emptyTitle = 'No data found';
+    let emptySubtitle = '';
+    let type: 'friend' | 'follower' | 'following' | 'request' = 'friend';
+
+    switch (activeTab) {
+      case 'friends':
+        data = friends;
+        emptyIcon = 'people-outline';
+        emptyTitle = 'No friends yet';
+        emptySubtitle = 'Use the Discover tab to search for friends';
+        type = 'friend';
+        break;
+      case 'followers':
+        data = followers;
+        emptyIcon = 'person-outline';
+        emptyTitle = 'No followers yet';
+        emptySubtitle = 'Share your profile to gain followers';
+        type = 'follower';
+        break;
+      case 'following':
+        data = following;
+        emptyIcon = 'person-add-outline';
+        emptyTitle = 'Not following anyone';
+        emptySubtitle = 'Follow people to see their updates';
+        type = 'following';
+        break;
+      case 'requests':
+        data = friendRequests;
+        emptyIcon = 'mail-outline';
+        emptyTitle = 'No friend requests';
+        emptySubtitle = '';
+        type = 'request';
+        break;
+    }
+
+    if (data.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name={emptyIcon as any} size={64} color={Colors[colorScheme ?? 'light'].text} />
+          <Text style={[styles.emptyTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+            {emptyTitle}
+          </Text>
+          {emptySubtitle && (
+            <Text style={[styles.emptySubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {emptySubtitle}
+            </Text>
+          )}
+        </View>
+      );
+    }
+
+    return (
+      <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+        {data.map((item) => renderUserItem(item, type))}
+      </ScrollView>
+    );
+  };
+
   return (
     <Modal
       visible={visible}
@@ -316,24 +500,24 @@ export default function FriendsModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={[styles.friendsModalContainer, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-        <View style={styles.friendsModalHeader}>
-          <Text style={[styles.friendsModalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Friends</Text>
+      <SafeAreaView style={[styles.modalContainer, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Social</Text>
           <TouchableOpacity onPress={onClose}>
             <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
           </TouchableOpacity>
         </View>
 
         {/* Tab Navigation */}
-        <View style={styles.friendsTabContainer}>
+        <View style={styles.tabContainer}>
           <TouchableOpacity
-            style={[styles.friendsTab, activeTab === 'friends' && styles.friendsTabActive]}
+            style={[styles.tab, activeTab === 'friends' && styles.tabActive]}
             onPress={() => handleTabSwitch('friends')}
           >
             <View style={styles.tabIconContainer}>
               <Ionicons 
                 name="people" 
-                size={24} 
+                size={20} 
                 color={activeTab === 'friends' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
               />
               {hasNewFriends && activeTab !== 'friends' && (
@@ -342,15 +526,60 @@ export default function FriendsModal({
                 </View>
               )}
             </View>
+            <Text style={[
+              styles.tabText,
+              { color: activeTab === 'friends' ? '#fff' : Colors[colorScheme ?? 'light'].text }
+            ]}>
+              Friends
+            </Text>
           </TouchableOpacity>
+          
           <TouchableOpacity
-            style={[styles.friendsTab, activeTab === 'requests' && styles.friendsTabActive]}
+            style={[styles.tab, activeTab === 'followers' && styles.tabActive]}
+            onPress={() => handleTabSwitch('followers')}
+          >
+            <View style={styles.tabIconContainer}>
+              <Ionicons 
+                name="person" 
+                size={20} 
+                color={activeTab === 'followers' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
+              />
+            </View>
+            <Text style={[
+              styles.tabText,
+              { color: activeTab === 'followers' ? '#fff' : Colors[colorScheme ?? 'light'].text }
+            ]}>
+              Followers
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'following' && styles.tabActive]}
+            onPress={() => handleTabSwitch('following')}
+          >
+            <View style={styles.tabIconContainer}>
+              <Ionicons 
+                name="person-add" 
+                size={20} 
+                color={activeTab === 'following' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
+              />
+            </View>
+            <Text style={[
+              styles.tabText,
+              { color: activeTab === 'following' ? '#fff' : Colors[colorScheme ?? 'light'].text }
+            ]}>
+              Following
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'requests' && styles.tabActive]}
             onPress={() => handleTabSwitch('requests')}
           >
             <View style={styles.tabIconContainer}>
               <Ionicons 
                 name="mail" 
-                size={24} 
+                size={20} 
                 color={activeTab === 'requests' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
               />
               {friendRequests.length > 0 && (
@@ -364,244 +593,18 @@ export default function FriendsModal({
                 </View>
               )}
             </View>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.friendsTab, activeTab === 'search' && styles.friendsTabActive]}
-            onPress={() => handleTabSwitch('search')}
-          >
-            <View style={styles.tabIconContainer}>
-              <Ionicons 
-                name="person-add" 
-                size={24} 
-                color={activeTab === 'search' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
-              />
-            </View>
+            <Text style={[
+              styles.tabText,
+              { color: activeTab === 'requests' ? '#fff' : Colors[colorScheme ?? 'light'].text }
+            ]}>
+              Requests
+            </Text>
           </TouchableOpacity>
         </View>
 
         {/* Tab Content */}
-        <View style={styles.friendsContent}>
-          {activeTab === 'friends' && (
-            <ScrollView style={styles.friendsList}>
-              {friendsLoading ? (
-                <ActivityIndicator size="large" color="#FF0005" style={styles.friendsLoader} />
-              ) : friends.length === 0 ? (
-                <View style={styles.emptyFriendsContainer}>
-                  <Ionicons name="people-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-                  <Text style={[styles.emptyFriendsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    No friends yet
-                  </Text>
-                  <Text style={[styles.emptyFriendsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Search for people to add as friends
-                  </Text>
-                </View>
-              ) : (
-                friends.map((friend) => (
-                  <View key={friend.friendship_id} style={[styles.friendItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                    <TouchableOpacity 
-                      style={styles.friendInfo}
-                      onPress={() => handleUserProfileNavigation(friend.friend_id, friend.friend_name, friend.friend_email)}
-                    >
-                      <View style={styles.friendAvatar}>
-                        <Image 
-                          source={{ 
-                            uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${friend.friend_email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-                          }}
-                          style={styles.friendAvatarImage}
-                          defaultSource={require('../assets/images/icon.png')}
-                          onError={() => {
-                            console.log(`Failed to load profile image for friend ${friend.friend_email}`);
-                          }}
-                        />
-                      </View>
-                      <View style={styles.friendDetails}>
-                        <Text style={[styles.friendName, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          {friend.friend_name}
-                        </Text>
-                        <Text style={[styles.friendEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          {friend.friend_email}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.removeFriendButton}
-                      onPress={() => removeFriend(friend.friend_id)}
-                    >
-                      <Ionicons name="person-remove" size={20} color="#ff4444" />
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          )}
-
-          {activeTab === 'requests' && (
-            <ScrollView style={styles.friendsList}>
-              {friendsLoading ? (
-                <ActivityIndicator size="large" color="#FF0005" style={styles.friendsLoader} />
-              ) : friendRequests.length === 0 ? (
-                <View style={styles.emptyFriendsContainer}>
-                  <Ionicons name="mail-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-                  <Text style={[styles.emptyFriendsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    No friend requests
-                  </Text>
-                </View>
-              ) : (
-                friendRequests.map((request) => (
-                  <View key={request.request_id} style={[styles.friendItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                    <TouchableOpacity 
-                      style={styles.friendInfo}
-                      onPress={() => handleUserProfileNavigation(request.sender_id, request.sender_name, request.sender_email)}
-                    >
-                      <View style={styles.friendAvatar}>
-                        <Image 
-                          source={{ 
-                            uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${request.sender_email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-                          }}
-                          style={styles.friendAvatarImage}
-                          defaultSource={require('../assets/images/icon.png')}
-                          onError={() => {
-                            console.log(`Failed to load profile image for request sender ${request.sender_email}`);
-                          }}
-                        />
-                      </View>
-                      <View style={styles.friendDetails}>
-                        <Text style={[styles.friendName, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          {request.sender_name}
-                        </Text>
-                        <Text style={[styles.friendEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          {request.sender_email}
-                        </Text>
-                        <View style={styles.friendDateContainer}>
-                          <Ionicons name="time-outline" size={12} color="#9E95BD" />
-                          <Text style={[styles.friendDateText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            Sent {new Date(request.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          </Text>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                    <View style={styles.requestActions}>
-                      <TouchableOpacity
-                        style={styles.acceptButton}
-                        onPress={() => respondToFriendRequest(request.request_id, 'accepted')}
-                      >
-                        <Ionicons name="checkmark" size={18} color="#fff" />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.declineButton}
-                        onPress={() => respondToFriendRequest(request.request_id, 'declined')}
-                      >
-                        <Ionicons name="close" size={18} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          )}
-
-          {activeTab === 'search' && (
-            <View style={styles.searchContainer}>
-              <View style={styles.searchInputContainer}>
-                <Ionicons name="search" size={20} color={Colors[colorScheme ?? 'light'].text} />
-                <TextInput
-                  style={[styles.searchInput, { color: Colors[colorScheme ?? 'light'].text }]}
-                  placeholder="Search by name or email..."
-                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
-                  value={searchQuery}
-                  onChangeText={(text) => {
-                    setSearchQuery(text);
-                    searchUsers(text);
-                  }}
-                />
-              </View>
-              <ScrollView style={styles.searchResults}>
-                {friendsLoading ? (
-                  <ActivityIndicator size="large" color="#FF0005" style={styles.friendsLoader} />
-                ) : searchResults.length === 0 ? (
-                  searchQuery.trim().length >= 2 ? (
-                    <View style={styles.emptyFriendsContainer}>
-                      <Ionicons name="search-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-                      <Text style={[styles.emptyFriendsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        No users found
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={styles.emptyFriendsContainer}>
-                      <Ionicons name="search-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-                      <Text style={[styles.emptyFriendsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Search for friends
-                      </Text>
-                      <Text style={[styles.emptyFriendsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Type at least 2 characters to search
-                      </Text>
-                    </View>
-                  )
-                ) : (
-                  searchResults.map((user) => (
-                    <View key={user.user_id} style={[styles.friendItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                      <TouchableOpacity 
-                        style={styles.friendInfo}
-                        onPress={() => handleUserProfileNavigation(user.user_id, user.name, user.email)}
-                      >
-                        <View style={styles.friendAvatar}>
-                          <Image 
-                            source={{ 
-                              uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${user.email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-                            }}
-                            style={styles.friendAvatarImage}
-                            defaultSource={require('../assets/images/icon.png')}
-                            onError={() => {
-                              console.log(`Failed to load profile image for user ${user.email}`);
-                            }}
-                          />
-                        </View>
-                        <View style={styles.friendDetails}>
-                          <Text style={[styles.friendName, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            {user.name}
-                          </Text>
-                          <Text style={[styles.friendEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            {user.email}
-                          </Text>
-                          <View style={styles.friendDateContainer}>
-                            <Ionicons 
-                              name={user.friendship_status === 'accepted' ? 'checkmark-circle-outline' : 
-                                    user.friendship_status === 'pending' ? 'time-outline' : 'person-add-outline'} 
-                              size={12} 
-                              color="#9E95BD" 
-                            />
-                            <Text style={[styles.friendDateText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                              {user.friendship_status === 'accepted' ? 'Already friends' :
-                               user.friendship_status === 'pending' ? 'Request pending' : 'Available to add'}
-                            </Text>
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.addFriendButton,
-                          user.friendship_status === 'pending' && styles.addFriendButtonPending,
-                          user.friendship_status === 'accepted' && styles.addFriendButtonAccepted
-                        ]}
-                        onPress={() => sendFriendRequest(user.user_id)}
-                        disabled={user.friendship_status !== null}
-                      >
-                        {user.friendship_status === null && (
-                          <Ionicons name="person-add" size={18} color="#fff" />
-                        )}
-                        {user.friendship_status === 'pending' && (
-                          <Ionicons name="hourglass" size={18} color="#fff" />
-                        )}
-                        {user.friendship_status === 'accepted' && (
-                          <Ionicons name="checkmark" size={18} color="#fff" />
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
-            </View>
-          )}
+        <View style={styles.content}>
+          {renderTabContent()}
         </View>
       </SafeAreaView>
 
@@ -618,11 +621,10 @@ export default function FriendsModal({
 }
 
 const styles = StyleSheet.create({
-  // Friends Modal styles
-  friendsModalContainer: {
+  modalContainer: {
     flex: 1,
   },
-  friendsModalHeader: {
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -631,43 +633,51 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.1)',
   },
-  friendsModalTitle: {
+  modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
   },
-  friendsTabContainer: {
+  tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
     paddingVertical: 10,
+    gap: 5,
   },
-  friendsTab: {
+  tab: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 20,
-    marginHorizontal: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 16,
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    minHeight: 60,
+    justifyContent: 'center',
   },
-  friendsTabActive: {
+  tabActive: {
     backgroundColor: '#9E95BD',
   },
   tabIconContainer: {
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 4,
+  },
+  tabText: {
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   tabBadge: {
     position: 'absolute',
     top: -8,
     right: -12,
-    backgroundColor: '#9E95BD',
+    backgroundColor: '#ff4444',
     borderRadius: 10,
-    minWidth: 20,
-    height: 20,
+    minWidth: 16,
+    height: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#9E95BD',
+    shadowColor: '#ff4444',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
@@ -678,37 +688,59 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
   },
-  friendsContent: {
+  tabNotificationBubble: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    zIndex: 10,
+  },
+  tabNotificationDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ff4444',
+    shadowColor: '#ff4444',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  content: {
     flex: 1,
     paddingHorizontal: 20,
   },
-  friendsList: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loader: {
+    marginTop: 50,
+  },
+  list: {
     flex: 1,
     paddingHorizontal: 4,
     paddingTop: 8,
   },
-  friendsLoader: {
-    marginTop: 50,
-  },
-  emptyFriendsContainer: {
+  emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 100,
   },
-  emptyFriendsText: {
+  emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
     marginTop: 20,
     textAlign: 'center',
   },
-  emptyFriendsSubtext: {
+  emptySubtitle: {
     fontSize: 14,
     marginTop: 10,
     textAlign: 'center',
     opacity: 0.7,
   },
-  friendItem: {
+  userItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -724,12 +756,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(158, 149, 189, 0.1)',
   },
-  friendInfo: {
+  userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  friendAvatar: {
+  userAvatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -743,35 +775,51 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  friendDetails: {
+  userAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 24,
+  },
+  userDetails: {
     flex: 1,
   },
-  friendName: {
+  userName: {
     fontSize: 17,
     fontWeight: 'bold',
     marginBottom: 4,
     letterSpacing: 0.3,
   },
-  friendEmail: {
+  userEmail: {
     fontSize: 14,
     opacity: 0.8,
     fontWeight: '500',
   },
-  friendDateContainer: {
+  dateContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 4,
   },
-  friendDateText: {
+  dateText: {
     fontSize: 12,
     opacity: 0.7,
     marginLeft: 4,
     fontStyle: 'italic',
   },
-  removeFriendButton: {
+  removeButton: {
     padding: 10,
     borderRadius: 20,
     backgroundColor: 'rgba(255, 68, 68, 0.1)',
+  },
+  unfollowButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#ff4444',
+  },
+  unfollowButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   requestActions: {
     flexDirection: 'row',
@@ -800,68 +848,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 2,
-  },
-  addFriendButton: {
-    backgroundColor: '#9E95BD',
-    borderRadius: 20,
-    padding: 10,
-    minWidth: 36,
-    alignItems: 'center',
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  addFriendButtonPending: {
-    backgroundColor: '#FFA500',
-  },
-  addFriendButtonAccepted: {
-    backgroundColor: '#888',
-  },
-  searchContainer: {
-    flex: 1,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.2)',
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    marginBottom: 15,
-  },
-  searchInput: {
-    flex: 1,
-    marginLeft: 10,
-    fontSize: 16,
-  },
-  searchResults: {
-    flex: 1,
-  },
-  // Notification bubble styles
-  tabNotificationBubble: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    zIndex: 10,
-  },
-  tabNotificationDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ff4444',
-    shadowColor: '#ff4444',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  // Friend Avatar Image Styles
-  friendAvatarImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 24,
   },
 }); 
