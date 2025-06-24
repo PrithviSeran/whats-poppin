@@ -1,10 +1,10 @@
 module.exports = {
   expo: {
-    name: "whats-poppin",
+    name: "Whats Poppin",
     slug: "whats-poppin",
     version: "1.0.0",
     orientation: "portrait",
-    icon: "./assets/images/icon.png",
+    icon: "./assets/images/balloons.png",
     scheme: "whatspoppin",
     userInterfaceStyle: "automatic",
     splash: {
@@ -40,9 +40,15 @@ module.exports = {
             CFBundleURLName: "com.prithviseran.whatspoppin"
           }
         ],
+        // Universal Links configuration for iOS
+        "com.apple.developer.associated-domains": [
+          "applinks:whatspoppin.app"
+        ],
         // Critical for Google Maps to work in production/TestFlight
         GMSApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
-      }
+      },
+      // iOS Universal Links
+      associatedDomains: ["applinks:whatspoppin.app"]
     },
     android: {
       adaptiveIcon: {
@@ -68,6 +74,18 @@ module.exports = {
           data: [
             {
               scheme: "whatspoppin"
+            }
+          ],
+          category: ["BROWSABLE", "DEFAULT"]
+        },
+        {
+          action: "VIEW",
+          autoVerify: true,
+          data: [
+            {
+              scheme: "https",
+              host: "whatspoppin.app",
+              pathPrefix: "/event"
             }
           ],
           category: ["BROWSABLE", "DEFAULT"]

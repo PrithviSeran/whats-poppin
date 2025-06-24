@@ -72,6 +72,35 @@ const formatTimesForDisplay = (times: { [key: string]: string | [string, string]
   return 'Varies by day';
 };
 
+// Helper function to check if an event is expiring soon
+const isEventExpiringSoon = (event: EventCard): boolean => {
+  if (!event || event.occurrence === 'Weekly') {
+    return false; // Weekly events don't expire
+  }
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const nextWeek = new Date(today);
+  nextWeek.setDate(today.getDate() + 7);
+
+  // Check start_date or end_date for one-time events
+  const eventDate = event.end_date || event.start_date;
+  if (eventDate) {
+    try {
+      const eventDateTime = new Date(eventDate);
+      const eventDateOnly = new Date(eventDateTime.getFullYear(), eventDateTime.getMonth(), eventDateTime.getDate());
+      
+      // Event is expiring soon if it's happening within the next 7 days
+      return eventDateOnly >= today && eventDateOnly <= nextWeek;
+    } catch (error) {
+      console.error('Error parsing event date:', error);
+      return false;
+    }
+  }
+
+  return false;
+};
+
 // Function to calculate distance between two coordinates using Haversine formula
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371; // Radius of Earth in kilometers
@@ -184,7 +213,7 @@ export default function SuggestedEvents() {
     // Process events with image URLs and friends data in parallel
     const processedEvents = await Promise.all(
       events.map(async (event) => {
-        const urls = getEventImageUrls(event.id);
+      const urls = getEventImageUrls(event.id);
         
         // Fetch friends who saved this event
         let friendsWhoSaved: { id: number; name: string; email: string }[] = [];
@@ -194,12 +223,12 @@ export default function SuggestedEvents() {
           console.error(`Error fetching friends for event ${event.id}:`, error);
         }
         
-        return {
-          ...event,
-          image: urls.imageUrl,
+      return {
+        ...event,
+        image: urls.imageUrl,
           allImages: urls.allImages,
           friendsWhoSaved
-        };
+      };
       })
     );
     
@@ -441,6 +470,41 @@ export default function SuggestedEvents() {
       }).start();
     }
   }, [loading, isFetchingActivities]);
+
+  // Start animations for "No Events Found" page
+  useEffect(() => {
+    if (!loading && !isFetchingActivities && EVENTS.length === 0) {
+      // Start subtle animations for the empty state
+      Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(pulseAnim, {
+              toValue: 1,
+              duration: 2000,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pulseAnim, {
+              toValue: 0,
+              duration: 2000,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.sequence([
+            Animated.timing(rotateAnim, {
+              toValue: 1,
+              duration: 4000,
+              useNativeDriver: true,
+            }),
+            Animated.timing(rotateAnim, {
+              toValue: 0,
+              duration: 4000,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      ).start();
+    }
+  }, [loading, isFetchingActivities, EVENTS.length]);
 
 
   
@@ -1102,6 +1166,21 @@ export default function SuggestedEvents() {
                                   </LinearGradient>
                                 </View>
                               )}
+
+                              {/* Expiring Soon Badge */}
+                              {isEventExpiringSoon(card) && (
+                                <View style={[styles.modernFeaturedBadge, { top: card.featured ? 50 : 12 }]}>
+                                  <LinearGradient
+                                    colors={['#ff4444', '#ff6666', '#ff4444']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.featuredBadgeGradient}
+                                  >
+                                    <Ionicons name="time" size={14} color="white" />
+                                    <Text style={styles.modernFeaturedText}>EXPIRING SOON</Text>
+                                  </LinearGradient>
+                                </View>
+                              )}
                               
 
                             </View>
@@ -1340,23 +1419,109 @@ export default function SuggestedEvents() {
             </>
           ) : (
             <View style={styles.noEventsContainer}>
-              <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                No Events Found
-              </Text>
-              <TouchableOpacity onPress={() => setIsFilterVisible(true)}>
-            <Text style={[styles.adjustFiltersText, { color: '#9E95BD' }]}>
-                  Try adjusting your filters
+              {/* Animated Icon Container */}
+              <Animated.View 
+                style={[
+                  styles.noEventsIconContainer,
+                  {
+                    transform: [
+                      { scale: pulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.9, 1.1],
+                      })},
+                      { rotate: rotateAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0deg', '10deg'],
+                      })}
+                    ]
+                  }
+                ]}
+              >
+                <LinearGradient
+                  colors={['#9E95BD', '#B8AECC', '#D4C9E8']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.noEventsIconGradient}
+                >
+                  <Ionicons name="search-outline" size={32} color="white" />
+                </LinearGradient>
+              </Animated.View>
+
+              {/* Main Content */}
+              <View style={styles.noEventsContent}>
+                <Text style={[styles.noEventsTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  No Events Found
                 </Text>
-              </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.reloadButton, { marginTop: 40 }]}
-            onPress={() => {
-              setLoading(true);
-              fetchTokenAndCallBackend();
-            }}
-          >
-            <Ionicons name="reload" size={32} color="#9E95BD" />
-          </TouchableOpacity>
+                <Text style={[styles.noEventsSubtitle, { color: colorScheme === 'dark' ? '#B0B0B0' : '#666666' }]}>
+                  We couldn't find any events matching your current preferences.
+                </Text>
+                <Text style={[styles.noEventsDescription, { color: colorScheme === 'dark' ? '#888888' : '#888888' }]}>
+                  Try adjusting your filters or refreshing for new recommendations.
+                </Text>
+              </View>
+
+              {/* Action Cards */}
+              <View style={styles.noEventsActions}>
+                {/* Adjust Filters Card */}
+                <TouchableOpacity 
+                  style={styles.actionCard}
+                  onPress={() => setIsFilterVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={['#667eea', '#764ba2']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.actionCardGradient}
+                  >
+                    <View style={styles.actionCardIcon}>
+                      <Ionicons name="options" size={20} color="white" />
+                    </View>
+                    <View style={styles.actionCardContent}>
+                      <Text style={styles.actionCardTitle}>Adjust Filters</Text>
+                      <Text style={styles.actionCardSubtitle}>Modify your preferences</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.8)" />
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                {/* Refresh Card */}
+                <TouchableOpacity
+                  style={styles.actionCard}
+                  onPress={() => {
+                    setLoading(true);
+                    fetchTokenAndCallBackend();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={['#f093fb', '#f5576c']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.actionCardGradient}
+                  >
+                    <View style={styles.actionCardIcon}>
+                      <Ionicons name="refresh" size={20} color="white" />
+                    </View>
+                    <View style={styles.actionCardContent}>
+                      <Text style={styles.actionCardTitle}>Refresh Events</Text>
+                      <Text style={styles.actionCardSubtitle}>Get new recommendations</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.8)" />
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+
+              {/* Bottom Suggestion */}
+              <View style={styles.noEventsBottomSection}>
+                <View style={styles.suggestionCard}>
+                  <View style={styles.suggestionCardContainer}>
+                    <Text style={[styles.suggestionText, { color: colorScheme === 'dark' ? '#B0B0B0' : '#666666' }]}>
+                      <Text style={styles.suggestionBold}>Pro tip:</Text> Try expanding your search radius or removing specific date filters for more results.
+                    </Text>
+                  </View>
+                </View>
+              </View>
             </View>
           )}
         </Animated.View>
@@ -2027,16 +2192,129 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
   },
-  noEventsText: {
-    fontSize: 24,
+  noEventsBackground: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 32,
+  },
+  noEventsIconContainer: {
+    marginBottom: 24,
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  noEventsIconGradient: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noEventsContent: {
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  noEventsTitle: {
+    fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 20,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  noEventsSubtitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  noEventsDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 18,
+    opacity: 0.7,
+  },
+  noEventsActions: {
+    width: '100%',
+    marginBottom: 24,
+    gap: 12,
+  },
+  actionCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  actionCardGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+  },
+  actionCardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionCardContent: {
+    flex: 1,
+  },
+  actionCardTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 2,
+  },
+  actionCardSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '500',
+  },
+  noEventsBottomSection: {
+    width: '100%',
+    marginTop: 6,
+  },
+  suggestionCard: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  suggestionCardContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    gap: 10,
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  suggestionBold: {
+    fontWeight: 'bold',
+    color: '#9E95BD',
   },
   adjustFiltersText: {
     fontSize: 18,
     color: '#FF1493',
     marginTop: 20,
+  },
+  noEventsText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
   },
   imageExpanded: {
     marginTop: 20,

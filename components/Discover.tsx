@@ -19,6 +19,35 @@ const ITEMS_PER_PAGE = 10;
 
 // We'll show a "No Image Found" placeholder instead of a default image
 
+// Helper function to check if an event is expiring soon
+const isEventExpiringSoon = (event: EventCard): boolean => {
+  if (!event || event.occurrence === 'Weekly') {
+    return false; // Weekly events don't expire
+  }
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const nextWeek = new Date(today);
+  nextWeek.setDate(today.getDate() + 7);
+
+  // Check start_date or end_date for one-time events
+  const eventDate = event.end_date || event.start_date;
+  if (eventDate) {
+    try {
+      const eventDateTime = new Date(eventDate);
+      const eventDateOnly = new Date(eventDateTime.getFullYear(), eventDateTime.getMonth(), eventDateTime.getDate());
+      
+      // Event is expiring soon if it's happening within the next 7 days
+      return eventDateOnly >= today && eventDateOnly <= nextWeek;
+    } catch (error) {
+      console.error('Error parsing event date:', error);
+      return false;
+    }
+  }
+
+  return false;
+};
+
 // Extend EventCard to include isLiked
 interface ExtendedEventCard extends EventCard {
   isLiked?: boolean;
@@ -856,6 +885,21 @@ export default function Discover() {
                     >
                       <Ionicons name="star" size={14} color="white" />
                       <Text style={styles.featuredText}>Featured</Text>
+                    </LinearGradient>
+                  </View>
+                )}
+
+                {/* Expiring Soon Badge */}
+                {isEventExpiringSoon(event) && (
+                  <View style={[styles.featuredBadge, { top: event.featured ? 50 : 10 }]}>
+                    <LinearGradient
+                      colors={['#ff4444', '#ff6666']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.featuredBadgeContainer}
+                    >
+                      <Ionicons name="time" size={14} color="white" />
+                      <Text style={styles.featuredText}>Expiring Soon</Text>
                     </LinearGradient>
                   </View>
                 )}

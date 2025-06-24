@@ -1,0 +1,18 @@
+{
+    "applinks": {
+        "details": [
+            {
+                "appIDs": ["TEAMID.com.prithviseran.whatspoppin"],
+                "components": [
+                    {
+                        "/": "/event/*",
+                        "comment": "Matches any URL with path that starts with /event/"
+                    }
+                ]
+            }
+        ]
+    },
+    "webcredentials": {
+        "apps": ["TEAMID.com.prithviseran.whatspoppin"]
+    }
+} 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Animated, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -7,6 +7,7 @@ import { Colors } from '@/constants/Colors';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 const EVENT_TYPES = [
@@ -49,6 +50,7 @@ interface CreateEventForm {
   times: { [key: string]: string | [string, string] };
   featured: boolean;
   link: string;
+  images: string[];
 }
 
 // Reusable Gradient Pill Component
@@ -187,7 +189,8 @@ export default function CreateEventScreen() {
     days_of_the_week: [],
     times: {},
     featured: true,
-    link: ''
+    link: '',
+    images: []
   });
 
   // Helper function to format time from "HH:MM" string to Date object
@@ -207,6 +210,38 @@ export default function CreateEventScreen() {
     const hours = date.getHours().toString().padStart(2, '0');
     const minutes = date.getMinutes().toString().padStart(2, '0');
     return `${hours}:${minutes}`;
+  };
+
+  // Image picker functions
+  const pickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const imageUri = result.assets[0].uri;
+        if (eventForm.images.length < 5) {
+          setEventForm({ 
+            ...eventForm, 
+            images: [...eventForm.images, imageUri] 
+          });
+        } else {
+          Alert.alert('Limit Reached', 'You can upload up to 5 images per event.');
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const removeImage = (index: number) => {
+    const newImages = eventForm.images.filter((_, i) => i !== index);
+    setEventForm({ ...eventForm, images: newImages });
   };
 
   // Helper function to format time for display (12-hour format)
@@ -302,7 +337,7 @@ export default function CreateEventScreen() {
         console.warn('Could not geocode location:', geocodeError);
       }
 
-      // Prepare event data
+      // First, insert the event to get the event ID
       const eventData = {
         name: eventForm.name.trim(),
         organization: eventForm.organization.trim(),
@@ -335,7 +370,59 @@ export default function CreateEventScreen() {
         throw error;
       }
 
-      Alert.alert('Success', 'Event created successfully!', [
+      const eventId = data[0].id;
+
+      // Upload images to Supabase storage if any were selected
+      let uploadedImages = 0;
+      if (eventForm.images.length > 0) {
+        console.log(`Uploading ${eventForm.images.length} images for event ${eventId}`);
+        
+        for (let i = 0; i < eventForm.images.length; i++) {
+          const imageUri = eventForm.images[i];
+          
+          try {
+            // Convert URI to blob
+            const response = await fetch(imageUri);
+            const blob = await response.blob();
+            
+            // Create file path: eventId/imageIndex.jpg
+            const fileName = `${eventId}/${i}.jpg`;
+            
+            // Upload to Supabase storage
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('event-images')
+              .upload(fileName, blob, {
+                contentType: 'image/jpeg',
+                upsert: true
+              });
+
+            if (uploadError) {
+              console.error(`Error uploading image ${i}:`, uploadError);
+              // Continue with other images even if one fails
+            } else {
+              console.log(`Successfully uploaded image ${i} for event ${eventId}`);
+              uploadedImages++;
+            }
+          } catch (imageError) {
+            console.error(`Error processing image ${i}:`, imageError);
+            // Continue with other images even if one fails
+          }
+        }
+      }
+
+      // Create success message based on image upload results
+      let successMessage = 'Event created successfully!';
+      if (eventForm.images.length > 0) {
+        if (uploadedImages === eventForm.images.length) {
+          successMessage += ` All ${uploadedImages} images uploaded successfully.`;
+        } else if (uploadedImages > 0) {
+          successMessage += ` ${uploadedImages} of ${eventForm.images.length} images uploaded successfully.`;
+        } else {
+          successMessage += ' However, there was an issue uploading the images. You can try adding them later.';
+        }
+      }
+
+      Alert.alert('Success', successMessage, [
         {
           text: 'OK',
           onPress: () => {
@@ -699,6 +786,75 @@ export default function CreateEventScreen() {
                 onChangeText={(text) => setEventForm({ ...eventForm, link: text })}
                 keyboardType="url"
               />
+            </View>
+
+            {/* Event Images */}
+            <View style={styles.formGroup}>
+              <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Event Images</Text>
+              <Text style={[styles.formSubLabel, { color: Colors[colorScheme ?? 'light'].text + '80' }]}>
+                Upload up to 5 images to showcase your event
+              </Text>
+              
+              <View style={styles.imageUploadContainer}>
+                {/* Image Grid */}
+                <View style={styles.imageGrid}>
+                  {eventForm.images.map((imageUri, index) => (
+                    <View key={index} style={styles.imagePreviewContainer}>
+                      <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+                      <TouchableOpacity
+                        style={styles.removeImageButton}
+                        onPress={() => removeImage(index)}
+                        activeOpacity={0.8}
+                      >
+                        <LinearGradient
+                          colors={['#ff4444', '#ff6666']}
+                          style={styles.removeImageGradient}
+                        >
+                          <Ionicons name="close" size={14} color="white" />
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  
+                  {/* Add Image Button */}
+                  {eventForm.images.length < 5 && (
+                    <TouchableOpacity
+                      style={[styles.addImageButton, { 
+                        backgroundColor: Colors[colorScheme ?? 'light'].card,
+                        borderColor: colorScheme === 'dark' ? '#333' : '#ddd'
+                      }]}
+                      onPress={pickImage}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#9E95BD', '#B97AFF', '#9E95BD']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.addImageGradient}
+                      >
+                        <Ionicons name="camera" size={24} color="white" />
+                        <Text style={styles.addImageText}>Add Photo</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                
+                {/* Upload Tips */}
+                <View style={styles.uploadTips}>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="information-circle-outline" size={16} color="#9E95BD" />
+                    <Text style={[styles.tipText, { color: Colors[colorScheme ?? 'light'].text + '70' }]}>
+                      High-quality images help attract more participants
+                    </Text>
+                  </View>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="image-outline" size={16} color="#9E95BD" />
+                    <Text style={[styles.tipText, { color: Colors[colorScheme ?? 'light'].text + '70' }]}>
+                      Recommended size: 1200×675 pixels (16:9 ratio)
+                    </Text>
+                  </View>
+                </View>
+              </View>
             </View>
 
             {/* Description */}
@@ -1310,5 +1466,82 @@ const styles = StyleSheet.create({
   timePicker: {
     height: 200,
     width: 280,
+  },
+  
+  // Image Upload Styles
+  formSubLabel: {
+    fontSize: 14,
+    marginBottom: 16,
+    opacity: 0.8,
+  },
+  imageUploadContainer: {
+    marginTop: 8,
+  },
+  imageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    width: 100,
+    height: 75,
+  },
+  imagePreview: {
+    width: 100,
+    height: 75,
+    borderRadius: 12,
+    resizeMode: 'cover',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    zIndex: 1,
+  },
+  removeImageGradient: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  addImageButton: {
+    width: 100,
+    height: 75,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    overflow: 'hidden',
+  },
+  addImageGradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  addImageText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  uploadTips: {
+    marginTop: 16,
+    gap: 8,
+  },
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tipText: {
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
   },
 }); 

@@ -5,12 +5,28 @@ import GlobalDataManager from './GlobalDataManager';
 // Handle deep links for shared events
 export const handleDeepLink = async (url: string) => {
   try {
-    // Parse the URL to get the event ID
-    const match = url.match(/whatspoppin:\/\/event\/(\d+)/);
-    if (!match) return null;
+    console.log('Handling deep link:', url);
+    
+    // Parse the URL to get the event ID - support both custom scheme and universal links
+    let match = url.match(/whatspoppin:\/\/event\/(\d+)/); // Custom scheme: whatspoppin://event/123
+    
+    if (!match) {
+      // Try universal link format: https://whatspoppin.app/event/123
+      match = url.match(/https:\/\/whatspoppin\.app\/event\/(\d+)/);
+    }
+    
+    if (!match) {
+      console.log('No valid deep link pattern found in:', url);
+      return null;
+    }
 
     const eventId = parseInt(match[1], 10);
-    if (!eventId) return null;
+    if (!eventId) {
+      console.log('Invalid event ID extracted from URL:', url);
+      return null;
+    }
+    
+    console.log('Extracted event ID:', eventId);
 
     // Fetch the event details from Supabase
     const { data: event, error } = await supabase

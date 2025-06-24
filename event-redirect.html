@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What's Poppin - Shared Event</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #9E95BD, #F45B5B);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 100%;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #9E95BD;
+            margin-bottom: 20px;
+        }
+        .message {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .button {
+            background: linear-gradient(135deg, #9E95BD, #F45B5B);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+            transition: transform 0.2s;
+        }
+        .button:hover {
+            transform: translateY(-2px);
+        }
+        .secondary {
+            background: transparent;
+            color: #9E95BD;
+            border: 2px solid #9E95BD;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🎈 What's Poppin</div>
+        <div class="message">
+            You've been invited to check out an amazing event!
+        </div>
+        <a href="#" onclick="openApp()" class="button">Open in App</a>
+        <br>
+        <a href="https://apps.apple.com/app/whats-poppin/YOUR_APP_ID" class="button secondary">Download App</a>
+    </div>
+
+    <script>
+        function getEventId() {
+            const path = window.location.pathname;
+            const match = path.match(/\/event\/(\d+)/);
+            return match ? match[1] : null;
+        }
+
+        function openApp() {
+            const eventId = getEventId();
+            if (!eventId) {
+                alert('Invalid event link');
+                return;
+            }
+
+            // Try to open the app with custom scheme first
+            const customSchemeUrl = `whatspoppin://event/${eventId}`;
+            
+            // Create a hidden iframe to trigger the custom scheme
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = customSchemeUrl;
+            document.body.appendChild(iframe);
+
+            // If the app doesn't open within 2 seconds, show app store
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                
+                // Detect if iOS or Android
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                const isAndroid = /Android/.test(navigator.userAgent);
+                
+                if (isIOS) {
+                    window.location.href = 'https://apps.apple.com/app/whats-poppin/YOUR_APP_ID';
+                } else if (isAndroid) {
+                    window.location.href = 'https://play.google.com/store/apps/details?id=com.prithviseran.whatspoppin';
+                } else {
+                    alert('This feature is available on mobile devices. Please visit from your phone or tablet.');
+                }
+            }, 2000);
+        }
+
+        // Auto-try to open app on page load
+        window.onload = function() {
+            // Wait a moment then try to open the app
+            setTimeout(openApp, 500);
+        };
+    </script>
+</body>
+</html> 

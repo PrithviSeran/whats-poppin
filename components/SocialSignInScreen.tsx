@@ -21,6 +21,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import LegalDocumentViewer from './LegalDocumentViewer';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -48,6 +49,8 @@ const SocialSignInScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const emailScaleAnim = useRef(new Animated.Value(1)).current;
   const passwordScaleAnim = useRef(new Animated.Value(1)).current;
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -135,13 +138,11 @@ const SocialSignInScreen = () => {
   };
 
   const handleOpenTerms = () => {
-    const termsUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
-    Linking.openURL(termsUrl).catch(err => console.error('An error occurred', err));
+    setShowTermsModal(true);
   };
 
   const handleOpenPrivacyPolicy = () => {
-    const privacyPolicyUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
-    Linking.openURL(privacyPolicyUrl).catch(err => console.error('An error occurred', err));
+    setShowPrivacyModal(true);
   };
 
   const isFormValid = validateEmail(email) && password.trim().length > 0;
@@ -367,6 +368,19 @@ const SocialSignInScreen = () => {
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Legal Document Modals */}
+      <LegalDocumentViewer
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        documentType="terms"
+      />
+
+      <LegalDocumentViewer
+        visible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        documentType="privacy"
+      />
     </SafeAreaView>
   );
 };

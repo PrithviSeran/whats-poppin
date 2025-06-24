@@ -6,6 +6,8 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { setupDeepLinking } from '@/lib/deepLinking';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -21,6 +23,15 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [loaded]);
+
+  // Set up deep linking
+  useEffect(() => {
+    const cleanup = setupDeepLinking();
+
+    return () => {
+      cleanup();
+    };
+  }, []);
 
   if (!loaded) {
     return null;
@@ -40,6 +51,14 @@ export default function RootLayout() {
           <Stack.Screen name="create-account-finished" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="edit-profile" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="edit-images" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen 
+            name="user-profile" 
+            options={{ 
+              headerShown: false, 
+              gestureEnabled: false,
+              presentation: 'modal'
+            }} 
+          />
         <Stack.Screen name="create-event" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="forgot-password" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="reset-password" options={{ headerShown: false, gestureEnabled: false }} />
@@ -68,6 +87,15 @@ export default function RootLayout() {
               gestureEnabled: false, 
               animation: 'fade',
               animationDuration: 100
+            }} 
+          />
+          <Stack.Screen 
+            name="event/[id]" 
+            options={{ 
+              headerShown: false, 
+              gestureEnabled: false,
+              presentation: 'modal',
+              animation: 'slide_from_bottom'
             }} 
           />
         <Stack.Screen name="+not-found" options={{ gestureEnabled: false }} />

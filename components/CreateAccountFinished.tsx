@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image, Alert, SafeAreaView, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image, Alert, SafeAreaView, TextInput, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import GlobalDataManager from '@/lib/GlobalDataManager';
+import LegalDocumentViewer from './LegalDocumentViewer';
 
 const { width } = Dimensions.get('window');
 
@@ -33,8 +34,18 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
   const [isCreatingAccount, setIsCreatingAccount] = useState(true);
   const [showAddressInput, setShowAddressInput] = useState(false);
   const [manualAddress, setManualAddress] = useState('');
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   const dataManager = GlobalDataManager.getInstance();
+
+  const handleOpenTerms = () => {
+    setShowTermsModal(true);
+  };
+
+  const handleOpenPrivacyPolicy = () => {
+    setShowPrivacyModal(true);
+  };
 
   async function createUser() {
     try {
@@ -341,6 +352,26 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
           ) : null}
         </View>
 
+        {/* Legal Documents Section */}
+        {accountCreated && (
+          <View style={styles.legalContainer}>
+            <Text style={[styles.legalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+              By creating your account, you agree to our:
+            </Text>
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={handleOpenTerms} style={styles.legalLink}>
+                <Ionicons name="document-text-outline" size={16} color="#9E95BD" />
+                <Text style={styles.legalLinkText}>Terms & Conditions</Text>
+              </TouchableOpacity>
+              <Text style={[styles.legalSeparator, { color: Colors[colorScheme ?? 'light'].text }]}>and</Text>
+              <TouchableOpacity onPress={handleOpenPrivacyPolicy} style={styles.legalLink}>
+                <Ionicons name="shield-checkmark-outline" size={16} color="#9E95BD" />
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Location Permission Info */}
         {accountCreated && !locationPermissionGranted && (
           <View style={styles.infoContainer}>
@@ -366,6 +397,19 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         )}
         </View>
       </KeyboardAvoidingView>
+
+      {/* Legal Document Modals */}
+      <LegalDocumentViewer
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        documentType="terms"
+      />
+
+      <LegalDocumentViewer
+        visible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        documentType="privacy"
+      />
     </SafeAreaView>
   );
 }
@@ -530,5 +574,51 @@ const styles = StyleSheet.create({
     elevation: 6,
     minHeight: 56,
     textAlign: 'left',
+  },
+  legalContainer: {
+    width: '100%',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  legalTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 12,
+    opacity: 0.8,
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  legalLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    gap: 4,
+  },
+  legalLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#9E95BD',
+    textDecorationLine: 'underline',
+  },
+  legalSeparator: {
+    fontSize: 14,
+    fontWeight: '500',
+    opacity: 0.6,
+    marginHorizontal: 4,
   },
 });

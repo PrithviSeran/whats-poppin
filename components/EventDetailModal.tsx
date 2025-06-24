@@ -32,6 +32,35 @@ const DAYS_OF_WEEK = [
   'Sunday'
 ];
 
+// Helper function to check if an event is expiring soon
+const isEventExpiringSoon = (event: EventCard): boolean => {
+  if (!event || event.occurrence === 'Weekly') {
+    return false; // Weekly events don't expire
+  }
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const nextWeek = new Date(today);
+  nextWeek.setDate(today.getDate() + 7);
+
+  // Check start_date or end_date for one-time events
+  const eventDate = event.end_date || event.start_date;
+  if (eventDate) {
+    try {
+      const eventDateTime = new Date(eventDate);
+      const eventDateOnly = new Date(eventDateTime.getFullYear(), eventDateTime.getMonth(), eventDateTime.getDate());
+      
+      // Event is expiring soon if it's happening within the next 7 days
+      return eventDateOnly >= today && eventDateOnly <= nextWeek;
+    } catch (error) {
+      console.error('Error parsing event date:', error);
+      return false;
+    }
+  }
+
+  return false;
+};
+
 interface CardPosition {
   x: number;
   y: number;
@@ -371,12 +400,17 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       // Format the date
       const eventDate = event.start_date ? new Date(event.start_date).toLocaleDateString() : 'Check event details';
       
-      // Create the share message with the exact template
-      const shareMessage = `Let's see What's Poppin @ ${event.name} 🎈\n\n📍 ${event.location}\n⏰ ${eventDate}\n\nYou down? 😉\n\nhttps://whatspoppin.app/event/${event.id}`;
+      // Use the same custom URL scheme format that works for reset password
+      // This directly opens the app if it's installed (same format that's proven to work)
+      const appLink = `whatspoppin://event/${event.id}`;
+      
+      // Create the share message with the proper app link
+      const shareMessage = `Let's see What's Poppin @ ${event.name} 🎈\n\n📍 ${event.location}\n⏰ ${eventDate}\n\nYou down? 😉\n\n${appLink}`;
       
       await Share.share({
         message: shareMessage,
         title: event.name,
+        url: appLink, // This helps with better link previews on some platforms
       });
     } catch (error) {
       console.error('Error sharing event:', error);
@@ -529,12 +563,12 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             <View style={styles.modernHeaderSection}>
               <View style={styles.titleContainer}>
                 <Text style={[styles.modernTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {event.name}
-                </Text>
+                {event.name}
+              </Text>
                 {event.organization && (
                   <Text style={[styles.modernOrganization, { color: Colors[colorScheme ?? 'light'].text }]}>
                     by {event.organization}
-                  </Text>
+              </Text>
                 )}
               </View>
 
@@ -566,6 +600,21 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                       </View>
                     ));
                   })()}
+
+                  {/* Expiring Soon Tag */}
+                  {isEventExpiringSoon(event) && (
+                    <View style={styles.modernExpiringTag}>
+                      <LinearGradient
+                        colors={['#ff4444', '#ff6666']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.modernExpiringTagGradient}
+                      >
+                        <Ionicons name="time" size={14} color="white" />
+                        <Text style={styles.modernExpiringTagText}>EXPIRING SOON</Text>
+                      </LinearGradient>
+                    </View>
+                  )}
                 </View>
               )}
 
@@ -712,61 +761,61 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                       </View>
                     )}
                   </View>
-                </View>
-                
-                {/* Weekly Hours */}
+                  </View>
+                  
+                  {/* Weekly Hours */}
                 <View style={styles.modernWeeklyHours}>
-                  {getWeeklyHours(event.times).map(({ day, hours }) => (
-                    <View key={day} style={[
+                    {getWeeklyHours(event.times).map(({ day, hours }) => (
+                      <View key={day} style={[
                       styles.modernDayRow,
-                      { backgroundColor: day === getCurrentDayName() ? 
+                        { backgroundColor: day === getCurrentDayName() ? 
                         'rgba(103, 126, 234, 0.1)' : 'transparent' 
-                      }
-                    ]}>
-                      <Text style={[
+                        }
+                      ]}>
+                        <Text style={[
                         styles.modernDayText,
-                        { 
-                          color: Colors[colorScheme ?? 'light'].text,
+                          { 
+                            color: Colors[colorScheme ?? 'light'].text,
                           fontWeight: day === getCurrentDayName() ? 'bold' : '500'
-                        }
-                      ]}>
-                        {day.slice(0, 3)}
-                      </Text>
-                      <Text style={[
+                          }
+                        ]}>
+                          {day.slice(0, 3)}
+                        </Text>
+                        <Text style={[
                         styles.modernHoursText,
-                        { 
-                          color: Colors[colorScheme ?? 'light'].text,
+                          { 
+                            color: Colors[colorScheme ?? 'light'].text,
                           fontWeight: day === getCurrentDayName() ? 'bold' : '500'
-                        }
-                      ]}>
-                        {hours}
-                      </Text>
-                    </View>
-                  ))}
+                          }
+                        ]}>
+                          {hours}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
-              </View>
             )}
 
             {/* Back to Original Event Information Design */}
             <View style={styles.infoSection}>
               {/* Location */}
-              <View style={styles.infoRow}>
-                <LinearGradient
-                  colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  locations={[0, 0.3, 0.7, 1]}
-                  style={styles.infoIconContainer}
-                >
+                  <View style={styles.infoRow}>
+                    <LinearGradient
+                      colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.3, 0.7, 1]}
+                      style={styles.infoIconContainer}
+                    >
                   <Ionicons name="location-outline" size={20} color="white" />
-                </LinearGradient>
-                <View style={styles.infoTextContainer}>
+                    </LinearGradient>
+                    <View style={styles.infoTextContainer}>
                   <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
                   <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
                     {event.location}
-                  </Text>
-                </View>
-              </View>
+                      </Text>
+                    </View>
+                  </View>
 
               {/* Date/Time */}
               <View style={styles.infoRow}>
@@ -876,8 +925,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   <Ionicons name="document-text" size={18} color="#9E95BD" />
                 </View>
                 <Text style={[styles.modernDescriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  About this event
-                </Text>
+                About this event
+              </Text>
               </View>
               <Text style={[styles.modernDescriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
                 {event.description}
@@ -1510,6 +1559,27 @@ const styles = StyleSheet.create({
     color: '#667eea',
     fontSize: 12,
     fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  modernExpiringTag: {
+    backgroundColor: 'rgba(255, 68, 68, 0.1)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 68, 68, 0.2)',
+    overflow: 'hidden',
+  },
+  modernExpiringTagGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  modernExpiringTagText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },

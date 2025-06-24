@@ -22,6 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import 'react-native-url-polyfill/auto';
 import MaskedView from '@react-native-masked-view/masked-view';
 import CreateAccountProgressBar from './CreateAccountProgressBar';
+import LegalDocumentViewer from './LegalDocumentViewer';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -43,6 +44,8 @@ const CreateAccount = () => {
   const [isFocused, setIsFocused] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   const validateName = (text: string) => {
     if (text.trim().length < 2) {
@@ -64,6 +67,14 @@ const CreateAccount = () => {
         userData: JSON.stringify(userDataToSend),
       });
     }
+  };
+
+  const handleOpenTerms = () => {
+    setShowTermsModal(true);
+  };
+
+  const handleOpenPrivacyPolicy = () => {
+    setShowPrivacyModal(true);
   };
 
   const handleInputFocus = () => {
@@ -214,6 +225,20 @@ const CreateAccount = () => {
             </Animated.View>
           </View>
 
+          {/* Legal Agreement Section */}
+          <View style={styles.legalContainer}>
+            <Text style={[styles.legalText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              By continuing, you agree to our{' '}
+              <Text style={styles.legalLink} onPress={handleOpenTerms}>
+                Terms & Conditions
+              </Text>
+              {' '}and{' '}
+              <Text style={styles.legalLink} onPress={handleOpenPrivacyPolicy}>
+                Privacy Policy
+              </Text>
+            </Text>
+          </View>
+
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               onPress={handleNext}
@@ -237,6 +262,19 @@ const CreateAccount = () => {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Legal Document Modals */}
+      <LegalDocumentViewer
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        documentType="terms"
+      />
+
+      <LegalDocumentViewer
+        visible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        documentType="privacy"
+      />
     </SafeAreaView>
   );
 };
@@ -370,6 +408,26 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.5,
+  },
+  legalContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 24,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+  },
+  legalText: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    opacity: 0.8,
+  },
+  legalLink: {
+    color: '#9E95BD',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });
 

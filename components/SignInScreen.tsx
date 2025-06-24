@@ -9,7 +9,6 @@ import {
   Dimensions,
   Platform,
   Animated,
-  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedGradientText from './GradientAnimatedText';
@@ -18,6 +17,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MaskedView from '@react-native-masked-view/masked-view';
+import LegalDocumentViewer from './LegalDocumentViewer';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -45,15 +45,15 @@ const SignInScreen = () => {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   const handleOpenTerms = () => {
-    const termsUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'; // Sample PDF URL
-    Linking.openURL(termsUrl).catch(err => console.error('An error occurred', err));
+    setShowTermsModal(true);
   };
 
   const handleOpenPrivacyPolicy = () => {
-    const privacyPolicyUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'; // Sample PDF URL
-    Linking.openURL(privacyPolicyUrl).catch(err => console.error('An error occurred', err));
+    setShowPrivacyModal(true);
   };
 
   useEffect(() => {
@@ -121,6 +121,19 @@ const SignInScreen = () => {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Legal Document Modals */}
+      <LegalDocumentViewer
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        documentType="terms"
+      />
+
+      <LegalDocumentViewer
+        visible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        documentType="privacy"
+      />
     </SafeAreaView>
   );
 };

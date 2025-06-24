@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Animated, Easing, Modal, ScrollView, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Animated, Easing, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
+import FriendsModal from './FriendsModal';
 import { supabase } from '@/lib/supabase';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import GlobalDataManager, { UserProfile } from '@/lib/GlobalDataManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import LegalDocumentViewer from './LegalDocumentViewer';
 
 type RootStackParamList = {
   '(tabs)': {
@@ -26,7 +28,7 @@ type RootStackParamList = {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-// Friends interfaces
+// Friends interfaces (imported from FriendsModal)
 interface Friend {
   friend_id: number;
   friend_name: string;
@@ -42,13 +44,6 @@ interface FriendRequest {
   sender_name: string;
   sender_email: string;
   created_at: string;
-}
-
-interface SearchUser {
-  user_id: number;
-  name: string;
-  email: string;
-  friendship_status: 'pending' | 'accepted' | 'blocked' | 'declined' | null;
 }
 
 export default function Profile() {
@@ -67,17 +62,15 @@ export default function Profile() {
   const [friendsModalVisible, setFriendsModalVisible] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
-  const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [friendsLoading, setFriendsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'search'>('friends');
+  const [loading, setLoading] = useState(true);
   
   // Notification state for new friends/requests
   const [lastViewedFriendsCount, setLastViewedFriendsCount] = useState(0);
   const [lastViewedRequestsCount, setLastViewedRequestsCount] = useState(0);
   const [hasNewFriends, setHasNewFriends] = useState(false);
   const [hasNewRequests, setHasNewRequests] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   const dataManager = GlobalDataManager.getInstance();
 
@@ -247,19 +240,36 @@ export default function Profile() {
 
 
   const handleSignOut = async () => {
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
-      // Reset the navigation stack completely and navigate to main tabs
-      // The index.tsx will handle showing SignInScreen when there's no session
-      navigation.reset({
-        index: 0,
-        routes: [{ name: '(tabs)' }],
-      });
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out? You will need to sign in again to access your account.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase.auth.signOut();
+              if (error) throw error;
+              
+              // Reset the navigation stack completely and navigate to main tabs
+              // The index.tsx will handle showing SignInScreen when there's no session
+              navigation.reset({
+                index: 0,
+                routes: [{ name: '(tabs)' }],
+              });
+            } catch (error) {
+              console.error('Error signing out:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleEditImages = () => {
@@ -278,12 +288,19 @@ export default function Profile() {
     navigation.navigate('create-event');
   };
 
-  // Friends functionality
-  const fetchFriends = async (showLoading: boolean = true) => {
+  const handleOpenTerms = () => {
+    setShowTermsModal(true);
+  };
+
+  const handleOpenPrivacyPolicy = () => {
+    setShowPrivacyModal(true);
+  };
+
+  // Simplified friends functions for Profile component
+  const fetchFriends = async () => {
     if (!profile?.id) return;
     
     try {
-      if (showLoading) setFriendsLoading(true);
       const { data, error } = await supabase.rpc('get_user_friends', {
         target_user_id: profile.id
       });
@@ -292,17 +309,13 @@ export default function Profile() {
       setFriends(data || []);
     } catch (error) {
       console.error('Error fetching friends:', error);
-      if (showLoading) Alert.alert('Error', 'Failed to load friends');
-    } finally {
-      if (showLoading) setFriendsLoading(false);
     }
   };
 
-  const fetchFriendRequests = async (showLoading: boolean = true) => {
+  const fetchFriendRequests = async () => {
     if (!profile?.id) return;
     
     try {
-      if (showLoading) setFriendsLoading(true);
       const { data, error } = await supabase.rpc('get_pending_friend_requests', {
         target_user_id: profile.id
       });
@@ -311,148 +324,13 @@ export default function Profile() {
       setFriendRequests(data || []);
     } catch (error) {
       console.error('Error fetching friend requests:', error);
-      if (showLoading) Alert.alert('Error', 'Failed to load friend requests');
-    } finally {
-      if (showLoading) setFriendsLoading(false);
     }
-  };
-
-  const searchUsers = async (query: string) => {
-    if (!profile?.id || query.trim().length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    
-    try {
-      setFriendsLoading(true);
-      const { data, error } = await supabase.rpc('search_users_for_friends', {
-        searcher_id: profile.id,
-        search_query: query.trim(),
-        limit_count: 10
-      });
-
-      if (error) throw error;
-      setSearchResults(data || []);
-    } catch (error) {
-      console.error('Error searching users:', error);
-      Alert.alert('Error', 'Failed to search users');
-    } finally {
-      setFriendsLoading(false);
-    }
-  };
-
-  const sendFriendRequest = async (receiverId: number) => {
-    if (!profile?.id) return;
-    
-    try {
-      const { data, error } = await supabase.rpc('send_friend_request', {
-        sender_id: profile.id,
-        receiver_id: receiverId
-      });
-
-      if (error) throw error;
-
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        Alert.alert('Success', result.message);
-        // Refresh search results to update button states
-        if (searchQuery.trim().length >= 2) {
-          searchUsers(searchQuery);
-        }
-        // Refresh friends list if request was accepted automatically
-        fetchFriends(false); // Background refresh since user is still in search tab
-      } else {
-        Alert.alert('Info', result.message);
-      }
-    } catch (error) {
-      console.error('Error sending friend request:', error);
-      Alert.alert('Error', 'Failed to send friend request');
-    }
-  };
-
-  const respondToFriendRequest = async (requestId: number, response: 'accepted' | 'declined' | 'blocked') => {
-    try {
-      const { data, error } = await supabase.rpc('respond_to_friend_request', {
-        request_id: requestId,
-        response: response
-      });
-
-      if (error) throw error;
-
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        Alert.alert('Success', result.message);
-        // Refresh both friend requests and friends lists with loading
-        fetchFriendRequests(true);
-        fetchFriends(true);
-      } else {
-        Alert.alert('Error', result.message);
-      }
-    } catch (error) {
-      console.error('Error responding to friend request:', error);
-      Alert.alert('Error', 'Failed to respond to friend request');
-    }
-  };
-
-  const removeFriend = async (friendId: number) => {
-    if (!profile?.id) return;
-    
-    Alert.alert(
-      'Remove Friend',
-      'Are you sure you want to remove this friend?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const { data, error } = await supabase.rpc('remove_friend', {
-                user_id: profile.id,
-                friend_id: friendId
-              });
-
-              if (error) throw error;
-
-              const result = data as { success: boolean; message: string };
-              if (result.success) {
-                Alert.alert('Success', result.message);
-                fetchFriends(true); // Show loading since user initiated this action
-              } else {
-                Alert.alert('Error', result.message);
-              }
-            } catch (error) {
-              console.error('Error removing friend:', error);
-              Alert.alert('Error', 'Failed to remove friend');
-            }
-          }
-        }
-      ]
-    );
   };
 
   const handleOpenFriendsModal = () => {
     setFriendsModalVisible(true);
-    setActiveTab('friends');
-    // Only refresh friends data when user explicitly opens the modal
-    // This ensures fresh data for user interactions without affecting tab switching
-    console.log('Refreshing friends data for modal interaction...');
-    fetchFriends(true);
-    fetchFriendRequests(true);
-    // Mark friends as viewed when opening modal (defaults to friends tab)
+    // Mark friends as viewed when opening modal
     setTimeout(() => markFriendsAsViewed(), 500);
-  };
-
-  // Handle tab switching and mark as viewed
-  const handleTabSwitch = (tab: 'friends' | 'requests' | 'search') => {
-    setActiveTab(tab);
-    
-    // Mark as viewed when switching to tabs
-    if (tab === 'friends') {
-      setTimeout(() => markFriendsAsViewed(), 200);
-    } else if (tab === 'requests') {
-      setTimeout(() => markRequestsAsViewed(), 200);
-    }
   };
 
   const handleSaveImages = async () => {
@@ -737,62 +615,62 @@ export default function Profile() {
              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
                <View style={[styles.statIconContainer, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
                  <Ionicons name="people" size={24} color="#9E95BD" />
-               </View>
+                    </View>
                <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friends.length}</Text>
                <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Friends</Text>
-             </View>
-             
+                  </View>
+                  
              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
                <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 107, 157, 0.1)' }]}>
                  <Ionicons name="calendar" size={24} color="#FF6B9D" />
-               </View>
+                          </View>
                <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>0</Text>
                <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Events</Text>
-             </View>
-             
+                          </View>
+                  
              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
                <View style={[styles.statIconContainer, { backgroundColor: 'rgba(78, 205, 196, 0.1)' }]}>
                  <Ionicons name="mail" size={24} color="#4ECDC4" />
-               </View>
+                  </View>
                <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friendRequests.length}</Text>
                <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Requests</Text>
-             </View>
-           </View>
+                </View>
+          </View>
 
           {/* Action Cards Grid */}
           <View style={styles.actionCardsGrid}>
             {/* Friends Card */}
             <TouchableOpacity style={styles.actionCard} onPress={handleOpenFriendsModal}>
-              <LinearGradient
+            <LinearGradient
                 colors={['#667eea', '#764ba2']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
                 style={styles.actionCardGradient}
-              >
+            >
                 <View style={styles.actionCardHeader}>
                   <Ionicons name="people" size={32} color="#fff" />
                   {(hasNewFriends || hasNewRequests) && (
                     <View style={styles.actionCardBadge}>
                       <View style={styles.actionCardBadgeDot} />
-                    </View>
+        </View>
                   )}
-                </View>
+          </View>
                 <Text style={styles.actionCardTitle}>Friends</Text>
                 <Text style={styles.actionCardSubtitle}>Manage your connections</Text>
                 <View style={styles.actionCardStats}>
                   <Text style={styles.actionCardStatsText}>{friends.length} friends • {friendRequests.length} requests</Text>
-                </View>
+        </View>
               </LinearGradient>
             </TouchableOpacity>
 
             {/* Create Event Card */}
             <TouchableOpacity style={styles.actionCard} onPress={handleCreateEvent}>
-              <LinearGradient
+            <LinearGradient
                 colors={['#f093fb', '#f5576c']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
                 style={styles.actionCardGradient}
-              >
+            >
                 <View style={styles.actionCardHeader}>
                   <Ionicons name="add-circle" size={32} color="#fff" />
                 </View>
@@ -801,9 +679,9 @@ export default function Profile() {
                 <View style={styles.actionCardStats}>
                   <Text style={styles.actionCardStatsText}>Host your next gathering</Text>
                 </View>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
 
                      {/* Profile Information Card */}
            <View style={[styles.profileInfoCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
@@ -811,52 +689,52 @@ export default function Profile() {
                <Text style={[styles.profileInfoTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Profile Information</Text>
                <TouchableOpacity style={styles.profileEditButton} onPress={handleEditProfile}>
                  <Ionicons name="pencil" size={20} color="#9E95BD" />
-               </TouchableOpacity>
-             </View>
-             
+            </TouchableOpacity>
+          </View>
+
              <View style={styles.profileInfoContent}>
               <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
                   <Ionicons name="mail-outline" size={20} color="#9E95BD" />
-                </View>
+                  </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Email</Text>
                   <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{editedProfile?.email || 'Not provided'}</Text>
-                </View>
               </View>
+                  </View>
 
               <View style={[styles.profileInfoDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
 
               <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
                   <Ionicons name="calendar-outline" size={20} color="#FF6B9D" />
-                </View>
+                  </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Birthday</Text>
                   <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{editedProfile?.birthday || 'Not provided'}</Text>
-                </View>
               </View>
+          </View>
 
               <View style={[styles.profileInfoDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
 
               <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
                   <Ionicons name="person-outline" size={20} color="#4ECDC4" />
-                </View>
+                  </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Gender</Text>
                   <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{editedProfile?.gender || 'Not provided'}</Text>
-                </View>
-              </View>
-            </View>
-          </View>
+                        </View>
+                        </View>
+                      </View>
+                    </View>
 
           {/* Edit Mode Actions */}
           {isEditMode && (
             <View style={styles.editModeCard}>
               <View style={styles.editModeHeader}>
                 <Text style={[styles.editModeTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Edit Images</Text>
-              </View>
+                  </View>
               <View style={styles.editModeActions}>
                 <TouchableOpacity style={styles.modernSaveButton} onPress={handleSaveImages}>
                   <LinearGradient
@@ -868,24 +746,55 @@ export default function Profile() {
                     <Ionicons name="checkmark" size={24} color="#fff" style={styles.modernButtonIcon} />
                     <Text style={styles.modernSaveButtonText}>Save Changes</Text>
                   </LinearGradient>
-                </TouchableOpacity>
+                        </TouchableOpacity>
                 <TouchableOpacity style={styles.modernCancelButton} onPress={handleCancelImages}>
                   <LinearGradient
                     colors={['#f44336', '#e53935']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.modernCancelButtonGradient}
-                  >
+                        >
                     <Ionicons name="close" size={24} color="#fff" style={styles.modernButtonIcon} />
                     <Text style={styles.modernCancelButtonText}>Cancel</Text>
                   </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </View>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
           )}
 
-          {/* Settings & Actions */}
+          {/* Legal Documents Section */}
           <View style={[styles.settingsSection, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+            <TouchableOpacity style={styles.settingsItem} onPress={handleOpenTerms}>
+              <View style={styles.settingsItemContent}>
+                <View style={styles.settingsIconContainer}>
+                  <Ionicons name="document-text-outline" size={24} color="#9E95BD" />
+                </View>
+                <View style={styles.settingsItemDetails}>
+                  <Text style={[styles.settingsItemTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Terms & Conditions</Text>
+                  <Text style={[styles.settingsItemSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>View our terms of service</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ opacity: 0.5 }} />
+            </TouchableOpacity>
+
+            <View style={[styles.settingsDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
+
+            <TouchableOpacity style={styles.settingsItem} onPress={handleOpenPrivacyPolicy}>
+              <View style={styles.settingsItemContent}>
+                <View style={styles.settingsIconContainer}>
+                  <Ionicons name="shield-checkmark-outline" size={24} color="#9E95BD" />
+                </View>
+                <View style={styles.settingsItemDetails}>
+                  <Text style={[styles.settingsItemTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Privacy Policy</Text>
+                  <Text style={[styles.settingsItemSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>How we protect your data</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ opacity: 0.5 }} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Settings & Actions */}
+          <View style={[styles.settingsSection, { backgroundColor: Colors[colorScheme ?? 'light'].card, marginTop: 16 }]}>
             <TouchableOpacity style={styles.settingsItem} onPress={handleSignOut}>
               <View style={styles.settingsItemContent}>
                 <View style={styles.settingsIconContainer}>
@@ -894,305 +803,41 @@ export default function Profile() {
                 <View style={styles.settingsItemDetails}>
                   <Text style={[styles.settingsItemTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Sign Out</Text>
                   <Text style={[styles.settingsItemSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>See you next time!</Text>
-                </View>
-              </View>
+                      </View>
+                      </View>
               <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ opacity: 0.5 }} />
-            </TouchableOpacity>
-          </View>
+                        </TouchableOpacity>
+                      </View>
         </View>
-      </ScrollView>
+                </ScrollView>
 
       <View style={styles.footerContainer}>
         <MainFooter activeTab="me" />
-      </View>
+              </View>
 
       {/* Friends Modal */}
-      <Modal
+      <FriendsModal
         visible={friendsModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setFriendsModalVisible(false)}
-      >
-        <SafeAreaView style={[styles.friendsModalContainer, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-          <View style={styles.friendsModalHeader}>
-            <Text style={[styles.friendsModalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Friends</Text>
-            <TouchableOpacity onPress={() => setFriendsModalVisible(false)}>
-              <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-            </TouchableOpacity>
-          </View>
+        onClose={() => setFriendsModalVisible(false)}
+        profile={profile}
+        friends={friends}
+        friendRequests={friendRequests}
+        onFriendsUpdate={setFriends}
+        onRequestsUpdate={setFriendRequests}
+      />
 
-          {/* Tab Navigation */}
-          <View style={styles.friendsTabContainer}>
-            <TouchableOpacity
-              style={[styles.friendsTab, activeTab === 'friends' && styles.friendsTabActive]}
-              onPress={() => handleTabSwitch('friends')}
-            >
-              <View style={styles.tabIconContainer}>
-                <Ionicons 
-                  name="people" 
-                  size={24} 
-                  color={activeTab === 'friends' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
-                />
-                {hasNewFriends && activeTab !== 'friends' && (
-                  <View style={styles.tabNotificationBubble}>
-                    <View style={styles.tabNotificationDot} />
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.friendsTab, activeTab === 'requests' && styles.friendsTabActive]}
-              onPress={() => handleTabSwitch('requests')}
-            >
-              <View style={styles.tabIconContainer}>
-                <Ionicons 
-                  name="mail" 
-                  size={24} 
-                  color={activeTab === 'requests' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
-                />
-                {friendRequests.length > 0 && (
-                  <View style={styles.tabBadge}>
-                    <Text style={styles.tabBadgeText}>{friendRequests.length}</Text>
-                  </View>
-                )}
-                {hasNewRequests && activeTab !== 'requests' && (
-                  <View style={styles.tabNotificationBubble}>
-                    <View style={styles.tabNotificationDot} />
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.friendsTab, activeTab === 'search' && styles.friendsTabActive]}
-              onPress={() => handleTabSwitch('search')}
-            >
-              <View style={styles.tabIconContainer}>
-                <Ionicons 
-                  name="person-add" 
-                  size={24} 
-                  color={activeTab === 'search' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
-                />
-              </View>
-            </TouchableOpacity>
-          </View>
+      {/* Legal Document Modals */}
+      <LegalDocumentViewer
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        documentType="terms"
+      />
 
-          {/* Tab Content */}
-          <View style={styles.friendsContent}>
-            {activeTab === 'friends' && (
-              <ScrollView style={styles.friendsList}>
-                {friendsLoading ? (
-                  <ActivityIndicator size="large" color="#FF0005" style={styles.friendsLoader} />
-                ) : friends.length === 0 ? (
-                  <View style={styles.emptyFriendsContainer}>
-                    <Ionicons name="people-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-                    <Text style={[styles.emptyFriendsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      No friends yet
-                    </Text>
-                    <Text style={[styles.emptyFriendsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      Search for people to add as friends
-                    </Text>
-                  </View>
-                ) : (
-                  friends.map((friend) => (
-                    <View key={friend.friendship_id} style={[styles.friendItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                      <View style={styles.friendInfo}>
-                        <View style={styles.friendAvatar}>
-                          <Image 
-                            source={{ 
-                              uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${friend.friend_email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-                            }}
-                            style={styles.friendAvatarImage}
-                            defaultSource={require('../assets/images/icon.png')}
-                            onError={() => {
-                              console.log(`Failed to load profile image for friend ${friend.friend_email}`);
-                            }}
-                          />
-                        </View>
-                        <View style={styles.friendDetails}>
-                          <Text style={[styles.friendName, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            {friend.friend_name}
-                          </Text>
-                          <Text style={[styles.friendEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            {friend.friend_email}
-                          </Text>
-                        </View>
-                      </View>
-                      <TouchableOpacity
-                        style={styles.removeFriendButton}
-                        onPress={() => removeFriend(friend.friend_id)}
-                      >
-                        <Ionicons name="person-remove" size={20} color="#ff4444" />
-                      </TouchableOpacity>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
-            )}
-
-            {activeTab === 'requests' && (
-              <ScrollView style={styles.friendsList}>
-                {friendsLoading ? (
-                  <ActivityIndicator size="large" color="#FF0005" style={styles.friendsLoader} />
-                ) : friendRequests.length === 0 ? (
-                  <View style={styles.emptyFriendsContainer}>
-                    <Ionicons name="mail-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-                    <Text style={[styles.emptyFriendsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      No friend requests
-                    </Text>
-                  </View>
-                ) : (
-                  friendRequests.map((request) => (
-                    <View key={request.request_id} style={[styles.friendItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                      <View style={styles.friendInfo}>
-                        <View style={styles.friendAvatar}>
-                          <Image 
-                            source={{ 
-                              uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${request.sender_email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-                            }}
-                            style={styles.friendAvatarImage}
-                            defaultSource={require('../assets/images/icon.png')}
-                            onError={() => {
-                              console.log(`Failed to load profile image for request sender ${request.sender_email}`);
-                            }}
-                          />
-                        </View>
-                        <View style={styles.friendDetails}>
-                          <Text style={[styles.friendName, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            {request.sender_name}
-                          </Text>
-                          <Text style={[styles.friendEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-                            {request.sender_email}
-                          </Text>
-                          <View style={styles.friendDateContainer}>
-                            <Ionicons name="time-outline" size={12} color="#9E95BD" />
-                            <Text style={[styles.friendDateText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                              Sent {new Date(request.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                      <View style={styles.requestActions}>
-                        <TouchableOpacity
-                          style={styles.acceptButton}
-                          onPress={() => respondToFriendRequest(request.request_id, 'accepted')}
-                        >
-                          <Ionicons name="checkmark" size={18} color="#fff" />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.declineButton}
-                          onPress={() => respondToFriendRequest(request.request_id, 'declined')}
-                        >
-                          <Ionicons name="close" size={18} color="#fff" />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
-            )}
-
-            {activeTab === 'search' && (
-              <View style={styles.searchContainer}>
-                <View style={styles.searchInputContainer}>
-                  <Ionicons name="search" size={20} color={Colors[colorScheme ?? 'light'].text} />
-                  <TextInput
-                    style={[styles.searchInput, { color: Colors[colorScheme ?? 'light'].text }]}
-                    placeholder="Search by name or email..."
-                    placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
-                    value={searchQuery}
-                    onChangeText={(text) => {
-                      setSearchQuery(text);
-                      searchUsers(text);
-                    }}
-                  />
-                </View>
-                <ScrollView style={styles.searchResults}>
-                  {friendsLoading ? (
-                    <ActivityIndicator size="large" color="#FF0005" style={styles.friendsLoader} />
-                  ) : searchResults.length === 0 ? (
-                    searchQuery.trim().length >= 2 ? (
-                      <View style={styles.emptyFriendsContainer}>
-                        <Ionicons name="search-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-                        <Text style={[styles.emptyFriendsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          No users found
-                        </Text>
-                      </View>
-                    ) : (
-                      <View style={styles.emptyFriendsContainer}>
-                        <Ionicons name="search-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-                        <Text style={[styles.emptyFriendsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          Search for friends
-                        </Text>
-                        <Text style={[styles.emptyFriendsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          Type at least 2 characters to search
-                        </Text>
-                      </View>
-                    )
-                  ) : (
-                    searchResults.map((user) => (
-                      <View key={user.user_id} style={[styles.friendItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                        <View style={styles.friendInfo}>
-                          <View style={styles.friendAvatar}>
-                            <Image 
-                              source={{ 
-                                uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${user.email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-                              }}
-                              style={styles.friendAvatarImage}
-                              defaultSource={require('../assets/images/icon.png')}
-                              onError={() => {
-                                console.log(`Failed to load profile image for user ${user.email}`);
-                              }}
-                            />
-                          </View>
-                          <View style={styles.friendDetails}>
-                            <Text style={[styles.friendName, { color: Colors[colorScheme ?? 'light'].text }]}>
-                              {user.name}
-                            </Text>
-                            <Text style={[styles.friendEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-                              {user.email}
-                            </Text>
-                            <View style={styles.friendDateContainer}>
-                              <Ionicons 
-                                name={user.friendship_status === 'accepted' ? 'checkmark-circle-outline' : 
-                                      user.friendship_status === 'pending' ? 'time-outline' : 'person-add-outline'} 
-                                size={12} 
-                                color="#9E95BD" 
-                              />
-                              <Text style={[styles.friendDateText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                                {user.friendship_status === 'accepted' ? 'Already friends' :
-                                 user.friendship_status === 'pending' ? 'Request pending' : 'Available to add'}
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-                        <TouchableOpacity
-                          style={[
-                            styles.addFriendButton,
-                            user.friendship_status === 'pending' && styles.addFriendButtonPending,
-                            user.friendship_status === 'accepted' && styles.addFriendButtonAccepted
-                          ]}
-                          onPress={() => sendFriendRequest(user.user_id)}
-                          disabled={user.friendship_status !== null}
-                        >
-                          {user.friendship_status === null && (
-                            <Ionicons name="person-add" size={18} color="#fff" />
-                          )}
-                          {user.friendship_status === 'pending' && (
-                            <Ionicons name="hourglass" size={18} color="#fff" />
-                          )}
-                          {user.friendship_status === 'accepted' && (
-                            <Ionicons name="checkmark" size={18} color="#fff" />
-                          )}
-                        </TouchableOpacity>
-                      </View>
-                    ))
-                  )}
-                </ScrollView>
-              </View>
-            )}
-          </View>
-        </SafeAreaView>
-      </Modal>
+      <LegalDocumentViewer
+        visible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        documentType="privacy"
+      />
     </View>
   );
 }
@@ -1481,382 +1126,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
-  // Friends Modal styles
-  friendsModalContainer: {
-    flex: 1,
-  },
-  friendsModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  friendsModalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  friendsTabContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  friendsTab: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 20,
-    marginHorizontal: 5,
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  friendsTabActive: {
-    backgroundColor: '#9E95BD',
-  },
-  friendsTabText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  tabIconContainer: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabBadge: {
-    position: 'absolute',
-    top: -8,
-    right: -12,
-    backgroundColor: '#9E95BD',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  tabBadgeText: {
-    color: 'white',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  friendsContent: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  friendsList: {
-    flex: 1,
-    paddingHorizontal: 4,
-    paddingTop: 8,
-  },
-  friendsLoader: {
-    marginTop: 50,
-  },
-  emptyFriendsContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  emptyFriendsText: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 20,
-    textAlign: 'center',
-  },
-  emptyFriendsSubtext: {
-    fontSize: 14,
-    marginTop: 10,
-    textAlign: 'center',
-    opacity: 0.7,
-  },
-  friendItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    marginVertical: 8,
-    marginHorizontal: 4,
-    borderRadius: 16,
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(158, 149, 189, 0.1)',
-  },
-  friendInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  friendAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#9E95BD',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  friendDetails: {
-    flex: 1,
-  },
-  friendName: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    marginBottom: 4,
-    letterSpacing: 0.3,
-  },
-  friendEmail: {
-    fontSize: 14,
-    opacity: 0.8,
-    fontWeight: '500',
-  },
-  friendDateContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  friendDateText: {
-    fontSize: 12,
-    opacity: 0.7,
-    marginLeft: 4,
-    fontStyle: 'italic',
-  },
-  removeFriendButton: {
-    padding: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 68, 68, 0.1)',
-  },
-  requestActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  acceptButton: {
-    backgroundColor: '#9E95BD',
-    borderRadius: 20,
-    padding: 10,
-    minWidth: 36,
-    alignItems: 'center',
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  declineButton: {
-    backgroundColor: '#ff4444',
-    borderRadius: 20,
-    padding: 10,
-    minWidth: 36,
-    alignItems: 'center',
-    shadowColor: '#ff4444',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  addFriendButton: {
-    backgroundColor: '#9E95BD',
-    borderRadius: 20,
-    padding: 10,
-    minWidth: 36,
-    alignItems: 'center',
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  addFriendButtonPending: {
-    backgroundColor: '#FFA500',
-  },
-  addFriendButtonAccepted: {
-    backgroundColor: '#888',
-  },
-  searchContainer: {
-    flex: 1,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.2)',
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    marginBottom: 15,
-  },
-  searchInput: {
-    flex: 1,
-    marginLeft: 10,
-    fontSize: 16,
-  },
-  searchResults: {
-    flex: 1,
-  },
-  // Notification bubble styles
-  newNotificationBubble: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    zIndex: 10,
-  },
-  newNotificationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ff4444',
-    shadowColor: '#ff4444',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  tabNotificationBubble: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    zIndex: 10,
-  },
-  tabNotificationDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ff4444',
-    shadowColor: '#ff4444',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  // New profile layout styles
-  friendsSection: {
-    marginTop: 20,
-    marginBottom: 15,
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 12,
-    opacity: 0.9,
-  },
-  friendsOverviewCard: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  friendsOverviewGradient: {
-    padding: 20,
-    position: 'relative',
-  },
-  friendsOverviewContent: {
-    alignItems: 'center',
-  },
-  friendsStatsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  friendsStat: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  friendsStatNumber: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginTop: 8,
-  },
-  friendsStatLabel: {
-    fontSize: 14,
-    color: '#fff',
-    opacity: 0.9,
-    marginTop: 4,
-  },
-  friendsStatDivider: {
-    width: 1,
-    height: 60,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    marginHorizontal: 20,
-  },
-  recentFriendsContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  recentFriendsTitle: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-    marginBottom: 12,
-    opacity: 0.9,
-  },
-  recentFriendsAvatars: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  recentFriendAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#9E95BD',
-  },
-  moreIndicator: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-  },
-  moreIndicatorText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#9E95BD',
-  },
-  friendsActionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  friendsActionText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '500',
-    opacity: 0.9,
-  },
-  userInfoSection: {
-    marginBottom: 15,
-  },
-  infoGrid: {
-    backgroundColor: 'rgba(158, 149, 189, 0.05)',
-    borderRadius: 16,
-    padding: 16,
-  },
-  actionButtonsContainer: {
-    gap: 10,
-    marginTop: 10,
-  },
-  contentPadding: {
-    padding: 20,
-  },
+
+
+
   modernContentContainer: {
     padding: 20,
   },
@@ -2045,6 +1317,11 @@ const styles = StyleSheet.create({
   settingsItemSubtitle: {
     fontSize: 14,
     opacity: 0.9,
+  },
+  settingsDivider: {
+    height: 1,
+    marginVertical: 8,
+    marginHorizontal: 16,
   },
   // Edit Mode Styles
   editModeCard: {
