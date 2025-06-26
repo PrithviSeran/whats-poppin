@@ -142,11 +142,27 @@ class SupabaseModelStorage:
             
             user_identifier = user_id or "global"
             
-            # Check if ANY model exists for this user (regardless of date)
-            existing = self.supabase.table(self.table_name).select("id").eq(
-                "user_id", user_identifier
-            ).order("created_at", desc=True).limit(1).execute()
+            # STEP 1: First, aggressively clean up ALL existing models for this user
+            logger.info(f"🧹 Cleaning up all existing models for user: {user_identifier}")
+            try:
+                all_existing = self.supabase.table(self.table_name).select("id").eq(
+                    "user_id", user_identifier
+                ).execute()
+                
+                if all_existing.data:
+                    logger.info(f"🔍 Found {len(all_existing.data)} existing models for user: {user_identifier}")
+                    # Delete ALL existing models for this user
+                    delete_result = self.supabase.table(self.table_name).delete().eq(
+                        "user_id", user_identifier
+                    ).execute()
+                    logger.info(f"🗑️ Deleted {len(all_existing.data)} models for user: {user_identifier}")
+                else:
+                    logger.info(f"✨ No existing models found for user: {user_identifier}")
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ Cleanup error for user {user_identifier}: {cleanup_error}")
+                # Continue with save even if cleanup fails
             
+            # STEP 2: Insert the new model (guaranteed to be the only one)
             data = {
                 "user_id": user_identifier,
                 "model_type": "user" if user_id else "global",
@@ -155,36 +171,22 @@ class SupabaseModelStorage:
                 "features_data": features_b64,
                 "metadata": metadata,
                 "data_fingerprint": data_fingerprint,
+                "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }
             
-            if existing.data:
-                # Update the existing model (replace completely)
-                existing_id = existing.data[0]["id"]
-                
-                # First, delete any additional models for this user (cleanup duplicates)
-                all_models = self.supabase.table(self.table_name).select("id").eq(
-                    "user_id", user_identifier
-                ).order("created_at", desc=True).execute()
-                
-                if all_models.data and len(all_models.data) > 1:
-                    # Keep the most recent, delete the rest
-                    models_to_delete = [model["id"] for model in all_models.data[1:]]
-                    for model_id in models_to_delete:
-                        self.supabase.table(self.table_name).delete().eq("id", model_id).execute()
-                    logger.info(f"🧹 Cleaned up {len(models_to_delete)} duplicate models for user: {user_identifier}")
-                
-                # Update the most recent model with new data and reset created_at
-                data["created_at"] = datetime.now().isoformat()  # Update creation time too
-                result = self.supabase.table(self.table_name).update(data).eq(
-                    "id", existing_id
-                ).execute()
-                logger.info(f"🔄 Updated existing model for user: {user_identifier}")
+            result = self.supabase.table(self.table_name).insert(data).execute()
+            logger.info(f"➕ Created new model for user: {user_identifier}")
+            
+            # STEP 3: Verify only one model exists (safety check)
+            verification = self.supabase.table(self.table_name).select("id").eq(
+                "user_id", user_identifier
+            ).execute()
+            
+            if verification.data and len(verification.data) > 1:
+                logger.error(f"❌ DUPLICATE DETECTED: User {user_identifier} still has {len(verification.data)} models!")
             else:
-                # Insert new model (first time for this user)
-                data["created_at"] = datetime.now().isoformat()
-                result = self.supabase.table(self.table_name).insert(data).execute()
-                logger.info(f"➕ Created new model for user: {user_identifier}")
+                logger.info(f"✅ Verified: User {user_identifier} has exactly 1 model")
             
             logger.info(f"✅ Model saved to Supabase for user: {user_identifier}")
             return result.data[0]["id"] if result.data else None
@@ -241,6 +243,55 @@ class SupabaseModelStorage:
             
         except Exception as e:
             logger.error(f"❌ Failed to cleanup old models: {e}")
+    
+    def cleanup_duplicate_models(self):
+        """Clean up duplicate models - keep only the most recent for each user_id"""
+        try:
+            logger.info("🧹 Starting duplicate model cleanup...")
+            
+            # Get all models grouped by user_id
+            all_models = self.supabase.table(self.table_name).select("id, user_id, created_at").order("user_id").order("created_at", desc=True).execute()
+            
+            if not all_models.data:
+                logger.info("✨ No models found")
+                return 0
+            
+            # Group models by user_id
+            user_models = {}
+            for model in all_models.data:
+                user_id = model["user_id"]
+                if user_id not in user_models:
+                    user_models[user_id] = []
+                user_models[user_id].append(model)
+            
+            total_deleted = 0
+            users_with_duplicates = 0
+            
+            # For each user, keep only the most recent model
+            for user_id, models in user_models.items():
+                if len(models) > 1:
+                    users_with_duplicates += 1
+                    # Sort by created_at descending (most recent first)
+                    models.sort(key=lambda x: x["created_at"], reverse=True)
+                    
+                    # Keep the first (most recent), delete the rest
+                    models_to_delete = models[1:]  # All except the first (most recent)
+                    
+                    logger.info(f"🔍 User {user_id}: Found {len(models)} models, deleting {len(models_to_delete)} duplicates")
+                    
+                    for model_to_delete in models_to_delete:
+                        try:
+                            self.supabase.table(self.table_name).delete().eq("id", model_to_delete["id"]).execute()
+                            total_deleted += 1
+                        except Exception as e:
+                            logger.error(f"❌ Failed to delete model {model_to_delete['id']}: {e}")
+            
+            logger.info(f"✅ Cleanup complete: {users_with_duplicates} users had duplicates, {total_deleted} models deleted")
+            return total_deleted
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to cleanup duplicate models: {e}")
+            return 0
 
 class HuggingFaceBeaconAI:
     """BeaconAI optimized for Hugging Face Spaces with Supabase storage"""

@@ -1613,6 +1613,20 @@ async def cleanup_old_models():
     except Exception as e:
         return {"error": str(e)}
 
+@app.post("/admin/cleanup-duplicates")
+async def cleanup_duplicate_models():
+    """Admin endpoint to clean up duplicate models - ensures only one model per user"""
+    try:
+        deleted_count = recommender.rec.storage.cleanup_duplicate_models()
+        return {
+            "success": True,
+            "message": f"Duplicate cleanup completed - deleted {deleted_count} duplicate models",
+            "deleted_count": deleted_count,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 # For local development
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7860)
