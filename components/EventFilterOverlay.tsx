@@ -38,6 +38,7 @@ interface EventFilterOverlayProps {
 }
 
 const EVENT_TYPES = [
+  'Featured Events',
   'Food & Drink',
   'Outdoor / Nature',
   'Leisure & Social',
@@ -75,7 +76,6 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const [travelDistance, setTravelDistance] = useState(8);
   const [startTime, setStartTime] = useState(21 * 60);
   const [endTime, setEndTime] = useState(3 * 60);
-  const [featuredEventsOnly, setFeaturedEventsOnly] = useState(false);
   const colorScheme = useColorScheme();
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(0)).current;
@@ -116,25 +116,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       } else if (typeof prefs.preferences === 'string' && prefs.preferences.length > 0) {
         eventTypes = prefs.preferences.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
       }
-      
-      // Check if "Featured Events" is in preferences and handle it separately
-      const hasFeaturedEvents = eventTypes.includes('Featured Events');
-      
-      // Debug logging for EventFilterOverlay
-      console.log('🔍 EventFilterOverlay Loading Preferences:', {
-        rawPreferences: prefs.preferences,
-        parsedEventTypes: eventTypes,
-        hasFeaturedEvents: hasFeaturedEvents,
-        willSetFeaturedEventsOnly: hasFeaturedEvents
-      });
-      
-      // IMPORTANT: Set featuredEventsOnly based on whether "Featured Events" is in preferences
-      // This ensures the checkbox state matches the actual user preferences
-      setFeaturedEventsOnly(hasFeaturedEvents);
-      
-      // Remove "Featured Events" from regular event types
-      const filteredEventTypes = eventTypes.filter(type => type !== 'Featured Events');
-      setSelectedEventTypes(filteredEventTypes);
+      setSelectedEventTypes(eventTypes);
       // Set time preferences
       const startTimeStr = prefs['start-time'] || defaultStart;
       const endTimeStr = prefs['end-time'] || defaultEnd;
@@ -398,22 +380,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     }
 
     // Update user preferences in Supabase
-    // Clean approach: Always start with selected event types, then add "Featured Events" only if checkbox is checked
-    let finalEventTypes = [...selectedEventTypes];
-    
-    // Only add "Featured Events" if the checkbox is explicitly checked
-    if (featuredEventsOnly) {
-      finalEventTypes.push('Featured Events');
-    }
-    
-    // Debug logging
-    console.log('🔍 HandleApply Debug:', {
-      selectedEventTypes: selectedEventTypes,
-      featuredEventsOnly: featuredEventsOnly,
-      finalEventTypes: finalEventTypes
-    });
-    
-    userProfile.preferences = finalEventTypes;
+    userProfile.preferences = selectedEventTypes;
     userProfile['start-time'] = start;
     userProfile['end-time'] = end;
     userProfile.location = manualLocation;
@@ -478,7 +445,6 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     setEndTime(3 * 60);
     setTravelDistance(8);
     setManualLocation('');
-    setFeaturedEventsOnly(false);
     
     // Reset calendar preferences
     setIsCalendarMode(false);
@@ -494,26 +460,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     // Reset filter by distance preference
     await dataManager.setIsFilterByDistance(false);
     setFilterByDistance(false);
-    
-    // Also clear Featured Events from user preferences in database
-    const userProfile = await dataManager.getUserProfile();
-    if (userProfile) {
-      // Ensure preferences don't contain "Featured Events"
-      let preferences = userProfile.preferences || [];
-      if (Array.isArray(preferences)) {
-        preferences = preferences.filter(pref => pref !== 'Featured Events');
-      } else if (typeof preferences === 'string') {
-        const parsedPrefs = preferences.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
-        preferences = parsedPrefs.filter(pref => pref !== 'Featured Events');
-      }
-      userProfile.preferences = preferences;
-      await dataManager.setUserProfile(userProfile);
-    }
-    
-    console.log('🔄 Filters reset - all preferences cleared including Featured Events');
   };
-
-
 
   const isDark = colorScheme === 'dark';
 
@@ -629,34 +576,6 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </View>
-              
-              {/* Featured Events Checkbox */}
-              <View style={styles.featuredEventsContainer}>
-                <TouchableOpacity
-                  style={styles.featuredEventsCheckbox}
-                  onPress={() => setFeaturedEventsOnly(!featuredEventsOnly)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[
-                    styles.checkbox,
-                    featuredEventsOnly && styles.checkboxSelected,
-                    {
-                      backgroundColor: featuredEventsOnly ? '#FFD700' : 'transparent',
-                      borderColor: featuredEventsOnly ? '#FFD700' : (isDark ? '#666' : '#ccc'),
-                    }
-                  ]}>
-                    {featuredEventsOnly && (
-                      <Ionicons name="checkmark" size={14} color="white" />
-                    )}
-                  </View>
-                  <Text style={[
-                    styles.featuredEventsLabel,
-                    { color: Colors[colorScheme ?? 'light'].text }
-                  ]}>
-                    Featured Events Only
-                  </Text>
-                </TouchableOpacity>
               </View>
             </View>
 
@@ -1368,37 +1287,5 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '600',
-  },
-  
-  // Featured Events Checkbox Styles
-  featuredEventsContainer: {
-    marginTop: 15,
-    paddingHorizontal: 5,
-  },
-  featuredEventsCheckbox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  checkboxSelected: {
-    shadowColor: '#FFD700',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  featuredEventsLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.3,
   },
 }); 

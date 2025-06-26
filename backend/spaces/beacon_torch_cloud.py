@@ -133,21 +133,22 @@ class SupabaseModelStorage:
     
     def save_model(self, user_id: str, model_data: bytes, mappings_data: bytes, 
                    features_data: bytes, metadata: dict, data_fingerprint: str = None):
-        """Save model to Supabase"""
+        """Save model to Supabase - ensures only one model per user"""
         try:
             # Encode binary data as base64 for storage
             model_b64 = base64.b64encode(model_data).decode('utf-8')
             mappings_b64 = base64.b64encode(mappings_data).decode('utf-8')
             features_b64 = base64.b64encode(features_data).decode('utf-8')
             
-            # Check if model for this user exists today
-            today = datetime.now().date().isoformat()
+            user_identifier = user_id or "global"
+            
+            # Check if ANY model exists for this user (regardless of date)
             existing = self.supabase.table(self.table_name).select("id").eq(
-                "user_id", user_id or "global"
-            ).gte("created_at", f"{today}T00:00:00").execute()
+                "user_id", user_identifier
+            ).order("created_at", desc=True).limit(1).execute()
             
             data = {
-                "user_id": user_id or "global",
+                "user_id": user_identifier,
                 "model_type": "user" if user_id else "global",
                 "model_data": model_b64,
                 "mappings_data": mappings_b64,
@@ -158,15 +159,34 @@ class SupabaseModelStorage:
             }
             
             if existing.data:
-                # Update existing model
+                # Update the existing model (replace completely)
+                existing_id = existing.data[0]["id"]
+                
+                # First, delete any additional models for this user (cleanup duplicates)
+                all_models = self.supabase.table(self.table_name).select("id").eq(
+                    "user_id", user_identifier
+                ).order("created_at", desc=True).execute()
+                
+                if all_models.data and len(all_models.data) > 1:
+                    # Keep the most recent, delete the rest
+                    models_to_delete = [model["id"] for model in all_models.data[1:]]
+                    for model_id in models_to_delete:
+                        self.supabase.table(self.table_name).delete().eq("id", model_id).execute()
+                    logger.info(f"🧹 Cleaned up {len(models_to_delete)} duplicate models for user: {user_identifier}")
+                
+                # Update the most recent model with new data and reset created_at
+                data["created_at"] = datetime.now().isoformat()  # Update creation time too
                 result = self.supabase.table(self.table_name).update(data).eq(
-                    "id", existing.data[0]["id"]
+                    "id", existing_id
                 ).execute()
+                logger.info(f"🔄 Updated existing model for user: {user_identifier}")
             else:
-                # Insert new model
+                # Insert new model (first time for this user)
+                data["created_at"] = datetime.now().isoformat()
                 result = self.supabase.table(self.table_name).insert(data).execute()
+                logger.info(f"➕ Created new model for user: {user_identifier}")
             
-            logger.info(f"✅ Model saved to Supabase for user: {user_id or 'global'}")
+            logger.info(f"✅ Model saved to Supabase for user: {user_identifier}")
             return result.data[0]["id"] if result.data else None
             
         except Exception as e:
@@ -256,23 +276,27 @@ class HuggingFaceBeaconAI:
 
     
     def needs_training(self, users, events, user_features, event_features, interactions):
-        """Check if training is needed - only train once per day"""
+        """Check if training is needed based on data changes and model age"""
         # Check if model exists in Supabase
-        stored_model = self.storage.load_model(self.user_id)
+        stored_model = self.storage.load_model(self.user_id, max_age_days=7)  # Allow models up to 7 days old
         
         if not stored_model:
             logger.info("No model found in Supabase - training needed")
             return True
         
-        # Check if model is from today
+        # Check if model is too old (more than 7 days)
         model_date = datetime.fromisoformat(stored_model["created_at"].replace('Z', '+00:00')).date()
         today = datetime.now().date()
+        days_old = (today - model_date).days
         
-        if model_date < today:
-            logger.info(f"Model is from {model_date}, training needed for today ({today})")
+        if days_old > 7:
+            logger.info(f"Model is {days_old} days old, training needed")
             return True
         
-        logger.info(f"Using existing model from today ({model_date})")
+        # You could add additional checks here for data fingerprint changes
+        # to detect if the underlying data has changed significantly
+        
+        logger.info(f"Using existing model from {model_date} ({days_old} days old)")
         return False
     
     def load_or_train(self, users, events, user_features, event_features, interactions, 

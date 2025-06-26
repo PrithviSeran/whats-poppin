@@ -689,30 +689,12 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                       eventTypes = [event.event_type];
                     }
                     
-                    // Filter out "Featured Events" from display
-                    eventTypes = eventTypes.filter(type => 
-                      type.toLowerCase() !== 'featured events' && 
-                      type.toLowerCase() !== 'featured'
-                    );
-                    
                     return eventTypes.map((eventType, index) => (
                       <View key={index} style={styles.modernEventTag}>
                         <Text style={styles.modernEventTagText}>{eventType}</Text>
                       </View>
                     ));
                   })()}
-
-                  {/* Featured Events Checkbox */}
-                  {event.featured && (
-                    <View style={styles.featuredCheckboxContainer}>
-                      <View style={styles.featuredCheckbox}>
-                        <Ionicons name="checkmark" size={12} color="white" />
-                      </View>
-                      <Text style={[styles.featuredCheckboxText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Featured Events Only
-                      </Text>
-                    </View>
-                  )}
 
                   {/* Expiring Soon Tag */}
                   {isEventExpiringSoon(event) && (
@@ -2029,37 +2011,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     opacity: 0.7,
     fontWeight: '500',
-  },
-  
-  // Featured Events Checkbox Styles
-  featuredCheckboxContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 193, 7, 0.1)',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 193, 7, 0.3)',
-  },
-  featuredCheckbox: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#FFD700',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-    shadowColor: '#FFD700',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  featuredCheckboxText: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
 }); 

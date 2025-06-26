@@ -355,6 +355,12 @@ export default function SuggestedEvents() {
 
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
       const savedEventIds = savedEvents.map((e: any) => e.id);
+      
+      console.log('📊 Optimized data state:', {
+        rejectedCount: rejectedEventIds.length,
+        savedCount: savedEventIds.length,
+        location: { lat: userLat, lon: userLon }
+      });
 
       // Get calendar preferences (cached)
       const [isCalendarMode, selectedDatesStr] = await Promise.all([
@@ -375,12 +381,6 @@ export default function SuggestedEvents() {
       const userProfile = await dataManager.getUserProfile();
       const currentStartTime = userProfile?.['start-time'] || '21:00';
       const currentEndTime = userProfile?.['end-time'] || '03:00';
-      
-      console.log('📊 Optimized data state:', {
-        rejectedCount: rejectedEventIds.length,
-        savedCount: savedEventIds.length,
-        location: { lat: userLat, lon: userLon }
-      });
 
       const requestBody = {
         email: currentUserEmail,
