@@ -19,6 +19,8 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { EventCard } from '../lib/GlobalDataManager';
+import { supabase } from '@/lib/supabase';
+import UserProfileModal from './UserProfileModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -84,6 +86,15 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(false);
+  
+  // Creator profile modal state
+  const [userProfileModalVisible, setUserProfileModalVisible] = useState(false);
+  const [creatorInfo, setCreatorInfo] = useState<{
+    id: number;
+    name: string;
+    email: string;
+  } | null>(null);
+  const [creatorLoading, setCreatorLoading] = useState(false);
 
   // Helper function to get current day name
   const getCurrentDayName = () => {
@@ -191,8 +202,45 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   useEffect(() => {
     if (event) {
       setCurrentImageIndex(0);
+      // Fetch creator info if posted_by exists
+      if (event.posted_by) {
+        fetchCreatorInfo(event.posted_by);
+      } else {
+        setCreatorInfo(null);
+      }
     }
   }, [event]);
+
+  // Function to fetch creator information
+  const fetchCreatorInfo = async (creatorEmail: string) => {
+    setCreatorLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('all_users')
+        .select('id, name, email')
+        .eq('email', creatorEmail)
+        .single();
+
+      if (error) {
+        console.error('Error fetching creator info:', error);
+        setCreatorInfo(null);
+      } else {
+        setCreatorInfo(data);
+      }
+    } catch (error) {
+      console.error('Error fetching creator info:', error);
+      setCreatorInfo(null);
+    } finally {
+      setCreatorLoading(false);
+    }
+  };
+
+  // Handle creator profile click
+  const handleCreatorClick = () => {
+    if (creatorInfo) {
+      setUserProfileModalVisible(true);
+    }
+  };
 
   // Get current image URL
   const getCurrentImageUrl = () => {
@@ -570,6 +618,53 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     by {event.organization}
               </Text>
                 )}
+                
+                {/* Event Creator Section */}
+                {event.posted_by && (
+                  <TouchableOpacity
+                    style={styles.creatorContainer}
+                    onPress={handleCreatorClick}
+                    activeOpacity={0.7}
+                    disabled={!creatorInfo || creatorLoading}
+                  >
+                    <LinearGradient
+                      colors={colorScheme === 'dark' 
+                        ? ['rgba(158, 149, 189, 0.15)', 'rgba(184, 174, 204, 0.15)', 'rgba(158, 149, 189, 0.15)']
+                        : ['rgba(158, 149, 189, 0.08)', 'rgba(184, 174, 204, 0.08)', 'rgba(158, 149, 189, 0.08)']
+                      }
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.creatorCard}
+                    >
+                      <View style={styles.creatorHeader}>
+                        <View style={styles.creatorIconBadge}>
+                          <Ionicons name="person-add" size={16} color="#9E95BD" />
+                        </View>
+                        <View style={styles.creatorInfo}>
+                          {creatorLoading ? (
+                            <ActivityIndicator size="small" color="#9E95BD" />
+                          ) : creatorInfo ? (
+                            <>
+                              <Text style={[styles.creatorTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                                Created by {creatorInfo.name}
+                              </Text>
+                              <Text style={[styles.creatorSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                                Tap to view profile
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={[styles.creatorTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                              Created by user
+                            </Text>
+                          )}
+                        </View>
+                        {creatorInfo && !creatorLoading && (
+                          <Ionicons name="chevron-forward" size={16} color="#9E95BD" />
+                        )}
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
               </View>
 
               {/* Event Type Tags - Moved up for better hierarchy */}
@@ -594,12 +689,30 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                       eventTypes = [event.event_type];
                     }
                     
+                    // Filter out "Featured Events" from display
+                    eventTypes = eventTypes.filter(type => 
+                      type.toLowerCase() !== 'featured events' && 
+                      type.toLowerCase() !== 'featured'
+                    );
+                    
                     return eventTypes.map((eventType, index) => (
                       <View key={index} style={styles.modernEventTag}>
                         <Text style={styles.modernEventTagText}>{eventType}</Text>
                       </View>
                     ));
                   })()}
+
+                  {/* Featured Events Checkbox */}
+                  {event.featured && (
+                    <View style={styles.featuredCheckboxContainer}>
+                      <View style={styles.featuredCheckbox}>
+                        <Ionicons name="checkmark" size={12} color="white" />
+                      </View>
+                      <Text style={[styles.featuredCheckboxText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Featured Events Only
+                      </Text>
+                    </View>
+                  )}
 
                   {/* Expiring Soon Tag */}
                   {isEventExpiringSoon(event) && (
@@ -1020,6 +1133,17 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           </ScrollView>
         </Animated.View>
       </Animated.View>
+      
+      {/* User Profile Modal for Creator */}
+      {creatorInfo && (
+        <UserProfileModal
+          visible={userProfileModalVisible}
+          onClose={() => setUserProfileModalVisible(false)}
+          userId={creatorInfo.id}
+          userName={creatorInfo.name}
+          userEmail={creatorInfo.email}
+        />
+      )}
     </View>
   );
 }
@@ -1863,5 +1987,79 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(158, 149, 189, 0.8)',
     borderRadius: 16,
+  },
+  
+  // Creator Section Styles
+  creatorContainer: {
+    marginTop: 12,
+  },
+  creatorCard: {
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+    shadowColor: '#9E95BD',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  creatorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  creatorIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  creatorInfo: {
+    flex: 1,
+  },
+  creatorTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  creatorSubtitle: {
+    fontSize: 12,
+    opacity: 0.7,
+    fontWeight: '500',
+  },
+  
+  // Featured Events Checkbox Styles
+  featuredCheckboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.3)',
+  },
+  featuredCheckbox: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FFD700',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  featuredCheckboxText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 }); 

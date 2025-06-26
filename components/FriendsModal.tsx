@@ -268,8 +268,11 @@ export default function FriendsModal({
   };
 
   const handleUnfollow = async (targetEmail: string) => {
+    if (!profile?.email) return;
+    
     try {
       const { data, error } = await supabase.rpc('unfollow_user', {
+        follower_email: profile.email,
         target_email: targetEmail
       });
 

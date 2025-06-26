@@ -254,27 +254,55 @@ class EventRecommendationSystem:
     def get_events_data(self, user_preferences=None):
         """Fetch events data from Supabase with optional filtering"""
         try:
-            query = self.Client.table("all_events").select("*")
-            
-            if user_preferences:
-                # Check if "Featured Events" is in user preferences
-                if "Featured Events" in user_preferences:
+            if user_preferences and "Featured Events" in user_preferences:
+                # Handle "Featured Events" with the old working logic
+                other_preferences = [pref for pref in user_preferences if pref != "Featured Events"]
+                
+                if len(other_preferences) == 0:
                     # If only "Featured Events" is selected, return only featured events
-                    if len(user_preferences) == 1:
-                        query = query.eq('featured', True)
-                    else:
-                        # If "Featured Events" plus other categories, filter by event types first, then featured
-                        other_preferences = [pref for pref in user_preferences if pref != "Featured Events"]
-                        preferences_array = '{' + ','.join(f'"{pref}"' for pref in other_preferences) + '}'
-                        # Use AND logic: filter by event types first, then only show featured events from those types
-                        query = query.filter('event_type', 'ov', preferences_array).eq('featured', True)
+                    query = self.Client.table("all_events").select("*").eq('featured', True)
+                    result = query.execute()
+                    print(f"🔍 Featured Events only: Returning {len(result.data) if result.data else 0} featured events")
+                    return result.data
                 else:
-                    # Normal filtering by event types only
+                    # If "Featured Events" + other categories: Use OR logic
+                    # Get featured events (any category)
+                    featured_query = self.Client.table("all_events").select("*").eq('featured', True)
+                    featured_result = featured_query.execute()
+                    featured_events = featured_result.data or []
+                    
+                    # Get regular events from selected categories
+                    preferences_array = '{' + ','.join(f'"{pref}"' for pref in other_preferences) + '}'
+                    category_query = self.Client.table("all_events").select("*").filter('event_type', 'ov', preferences_array)
+                    category_result = category_query.execute()
+                    category_events = category_result.data or []
+                    
+                    # Combine and deduplicate events (prioritize featured events)
+                    event_dict = {}
+                    
+                    # Add category events first
+                    for event in category_events:
+                        event_dict[event['id']] = event
+                    
+                    # Add featured events (will overwrite if same ID, ensuring featured status is preserved)
+                    for event in featured_events:
+                        event_dict[event['id']] = event
+                    
+                    combined_events = list(event_dict.values())
+                    print(f"🔍 Featured Events + Categories: Returning {len(combined_events)} events ({len(featured_events)} featured + {len(category_events)} from categories)")
+                    return combined_events
+            else:
+                # Normal filtering by event types only (no Featured Events selected)
+                query = self.Client.table("all_events").select("*")
+                
+                if user_preferences:
                     preferences_array = '{' + ','.join(f'"{pref}"' for pref in user_preferences) + '}'
                     query = query.filter('event_type', 'ov', preferences_array)
-            
-            result = query.execute()
-            return result.data
+                
+                result = query.execute()
+                print(f"🔍 Regular filtering: Returning {len(result.data) if result.data else 0} events")
+                return result.data
+                
         except Exception as e:
             print(f"Error fetching events data: {e}")
             return []
@@ -970,6 +998,7 @@ class EventRecommendationSystem:
                     filter_distance, user_travel_distance
                 )
                 print(f"Events after distance filter: {len(all_events_filtered)}")
+                
             except Exception as e:
                 print(f"Error applying filters: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error applying filters: {str(e)}")
@@ -1027,7 +1056,14 @@ class EventRecommendationSystem:
                     )
                     print(f"🚀 Fast recommendations generated: {len(recommendations)}")
                     
-                else:
+                    # FALLBACK: If fast path returns 0 results, fall back to training path
+                    if len(recommendations) == 0:
+                        print("⚠️ Fast inference returned 0 results, falling back to training path...")
+                        # Force fallback to training path by setting model_status to False
+                        model_status = False
+                
+                # Training path (either no model exists OR fast path failed)
+                if not model_status or not self.rec.is_model_loaded():
                     print("📚 No existing model found, falling back to training...")
                     # SLOW PATH: Need to build features and train
                     # Fetch all users with their interaction history
@@ -1088,6 +1124,14 @@ class EventRecommendationSystem:
                         liked_event_ids=list(liked_and_rejected_ids)
                     )
                     print(f"📚 Training path recommendations generated: {len(recommendations)}")
+
+                # Skip post-processing if we have no recommendations from either path
+                if len(recommendations) == 0:
+                    return {
+                        "summary": "No recommendations could be generated with current preferences.",
+                        "events": [],
+                        "total_found": len(event_ids_filtered)
+                    }
 
                 # Get social connections' saved events for post-processing boost
                 social_connections_saved_events = set()

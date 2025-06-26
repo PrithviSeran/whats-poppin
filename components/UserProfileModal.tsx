@@ -38,6 +38,7 @@ export default function UserProfileModal({
 }: UserProfileModalProps) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(false);
+  const [relationshipLoading, setRelationshipLoading] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [friendshipStatus, setFriendshipStatus] = useState<'accepted' | 'pending' | 'incoming' | 'none'>('none');
   const [isFollowing, setIsFollowing] = useState(false);
@@ -86,7 +87,13 @@ export default function UserProfileModal({
   };
 
   const fetchRelationshipStatus = async () => {
-    if (!currentUserProfile?.email) return;
+    if (!currentUserProfile?.email || !currentUserProfile?.id) {
+      console.log('Missing current user profile data for relationship check');
+      return;
+    }
+    
+    console.log(`Checking relationship status between ${currentUserProfile.email} and ${userEmail}`);
+    setRelationshipLoading(true);
     
     try {
       // Check both friendship and follow status
@@ -95,32 +102,91 @@ export default function UserProfileModal({
         following_email: userEmail
       });
 
-      if (!statusError && statusData.success) {
-        setIsFollowing(statusData.is_following);
-        
-        if (statusData.are_friends) {
-          setFriendshipStatus('accepted');
-        } else if (statusData.pending_friend_request) {
-          setFriendshipStatus('pending');
-        } else {
-          // Check if there's an incoming friend request
-          const { data: incomingRequest } = await supabase
-            .from('friend_requests')
-            .select('status')
-            .eq('sender_id', userId)
-            .eq('receiver_id', currentUserProfile.id)
-            .eq('status', 'pending')
-            .single();
+      if (statusError) {
+        console.error('Error in check_follow_status RPC:', statusError);
+        // Continue with manual checks if RPC fails
+      }
 
-          if (incomingRequest) {
-            setFriendshipStatus('incoming');
-          } else {
-            setFriendshipStatus('none');
-          }
+      if (statusData && statusData.length > 0) {
+        const status = statusData[0]; // Get first row of results
+        console.log('Follow status data:', status);
+        setIsFollowing(status.is_following);
+        
+        if (status.is_friend) {
+          console.log('Users are already friends');
+          setFriendshipStatus('accepted');
+          return;
+        } else if (status.friendship_status === 'pending') {
+          console.log('Friend request is pending');
+          setFriendshipStatus('pending');
+          return;
         }
       }
+
+      // Check if there's an incoming friend request (sent by the viewed user to current user)
+      console.log('Checking for incoming friend requests...');
+      const { data: incomingRequest, error: incomingError } = await supabase
+        .from('friend_requests')
+        .select('id, status, created_at')
+        .eq('sender_id', userId)
+        .eq('receiver_id', currentUserProfile.id)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+      if (incomingError) {
+        console.error('Error checking incoming requests:', incomingError);
+      }
+
+      if (incomingRequest) {
+        console.log('Found incoming friend request:', incomingRequest);
+        setFriendshipStatus('incoming');
+      } else {
+        // Double-check if we missed a sent request (current user sent to viewed user)
+        const { data: sentRequest, error: sentError } = await supabase
+          .from('friend_requests')
+          .select('id, status, created_at')
+          .eq('sender_id', currentUserProfile.id)
+          .eq('receiver_id', userId)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+        if (sentError) {
+          console.error('Error checking sent requests:', sentError);
+        }
+
+        if (sentRequest) {
+          console.log('Found sent friend request:', sentRequest);
+          setFriendshipStatus('pending');
+        } else {
+          console.log('No friend relationship found - setting to none');
+          setFriendshipStatus('none');
+        }
+      }
+
+      // Set follow status if RPC didn't work
+      if (!statusData || statusData.length === 0) {
+        console.log('RPC failed, checking follow status manually...');
+        const { data: followData, error: followError } = await supabase
+          .from('follows')
+          .select('id')
+          .eq('follower_id', currentUserProfile.id)
+          .eq('followed_id', userId)
+          .maybeSingle();
+
+        if (!followError && followData) {
+          setIsFollowing(true);
+        } else {
+          setIsFollowing(false);
+        }
+      }
+
     } catch (error) {
       console.error('Error fetching relationship status:', error);
+      // Set default states on error
+      setFriendshipStatus('none');
+      setIsFollowing(false);
+    } finally {
+      setRelationshipLoading(false);
     }
   };
 
@@ -128,22 +194,35 @@ export default function UserProfileModal({
     if (!currentUserProfile?.email) return;
     
     try {
-      const { data, error } = await supabase.rpc('follow_user', {
+      console.log('Attempting to follow user:', {
+        follower_email: currentUserProfile.email,
         target_email: userEmail
       });
 
+      const { data, error } = await supabase.rpc('follow_user', {
+        follower_email: currentUserProfile.email,
+        target_email: userEmail
+      });
+
+      console.log('Follow user response:', { data, error });
+
       if (error) throw error;
 
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
+      // Handle both array and object responses
+      const result = Array.isArray(data) ? data[0] : data;
+      console.log('Processed result:', result);
+
+      if (result && result.success) {
         setIsFollowing(true);
-        Alert.alert('Success', result.message);
+        Alert.alert('Success', result.message || 'Successfully followed user');
       } else {
-        Alert.alert('Info', result.message);
+        const message = result?.message || 'Unable to follow user - already following or other issue';
+        Alert.alert('Info', message);
       }
     } catch (error) {
       console.error('Error following user:', error);
-      Alert.alert('Error', 'Failed to follow user');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      Alert.alert('Error', `Failed to follow user: ${errorMessage}`);
     }
   };
 
@@ -151,22 +230,35 @@ export default function UserProfileModal({
     if (!currentUserProfile?.email) return;
     
     try {
-      const { data, error } = await supabase.rpc('unfollow_user', {
+      console.log('Attempting to unfollow user:', {
+        follower_email: currentUserProfile.email,
         target_email: userEmail
       });
 
+      const { data, error } = await supabase.rpc('unfollow_user', {
+        follower_email: currentUserProfile.email,
+        target_email: userEmail
+      });
+
+      console.log('Unfollow user response:', { data, error });
+
       if (error) throw error;
 
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
+      // Handle both array and object responses
+      const result = Array.isArray(data) ? data[0] : data;
+      console.log('Processed result:', result);
+
+      if (result && result.success) {
         setIsFollowing(false);
-        Alert.alert('Success', result.message);
+        Alert.alert('Success', result.message || 'Successfully unfollowed user');
       } else {
-        Alert.alert('Info', result.message);
+        const message = result?.message || 'Unable to unfollow user - not following or other issue';
+        Alert.alert('Info', message);
       }
     } catch (error) {
       console.error('Error unfollowing user:', error);
-      Alert.alert('Error', 'Failed to unfollow user');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      Alert.alert('Error', `Failed to unfollow user: ${errorMessage}`);
     }
   };
 
@@ -358,72 +450,103 @@ export default function UserProfileModal({
                 <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
                   {userProfile?.email || userEmail}
                 </Text>
+                
+                {/* Debug Info - Remove in production */}
+                {__DEV__ && (
+                  <View style={styles.debugInfo}>
+                    <Text style={styles.debugText}>
+                      Debug: Status={friendshipStatus}, Following={isFollowing ? 'Yes' : 'No'}, Loading={relationshipLoading ? 'Yes' : 'No'}
+                    </Text>
+                  </View>
+                )}
               </View>
 
 
 
               {/* Action Buttons */}
               <View style={styles.actionButtonsContainer}>
-                {/* Follow/Unfollow Button */}
-                <TouchableOpacity
-                  style={[
-                    styles.actionButton,
-                    { backgroundColor: isFollowing ? '#ff4444' : '#9E95BD' }
-                  ]}
-                  onPress={isFollowing ? handleUnfollow : handleFollow}
-                >
-                  <Ionicons 
-                    name={isFollowing ? "person-remove" : "person-add"} 
-                    size={16} 
-                    color="white" 
-                  />
-                  <Text style={styles.actionButtonText}>
-                    {isFollowing ? 'Unfollow' : 'Follow'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Friend Request Button */}
+                {/* Follow/Unfollow Button - Hide when there's any friendship relationship */}
                 {friendshipStatus === 'none' && (
                   <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: '#4ECDC4' }]}
-                    onPress={handleFriendRequest}
+                    style={[
+                      styles.actionButton,
+                      { backgroundColor: isFollowing ? '#ff4444' : '#9E95BD' }
+                    ]}
+                    onPress={isFollowing ? handleUnfollow : handleFollow}
+                    disabled={relationshipLoading}
                   >
-                    <Ionicons name="people" size={16} color="white" />
-                    <Text style={styles.actionButtonText}>Add Friend</Text>
+                    <Ionicons 
+                      name={isFollowing ? "person-remove" : "person-add"} 
+                      size={16} 
+                      color="white" 
+                    />
+                    <Text style={styles.actionButtonText}>
+                      {isFollowing ? 'Unfollow' : 'Follow'}
+                    </Text>
                   </TouchableOpacity>
                 )}
 
-                {friendshipStatus === 'pending' && (
-                  <View style={[styles.actionButton, { backgroundColor: '#999' }]}>
-                    <Ionicons name="time" size={16} color="white" />
-                    <Text style={styles.actionButtonText}>Request Sent</Text>
+                {/* Friend Request Button - Show loading state */}
+                {relationshipLoading ? (
+                  <View style={[styles.actionButton, { backgroundColor: '#ddd' }]}>
+                    <ActivityIndicator size="small" color="white" />
+                    <Text style={styles.actionButtonText}>Loading...</Text>
                   </View>
-                )}
+                ) : (
+                  <>
+                    {friendshipStatus === 'none' && (
+                      <TouchableOpacity
+                        style={[styles.actionButton, { backgroundColor: '#4ECDC4' }]}
+                        onPress={handleFriendRequest}
+                      >
+                        <Ionicons name="people" size={16} color="white" />
+                        <Text style={styles.actionButtonText}>Add Friend</Text>
+                      </TouchableOpacity>
+                    )}
 
-                {friendshipStatus === 'accepted' && (
-                  <View style={[styles.actionButton, { backgroundColor: '#4CAF50' }]}>
-                    <Ionicons name="checkmark-circle" size={16} color="white" />
-                    <Text style={styles.actionButtonText}>Friends</Text>
-                  </View>
-                )}
+                    {friendshipStatus === 'pending' && (
+                      <View style={styles.friendsContainer}>
+                        <View style={[styles.actionButton, { backgroundColor: '#FFA500' }]}>
+                          <Ionicons name="time" size={16} color="white" />
+                          <Text style={styles.actionButtonText}>Request Sent</Text>
+                        </View>
+                        <Text style={[styles.autoFollowText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          You're following {userProfile?.name || userName}
+                        </Text>
+                      </View>
+                    )}
 
-                {friendshipStatus === 'incoming' && (
-                  <View style={styles.friendRequestButtons}>
-                    <TouchableOpacity
-                      style={[styles.actionButton, { backgroundColor: '#4ECDC4', flex: 1, marginRight: 8 }]}
-                      onPress={handleAcceptFriendRequest}
-                    >
-                      <Ionicons name="checkmark" size={16} color="white" />
-                      <Text style={styles.actionButtonText}>Accept</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionButton, { backgroundColor: '#ff4444', flex: 1, marginLeft: 8 }]}
-                      onPress={handleDeclineFriendRequest}
-                    >
-                      <Ionicons name="close" size={16} color="white" />
-                      <Text style={styles.actionButtonText}>Decline</Text>
-                    </TouchableOpacity>
-                  </View>
+                    {friendshipStatus === 'accepted' && (
+                      <View style={styles.friendsContainer}>
+                        <View style={[styles.actionButton, { backgroundColor: '#4CAF50' }]}>
+                          <Ionicons name="checkmark-circle" size={16} color="white" />
+                          <Text style={styles.actionButtonText}>Friends</Text>
+                        </View>
+                        <Text style={[styles.autoFollowText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          You and {userProfile?.name || userName} are following each other
+                        </Text>
+                      </View>
+                    )}
+
+                    {friendshipStatus === 'incoming' && (
+                      <View style={styles.friendRequestButtons}>
+                        <TouchableOpacity
+                          style={[styles.actionButton, { backgroundColor: '#4ECDC4', flex: 1, marginRight: 8 }]}
+                          onPress={handleAcceptFriendRequest}
+                        >
+                          <Ionicons name="checkmark" size={16} color="white" />
+                          <Text style={styles.actionButtonText}>Accept</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionButton, { backgroundColor: '#ff4444', flex: 1, marginLeft: 8 }]}
+                          onPress={handleDeclineFriendRequest}
+                        >
+                          <Ionicons name="close" size={16} color="white" />
+                          <Text style={styles.actionButtonText}>Decline</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </>
                 )}
               </View>
             </View>
@@ -640,5 +763,30 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 16,
     fontWeight: '500',
+  },
+  debugInfo: {
+    marginTop: 10,
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 0, 0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 0, 0.3)',
+  },
+  debugText: {
+    fontSize: 12,
+    fontFamily: 'monospace',
+    color: '#666',
+    textAlign: 'center',
+  },
+  friendsContainer: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  autoFollowText: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    opacity: 0.8,
+    fontStyle: 'italic',
   },
 }); 

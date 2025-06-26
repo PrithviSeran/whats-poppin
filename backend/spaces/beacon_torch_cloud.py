@@ -578,8 +578,10 @@ class HuggingFaceBeaconAI:
             raise ValueError("No model loaded. Call load_or_train first.")
         
         if user_id not in self.user_id_map:
-            logger.warning(f"User {user_id} not found in trained model.")
+            logger.warning(f"User {user_id} not found in trained model. Available users: {len(self.user_id_map)}")
             return []
+        
+        logger.info(f"Generating recommendations for user {user_id} from {len(self.item_id_map)} known events")
         
         user_internal_id = self.user_id_map[user_id]
         num_items = len(self.item_id_map)

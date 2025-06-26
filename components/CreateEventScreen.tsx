@@ -323,6 +323,13 @@ export default function CreateEventScreen() {
         return;
       }
 
+      // Get current user's email
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to create an event');
+        return;
+      }
+
       // Get coordinates for location
       let latitude: number | null = null;
       let longitude: number | null = null;
@@ -357,6 +364,7 @@ export default function CreateEventScreen() {
         link: eventForm.link.trim() || null,
         latitude,
         longitude,
+        posted_by: user.email,
         created_at: new Date().toISOString()
       };
 

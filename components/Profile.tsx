@@ -637,38 +637,60 @@ export default function Profile() {
 
         {/* Modern Content Container */}
         <View style={styles.modernContentContainer}>
-          {/* Quick Stats Section */}
+          {/* Quick Stats Section - 2x2 Grid Layout */}
           <View style={styles.quickStatsSection}>
-            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-              <View style={[styles.statIconContainer, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
-                <Ionicons name="people" size={24} color="#9E95BD" />
+            {/* Top Row */}
+            <View style={styles.statsRow}>
+              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                <View style={styles.statCardContent}>
+                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
+                    <Ionicons name="people" size={22} color="#9E95BD" />
+                  </View>
+                  <View style={styles.statTextContainer}>
+                    <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friends.length}</Text>
+                    <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Friends</Text>
+                  </View>
+                </View>
               </View>
-              <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friends.length}</Text>
-              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Friends</Text>
+              
+              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                <View style={styles.statCardContent}>
+                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
+                    <Ionicons name="person" size={22} color="#4CAF50" />
+                  </View>
+                  <View style={styles.statTextContainer}>
+                    <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{followersCount}</Text>
+                    <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Followers</Text>
+                  </View>
+                </View>
+              </View>
             </View>
-            
-            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-              <View style={[styles.statIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
-                <Ionicons name="person" size={24} color="#4CAF50" />
+
+            {/* Bottom Row */}
+            <View style={styles.statsRow}>
+              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                <View style={styles.statCardContent}>
+                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 193, 7, 0.1)' }]}>
+                    <Ionicons name="person-add" size={22} color="#FFC107" />
+                  </View>
+                  <View style={styles.statTextContainer}>
+                    <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{followingCount}</Text>
+                    <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Following</Text>
+                  </View>
+                </View>
               </View>
-              <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{followersCount}</Text>
-              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Followers</Text>
-            </View>
-            
-            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-              <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 193, 7, 0.1)' }]}>
-                <Ionicons name="person-add" size={24} color="#FFC107" />
+                        
+              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                <View style={styles.statCardContent}>
+                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 107, 157, 0.1)' }]}>
+                    <Ionicons name="mail" size={22} color="#FF6B9D" />
+                  </View>
+                  <View style={styles.statTextContainer}>
+                    <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friendRequests.length}</Text>
+                    <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Requests</Text>
+                  </View>
+                </View>
               </View>
-              <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{followingCount}</Text>
-              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Following</Text>
-            </View>
-                  
-            <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-              <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 107, 157, 0.1)' }]}>
-                <Ionicons name="mail" size={24} color="#FF6B9D" />
-              </View>
-              <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friendRequests.length}</Text>
-              <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Requests</Text>
             </View>
           </View>
 
@@ -1168,37 +1190,46 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   quickStatsSection: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: 20,
   },
-  statCard: {
-    width: '23%', // Adjusted for 4 cards per row
-    alignItems: 'center',
-    padding: 12,
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  statCard: {
+    width: '48%', // 2 cards per row with gap
+    padding: 16,
     borderRadius: 16,
     shadowColor: '#9E95BD',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
+    minHeight: 80,
+  },
+  statCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   statIconContainer: {
     borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
+    padding: 8,
+    marginRight: 12,
+  },
+  statTextContainer: {
+    flex: 1,
+    justifyContent: 'center',
   },
   statNumber: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   statLabel: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
     opacity: 0.8,
   },
   actionCardsGrid: {
