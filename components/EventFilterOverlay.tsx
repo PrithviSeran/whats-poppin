@@ -38,7 +38,6 @@ interface EventFilterOverlayProps {
 }
 
 const EVENT_TYPES = [
-  'Featured Events',
   'Food & Drink',
   'Outdoor / Nature',
   'Leisure & Social',
@@ -90,6 +89,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  
+  // Featured Events state
+  const [featuredEventsOnly, setFeaturedEventsOnly] = useState(false);
 
   const dataManager = GlobalDataManager.getInstance();
 
@@ -109,14 +111,21 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       const userProfile = await dataManager.getUserProfile();
 
       const prefs = userProfile as UserProfile;
-      // Set event types
+      // Set event types and extract featured events preference
       let eventTypes: string[] = [];
       if (Array.isArray(prefs.preferences)) {
         eventTypes = prefs.preferences;
       } else if (typeof prefs.preferences === 'string' && prefs.preferences.length > 0) {
         eventTypes = prefs.preferences.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
       }
-      setSelectedEventTypes(eventTypes);
+      
+      // Extract "Featured Events" from event types and set the checkbox state
+      const hasFeaturedEvents = eventTypes.includes('Featured Events');
+      setFeaturedEventsOnly(hasFeaturedEvents);
+      
+      // Remove "Featured Events" from regular event types (it's now a separate checkbox)
+      const regularEventTypes = eventTypes.filter(type => type !== 'Featured Events');
+      setSelectedEventTypes(regularEventTypes);
       // Set time preferences
       const startTimeStr = prefs['start-time'] || defaultStart;
       const endTimeStr = prefs['end-time'] || defaultEnd;
@@ -380,11 +389,18 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     }
 
     // Update user preferences in Supabase
-    userProfile.preferences = selectedEventTypes;
+    // Combine regular event types with featured events preference
+    const preferencesToSave = [...selectedEventTypes];
+    if (featuredEventsOnly) {
+      preferencesToSave.push('Featured Events');
+    }
+    userProfile.preferences = preferencesToSave;
     userProfile['start-time'] = start;
     userProfile['end-time'] = end;
     userProfile.location = manualLocation;
     userProfile['travel-distance'] = travelDistance;
+
+
 
     // Save calendar mode and preferences
     try {
@@ -445,6 +461,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     setEndTime(3 * 60);
     setTravelDistance(8);
     setManualLocation('');
+    setFeaturedEventsOnly(false);
     
     // Reset calendar preferences
     setIsCalendarMode(false);
@@ -576,6 +593,33 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     </Text>
                   </TouchableOpacity>
                 ))}
+              </View>
+              
+              {/* Featured Events Checkbox */}
+              <View style={styles.featuredEventsContainer}>
+                <TouchableOpacity 
+                  style={styles.featuredEventsToggle}
+                  onPress={() => setFeaturedEventsOnly(!featuredEventsOnly)}
+                >
+                  <View style={[
+                    styles.featuredEventsCheckbox,
+                    featuredEventsOnly && styles.featuredEventsCheckboxSelected,
+                    { 
+                      backgroundColor: featuredEventsOnly ? '#FF0005' : 'transparent',
+                      borderColor: featuredEventsOnly ? '#FF0005' : (isDark ? '#333' : '#ccc')
+                    }
+                  ]}>
+                    {featuredEventsOnly && (
+                      <Ionicons name="checkmark" size={16} color="white" />
+                    )}
+                  </View>
+                  <Text style={[
+                    styles.featuredEventsText,
+                    { color: Colors[colorScheme ?? 'light'].text }
+                  ]}>
+                    Featured Events Only
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -1287,5 +1331,33 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '600',
+  },
+  // Featured Events Checkbox Styles
+  featuredEventsContainer: {
+    marginTop: 15,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  featuredEventsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  featuredEventsCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    borderWidth: 2,
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featuredEventsCheckboxSelected: {
+    backgroundColor: '#FF0005',
+  },
+  featuredEventsText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
 }); 

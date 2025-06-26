@@ -64,6 +64,8 @@ class RecommendationRequest(BaseModel):
     selected_dates: Optional[List[str]] = None
     user_start_time: Optional[str] = None
     user_end_time: Optional[str] = None
+    # NEW: Add optional event type preferences from UI
+    event_type_preferences: Optional[List[str]] = None
 
 class RecommendationResponse(BaseModel):
     summary: str
@@ -251,33 +253,56 @@ class EventRecommendationSystem:
 
         return age
     
-    def get_events_data(self, user_preferences=None):
-        """Fetch events data from Supabase with optional filtering"""
+    def get_all_events_data(self):
+        """Fetch ALL events data from Supabase without any preference filtering"""
         try:
-            query = self.Client.table("all_events").select("*")
-            
-            if user_preferences:
-                # Check if "Featured Events" is in user preferences
-                if "Featured Events" in user_preferences:
-                    # If only "Featured Events" is selected, return only featured events
-                    if len(user_preferences) == 1:
-                        query = query.eq('featured', True)
-                    else:
-                        # If "Featured Events" plus other categories, filter by event types first, then featured
-                        other_preferences = [pref for pref in user_preferences if pref != "Featured Events"]
-                        preferences_array = '{' + ','.join(f'"{pref}"' for pref in other_preferences) + '}'
-                        # Use AND logic: filter by event types first, then only show featured events from those types
-                        query = query.filter('event_type', 'ov', preferences_array).eq('featured', True)
-                else:
-                    # Normal filtering by event types only
-                    preferences_array = '{' + ','.join(f'"{pref}"' for pref in user_preferences) + '}'
-                    query = query.filter('event_type', 'ov', preferences_array)
-            
-            result = query.execute()
+            result = self.Client.table("all_events").select("*").execute()
+            print(f"🎯 Fetched {len(result.data) if result.data else 0} total events from database")
             return result.data
         except Exception as e:
-            print(f"Error fetching events data: {e}")
+            print(f"Error fetching all events data: {e}")
             return []
+    
+    def filter_events_by_preferences(self, events, user_preferences, featured_only=False):
+        """Filter events by user preferences and featured status (called after getting all events)"""
+        if not user_preferences and not featured_only:
+            print("🔍 No preferences or featured filter provided, returning all events")
+            return events
+            
+        print(f"🔍 Filtering {len(events)} events by preferences: {user_preferences}, featured_only: {featured_only}")
+        
+        filtered_events = []
+        for event in events:
+            event_types = event.get('event_type', [])
+            
+            # Handle different storage formats
+            if isinstance(event_types, str):
+                # Parse PostgreSQL array string format
+                event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+            elif not isinstance(event_types, list):
+                event_types = []
+            
+            # First check featured filter if enabled
+            if featured_only and not event.get('featured', False):
+                continue  # Skip non-featured events if featured_only is True
+            
+            # Then check event type preferences
+            if user_preferences:
+                # Normal category filtering - any preference matches any event type
+                if any(pref in event_types for pref in user_preferences):
+                    filtered_events.append(event)
+            else:
+                # If no preferences but featured_only is True, include all featured events
+                if featured_only:
+                    filtered_events.append(event)
+        
+        print(f"🎯 Filtered to {len(filtered_events)} events matching preferences and featured status")
+        return filtered_events
+    
+    def get_events_data(self, user_preferences=None):
+        """DEPRECATED: Use get_all_events_data() + filter_events_by_preferences() instead"""
+        print("⚠️ WARNING: Using deprecated get_events_data method. Use get_all_events_data() + filter_events_by_preferences() instead")
+        return self.get_all_events_data()
         
     def parse_event_types(self, event_type):
         if isinstance(event_type, list):
@@ -777,12 +802,12 @@ class EventRecommendationSystem:
         return interactions
     
     def build_user_features(self, users):
-        """Build user features - implement your logic"""
+        """Build user features WITHOUT preferences to avoid ML bias - filtering happens at API level"""
 
         user_feature_tuples = []
         for user in users:
             identifier = user.get("email") or user.get("name")
-            current_user_preferences = self.parse_preferences(user.get("preferences", []))
+            # REMOVED: current_user_preferences - let the model learn from behavior, not stated preferences
             birthday = user.get("birthday")
             age = self.calculate_age(birthday) if birthday else None
             age_group = self.get_age_group(age) if age is not None else None
@@ -790,7 +815,8 @@ class EventRecommendationSystem:
             end_time = user.get("end-time")
             time_tag = self.get_time_tag(start_time, end_time) if start_time and end_time else None
             gender = user.get("gender")
-            user_feature_tuples.append((identifier, [current_user_preferences, age_group, time_tag, gender]))
+            # Note: preferences removed - model learns from actual save/reject behavior instead
+            user_feature_tuples.append((identifier, [age_group, time_tag, gender]))
 
         return user_feature_tuples
     
@@ -863,8 +889,8 @@ class EventRecommendationSystem:
         r = 6371  # Radius of earth in kilometers
         return c * r
     
-    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None, use_calendar_filter=False, selected_dates=None, user_start_time=None, user_end_time=None):
-        """Main recommendation function"""
+    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None, use_calendar_filter=False, selected_dates=None, user_start_time=None, user_end_time=None, event_type_preferences=None):
+        """Main recommendation function - ML model is preference-agnostic, filtering happens at API level"""
         try:
             print(f"Starting recommendation process for email: {email}")
 
@@ -887,6 +913,7 @@ class EventRecommendationSystem:
             print(f"Processing recommendation for: {email}")
             print(f"Location: {latitude}, {longitude}")
             print(f"Rejected events: {rejected_events}")
+            print(f"UI Event type preferences: {event_type_preferences}")
             
             # 1. Fetch the target user's preferences
             try:
@@ -901,7 +928,19 @@ class EventRecommendationSystem:
 
             # Parse user data
             try:
-                user_preferences = self.parse_preferences(user_data.get("preferences", []))
+                # IMPORTANT: Use UI preferences if provided, otherwise fall back to user profile preferences
+                if event_type_preferences is not None:
+                    all_preferences = event_type_preferences
+                    print(f"🎯 Using UI event type preferences: {all_preferences}")
+                else:
+                    all_preferences = self.parse_preferences(user_data.get("preferences", []))
+                    print(f"📊 Using profile event type preferences: {all_preferences}")
+                
+                # Extract featured events preference and regular event types
+                featured_only = "Featured Events" in all_preferences
+                user_preferences = [pref for pref in all_preferences if pref != "Featured Events"]
+                print(f"🎯 Extracted preferences - Event types: {user_preferences}, Featured only: {featured_only}")
+                
                 user_travel_distance = user_data.get("travel-distance", 50)
                 saved_events = user_data.get("saved_events", [])
                 
@@ -909,7 +948,6 @@ class EventRecommendationSystem:
                 final_start_time = user_start_time if user_start_time else user_data.get("start-time")
                 final_end_time = user_end_time if user_end_time else user_data.get("end-time")
                 
-                print(f"User preferences parsed: {user_preferences}")
                 print(f"Time filters - request: {user_start_time}-{user_end_time}, profile: {user_data.get('start-time')}-{user_data.get('end-time')}, final: {final_start_time}-{final_end_time}")
             except Exception as e:
                 print(f"Error parsing user data: {str(e)}")
@@ -919,10 +957,22 @@ class EventRecommendationSystem:
             if isinstance(saved_events, str):
                 saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
 
-            # 2. Query all_events from Supabase
+            # 2. Fetch ALL events from Supabase (no filtering at database level)
             try:
-                all_events_raw = self.get_events_data(user_preferences if user_preferences else None)
-                print(f"Events fetched: {len(all_events_raw)}")
+                all_events_raw = self.get_all_events_data()
+                print(f"All events fetched: {len(all_events_raw)}")
+                
+                # 3. Apply preference filtering AFTER getting all events
+                print(f"🔍 Filtering - Event types: {user_preferences}, Featured only: {featured_only}")
+                if user_preferences or featured_only:
+                    events_before_pref = len(all_events_raw)
+                    all_events_raw = self.filter_events_by_preferences(all_events_raw, user_preferences, featured_only)
+                    events_after_pref = len(all_events_raw)
+                    print(f"✅ Preference filtering: {events_before_pref} -> {events_after_pref} events (filtered out: {events_before_pref - events_after_pref})")
+                    print(f"🎯 Applied filters - Event types: {user_preferences}, Featured only: {featured_only}")
+                else:
+                    print("No preferences or featured filter to apply, using all events")
+                    
             except Exception as e:
                 print(f"Error fetching events: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error fetching events: {str(e)}")
@@ -998,9 +1048,9 @@ class EventRecommendationSystem:
                     "total_found": 0
                 }
 
-            # 4. ML Recommendation logic - OPTIMIZED
+            # 4. ML Recommendation logic - SIMPLIFIED (no preference bias in ML model)
             try:
-                # GET SOCIAL CONNECTIONS DATA for social boosting (needed for both fast and slow paths)
+                # GET SOCIAL CONNECTIONS DATA for social boosting
                 social_connections_data = []
                 if user_data and user_data.get("id"):
                     social_connections_data = self.get_user_social_connections(user_data.get("id"))
@@ -1059,15 +1109,21 @@ class EventRecommendationSystem:
                         print("Warning: No interactions found for training!")
 
                     user_feature_tuples = self.build_user_features(all_users)
-                    print(f"User features built: {len(user_feature_tuples)}")
+                    print(f"User features built: {len(user_feature_tuples)} (WITHOUT preference bias)")
 
-                    event_feature_tuples = self.build_event_features(all_events_filtered)
+                    # Get ALL events for ML training (not just preference-filtered events)
+                    all_events_for_training = self.get_all_events_data()
+                    training_event_ids = [event["id"] for event in all_events_for_training]
+                    print(f"All events for training: {len(all_events_for_training)}")
+                    
+                    # Use ALL events for feature building (not just filtered events)
+                    event_feature_tuples = self.build_event_features(all_events_for_training)
                     print(f"Event features built: {len(event_feature_tuples)}")
                     
                     # Load or train model for this user
                     status = self.rec.load_or_train(
                         user_emails, 
-                        event_ids_filtered, 
+                        training_event_ids,  # Use all event IDs for training
                         user_feature_tuples, 
                         event_feature_tuples, 
                         interactions,
@@ -1092,6 +1148,7 @@ class EventRecommendationSystem:
                 # Get social connections' saved events for post-processing boost
                 social_connections_saved_events = set()
                 if user_data and user_data.get("id"):
+                    print(f"🌐 Processing {len(social_connections_data)} social connections for social boost...")
                     for connection in social_connections_data:
                         connection_saved = connection.get("saved_events_all_time", []) or connection.get("saved_events", [])
                         if connection_saved:
@@ -1103,6 +1160,11 @@ class EventRecommendationSystem:
                             elif not isinstance(connection_saved, (list, tuple)):
                                 connection_saved = []
                             social_connections_saved_events.update(connection_saved)
+                            print(f"🤝 Connection {connection.get('email', 'unknown')} has {len(connection_saved)} saved events")
+                    
+                    print(f"📊 Total unique social events found: {len(social_connections_saved_events)}")
+                    if social_connections_saved_events:
+                        print(f"📊 Social event IDs: {list(social_connections_saved_events)[:10]}...")  # Show first 10
                 
                 # Get the full event objects for the recommended events with enhanced scoring
                                                  # Get the full event objects for the recommended events with enhanced scoring
@@ -1111,22 +1173,90 @@ class EventRecommendationSystem:
                 regular_events = []
                 social_events = []
                 
+                print(f"🔍 Processing {len(recommendations)} recommended events...")
+                missing_events = []
+                
+                # CRITICAL FIX: Look up recommended events from FILTERED events only  
+                # This ensures that preference filtering is respected in final recommendations
+                print(f"🔍 Looking up {len(recommendations)} ML recommendations in {len(all_events_filtered)} preference-filtered events")
+                
                 for eid, score in recommendations:
-                    # Find the full event object from all_events_filtered
+                    # IMPORTANT: Find event object from FILTERED events (respects user preferences)
                     event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                     if event_obj:
+                        # DEBUG: Check event types to confirm filtering worked
+                        event_types = event_obj.get('event_type', [])
+                        if isinstance(event_types, str):
+                            event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+                        print(f"✅ ML recommendation {eid} matches filter - event types: {event_types}")
                         # SOCIAL POST-PROCESSING BOOST: Additional boost for socially-saved events
                         if eid in social_connections_saved_events:
                             social_boosted_score = score * 1.4  # 40% additional boost for social recommendations
-                            print(f"🎯 Post-processing social boost applied to event {eid}")
+                            print(f"🎯 Post-processing social boost applied to event {eid} (score: {score:.3f} -> {social_boosted_score:.3f})")
                             social_events.append((event_obj, social_boosted_score))
                         # FEATURED POST-PROCESSING BOOST: Separate featured and regular events
                         elif event_obj.get("featured", False):
                             # Apply additional score boost to featured events
                             boosted_score = score * 1.3  # 30% score boost
+                            print(f"⭐ Featured event boost applied to event {eid} (score: {score:.3f} -> {boosted_score:.3f})")
                             featured_events.append((event_obj, boosted_score))
                         else:
+                            print(f"📝 Regular event {eid} (score: {score:.3f})")
                             regular_events.append((event_obj, score))
+                    else:
+                        print(f"⚠️ Warning: Event {eid} not found in database")
+                        missing_events.append(eid)
+                
+                # CONSERVATIVE FALLBACK: Only use fallback if NO ML recommendations match filters
+                # This is expected behavior when user preferences filter out ML recommendations
+                if len(missing_events) >= len(recommendations) and len(recommendations) > 0:  # ALL missing
+                    print(f"🔄 FALLBACK: {len(missing_events)}/{len(recommendations)} recommended events missing. Using rule-based fallback...")
+                    print(f"💡 SUGGESTION: Model may be stale. Consider retraining with current event data.")
+                    
+                    # Score available events based on social connections and features
+                    fallback_events = []
+                    for event in all_events_filtered:
+                        eid = event["id"]
+                        base_score = 0.5  # Base score for all events
+                        
+                        # Social boost
+                        if eid in social_connections_saved_events:
+                            base_score += 0.4
+                            print(f"🎯 Fallback social boost for event {eid}")
+                        
+                        # Featured boost
+                        if event.get("featured", False):
+                            base_score += 0.3
+                        
+                        # User preference match boost
+                        event_types = event.get('event_type', [])
+                        if isinstance(event_types, str):
+                            event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+                        
+                        user_preferences = self.parse_preferences(user_data.get("preferences", []))
+                        if any(pref in event_types for pref in user_preferences):
+                            base_score += 0.2
+                        
+                        fallback_events.append((event, base_score))
+                    
+                    # Sort by score and take top 5
+                    fallback_events.sort(key=lambda x: x[1], reverse=True)
+                    
+                    # Re-categorize fallback events
+                    social_events = []
+                    featured_events = []
+                    regular_events = []
+                    
+                    for event, score in fallback_events[:5]:
+                        eid = event["id"]
+                        if eid in social_connections_saved_events:
+                            social_events.append((event, score))
+                        elif event.get("featured", False):
+                            featured_events.append((event, score))
+                        else:
+                            regular_events.append((event, score))
+                    
+                    print(f"🔄 Fallback generated: {len(social_events)} social, {len(featured_events)} featured, {len(regular_events)} regular events")
                 
                 # Sort each group by score
                 social_events.sort(key=lambda x: x[1], reverse=True)
@@ -1215,7 +1345,8 @@ async def get_recommendations(request_data: RecommendationRequest, request: Requ
         use_calendar_filter=request_data.use_calendar_filter,
         selected_dates=request_data.selected_dates,
         user_start_time=request_data.user_start_time,
-        user_end_time=request_data.user_end_time
+        user_end_time=request_data.user_end_time,
+        event_type_preferences=request_data.event_type_preferences
     )
     
     return RecommendationResponse(**result)
@@ -1231,7 +1362,8 @@ async def get_recommendations_get(
     use_calendar_filter: bool = Query(False, description="Whether to use calendar date filtering"),
     selected_dates: str = Query("", description="Comma-separated selected dates in YYYY-MM-DD format"),
     user_start_time: Optional[str] = Query(None, description="User start time filter (HH:MM format)"),
-    user_end_time: Optional[str] = Query(None, description="User end time filter (HH:MM format)")
+    user_end_time: Optional[str] = Query(None, description="User end time filter (HH:MM format)"),
+    event_type_preferences: str = Query("", description="Comma-separated event type preferences from UI")
 ):
     """Get event recommendations via GET request"""
     # Get token from Authorization header
@@ -1246,6 +1378,11 @@ async def get_recommendations_get(
     if use_calendar_filter and selected_dates:
         parsed_selected_dates = [date.strip() for date in selected_dates.split(',') if date.strip()]
     
+    # Parse event_type_preferences from comma-separated string
+    parsed_event_type_preferences = None
+    if event_type_preferences:
+        parsed_event_type_preferences = [pref.strip() for pref in event_type_preferences.split(',') if pref.strip()]
+    
     result = recommender.recommend_events(
         token=token,
         email=email,
@@ -1256,7 +1393,8 @@ async def get_recommendations_get(
         use_calendar_filter=use_calendar_filter,
         selected_dates=parsed_selected_dates,
         user_start_time=user_start_time,
-        user_end_time=user_end_time
+        user_end_time=user_end_time,
+        event_type_preferences=parsed_event_type_preferences
     )
     
     return result
@@ -1377,6 +1515,105 @@ async def debug_filter(request: Request):
     except Exception as e:
         return {"error": str(e), "traceback": str(e)}
 
+@app.get("/debug/event-types")
+async def debug_event_types():
+    """Debug endpoint to examine event types in the database"""
+    try:
+        # Get a sample of events to examine their event_type field
+        result = recommender.Client.table("all_events").select("id, name, event_type").limit(20).execute()
+        events = result.data or []
+        
+        debug_info = {
+            "total_events_sampled": len(events),
+            "event_type_analysis": [],
+            "unique_event_types": set(),
+            "event_type_formats": {}
+        }
+        
+        for event in events:
+            event_types = event.get('event_type', [])
+            event_type_str = str(event_types)
+            event_type_type = type(event_types).__name__
+            
+            # Parse event types
+            parsed_types = []
+            if isinstance(event_types, list):
+                parsed_types = event_types
+            elif isinstance(event_types, str):
+                parsed_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+            
+            debug_info["event_type_analysis"].append({
+                "id": event.get("id"),
+                "name": event.get("name", "")[:50],  # Truncate name
+                "event_type_raw": event_type_str,
+                "event_type_type": event_type_type,
+                "parsed_types": parsed_types
+            })
+            
+            # Track unique types
+            for ptype in parsed_types:
+                debug_info["unique_event_types"].add(ptype)
+            
+            # Track format types
+            if event_type_type not in debug_info["event_type_formats"]:
+                debug_info["event_type_formats"][event_type_type] = 0
+            debug_info["event_type_formats"][event_type_type] += 1
+        
+        # Convert set to list for JSON serialization
+        debug_info["unique_event_types"] = list(debug_info["unique_event_types"])
+        
+        # Compare with expected types
+        debug_info["expected_event_types"] = EVENT_TYPES
+        debug_info["missing_types"] = [t for t in EVENT_TYPES if t not in debug_info["unique_event_types"]]
+        debug_info["extra_types"] = [t for t in debug_info["unique_event_types"] if t not in EVENT_TYPES]
+        
+        return debug_info
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/debug/test-filter")
+async def test_event_type_filter(request: Request):
+    """Test event type filtering with specific preferences"""
+    try:
+        body = await request.json()
+        test_preferences = body.get("preferences", [])
+        
+        if not test_preferences:
+            return {"error": "Please provide preferences to test"}
+        
+        print(f"🧪 Testing filter with preferences: {test_preferences}")
+        
+        # Test the filtering
+        filtered_events = recommender.get_events_data(test_preferences)
+        
+        debug_info = {
+            "test_preferences": test_preferences,
+            "filtered_event_count": len(filtered_events),
+            "sample_filtered_events": []
+        }
+        
+        # Get sample of filtered events
+        for event in filtered_events[:5]:
+            event_types = event.get('event_type', [])
+            if isinstance(event_types, str):
+                parsed_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+            else:
+                parsed_types = event_types
+                
+            debug_info["sample_filtered_events"].append({
+                "id": event.get("id"),
+                "name": event.get("name", "")[:50],
+                "event_type_raw": str(event_types),
+                "parsed_types": parsed_types,
+                "matches_filter": any(pref in parsed_types for pref in test_preferences)
+            })
+        
+        return debug_info
+        
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.post("/admin/train")
 async def admin_trigger_training(request: Request):
     """Admin endpoint to trigger model training for any user (requires service role key)"""
@@ -1429,13 +1666,13 @@ async def admin_trigger_training(request: Request):
         user_emails = [user.get("email") for user in all_users if user.get("email")]
         event_ids = [event["id"] for event in all_events]
         
-        # Get friend data for social boosting
-        friends_data = []
+        # Get social connections data for social boosting
+        social_connections_data = []
         if user_data and user_data.get("id"):
-            friends_data = recommender.get_user_friends(user_data.get("id"))
-            print(f"🤝 Found {len(friends_data)} friends for user {email}")
+            social_connections_data = recommender.get_user_social_connections(user_data.get("id"))
+            print(f"🤝 Found {len(social_connections_data)} social connections for user {email}")
         
-        interactions = recommender.build_enhanced_interactions(all_users, target_user_email=email, friends_data=friends_data)
+        interactions = recommender.build_enhanced_interactions(all_users, target_user_email=email, social_connections_data=social_connections_data)
         user_feature_tuples = recommender.build_user_features(all_users)
         event_feature_tuples = recommender.build_event_features(all_events)
         
@@ -1503,13 +1740,13 @@ async def trigger_training(request: Request):
         user_emails = [user.get("email") for user in all_users if user.get("email")]
         event_ids = [event["id"] for event in all_events]
         
-        # Get friend data for social boosting
-        friends_data = []
+        # Get social connections data for social boosting
+        social_connections_data = []
         if user_data and user_data.get("id"):
-            friends_data = recommender.get_user_friends(user_data.get("id"))
-            print(f"🤝 Found {len(friends_data)} friends for user {email}")
+            social_connections_data = recommender.get_user_social_connections(user_data.get("id"))
+            print(f"🤝 Found {len(social_connections_data)} social connections for user {email}")
         
-        interactions = recommender.build_enhanced_interactions(all_users, target_user_email=email, friends_data=friends_data)
+        interactions = recommender.build_enhanced_interactions(all_users, target_user_email=email, social_connections_data=social_connections_data)
         user_feature_tuples = recommender.build_user_features(all_users)
         event_feature_tuples = recommender.build_event_features(all_events)
         

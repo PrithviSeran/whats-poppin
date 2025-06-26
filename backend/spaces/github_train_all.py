@@ -101,7 +101,7 @@ def main():
                 
                 data = {
                     'email': email,
-                    'force_retrain': force_retrain
+                    'force_retrain': True  # Force retrain since we're running workflow
                 }
                 
                 # Call the /admin/train endpoint (for service role access)
@@ -115,11 +115,18 @@ def main():
                 if response.status_code == 200:
                     result_data = response.json()
                     status = result_data.get('status', 'unknown')
-                    print(f"✅ {email}: {status}")
-                    trained_count += 1
+                    success = result_data.get('success', False)
+                    message = result_data.get('message', '')
+                    print(f"✅ {email}: {status} - {message}")
+                    if 'error' in result_data:
+                        print(f"⚠️ {email}: Training had error: {result_data['error']}")
+                        failed_count += 1
+                    else:
+                        trained_count += 1
                 else:
-                    error_text = response.text[:200] + "..." if len(response.text) > 200 else response.text
-                    print(f"❌ {email}: HTTP {response.status_code} - {error_text}")
+                    error_text = response.text[:500] + "..." if len(response.text) > 500 else response.text
+                    print(f"❌ {email}: HTTP {response.status_code}")
+                    print(f"   Response: {error_text}")
                     failed_count += 1
                 
                 # Small delay to avoid overwhelming the system

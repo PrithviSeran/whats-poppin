@@ -377,10 +377,14 @@ export default function SuggestedEvents() {
         }
       }
 
-      // Get current user profile to extract time preferences
+            // Get current user profile to extract time and event type preferences
       const userProfile = await dataManager.getUserProfile();
       const currentStartTime = userProfile?.['start-time'] || '21:00';
       const currentEndTime = userProfile?.['end-time'] || '03:00';
+      
+      // Use profile preferences (this is the original working logic)
+      const eventTypePreferences = userProfile?.preferences || [];
+      console.log('📊 Using profile event type preferences:', eventTypePreferences);
 
       const requestBody = {
         email: currentUserEmail,
@@ -391,7 +395,8 @@ export default function SuggestedEvents() {
         selected_dates: selectedDates,
         use_calendar_filter: isCalendarMode === 'true' && selectedDates.length > 0,
         user_start_time: currentStartTime,
-        user_end_time: currentEndTime
+        user_end_time: currentEndTime,
+        event_type_preferences: eventTypePreferences
       };
 
       const response = await fetch('https://iamtheprince-whats-poppin.hf.space/recommend', {
