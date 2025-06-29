@@ -10,6 +10,7 @@ from supabase import create_client, Client
 from datetime import datetime, timedelta
 import uvicorn
 import sys
+import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from beacon_torch_cloud import HuggingFaceBeaconAI
 
@@ -102,51 +103,43 @@ class EventRecommendationSystem:
             print(f"Error fetching user data: {e}")
             return None
     
-    def get_user_social_connections(self, user_id):
-        """Get list of user's friends and following with their saved events for social recommendations"""
-        try:
-            social_connections = []
-            
-            # Get user's friends using the RPC function
-            friends_result = self.Client.rpc('get_user_friends', {
-                'target_user_id': user_id
-            }).execute()
-            
-            # Get user's following using the RPC function
-            following_result = self.Client.rpc('get_user_following', {
-                'target_user_id': user_id
-            }).execute()
-            
-            # Collect all connection emails
-            connection_emails = []
-            
-            if friends_result.data:
-                friend_emails = [friend['friend_email'] for friend in friends_result.data]
-                connection_emails.extend(friend_emails)
-                print(f"🤝 Found {len(friend_emails)} friends for user {user_id}")
-            
-            if following_result.data:
-                following_emails = [following['following_email'] for following in following_result.data]
-                connection_emails.extend(following_emails)
-                print(f"👥 Found {len(following_emails)} following for user {user_id}")
-            
-            # Remove duplicates (some people might be both friends and followed)
-            unique_emails = list(set(connection_emails))
-            
-            # Get social connections' saved events
-            if unique_emails:
-                connections_data = self.Client.table("all_users").select(
-                    "email, saved_events, saved_events_all_time"
-                ).in_("email", unique_emails).execute()
-                
-                print(f"🌐 Total unique social connections: {len(unique_emails)}")
-                return connections_data.data
-            
-            return []
-        except Exception as e:
-            print(f"Error fetching user social connections: {e}")
-            return []
+    def get_featured_events_batch(self, event_ids):
+        """Batch fetch featured status for multiple events - MUCH faster than individual calls"""
+        if not event_ids:
+            return {}
         
+        try:
+            # Single API call to get all featured statuses
+            result = self.Client.table("all_events").select("id, featured").in_("id", list(event_ids)).execute()
+            
+            # Build lookup dictionary
+            featured_lookup = {}
+            if result.data:
+                for event in result.data:
+                    featured_lookup[event["id"]] = event.get("featured", False)
+            
+            # Fill in missing events as non-featured
+            for event_id in event_ids:
+                if event_id not in featured_lookup:
+                    featured_lookup[event_id] = False
+                    
+            print(f"📊 Batch featured lookup: {len(featured_lookup)} events, {sum(featured_lookup.values())} featured")
+            return featured_lookup
+            
+        except Exception as e:
+            print(f"Error in batch featured lookup: {e}")
+            return {event_id: False for event_id in event_ids}
+    
+    def is_featured_event(self, event_id):
+        """Individual featured check - DEPRECATED: Use get_featured_events_batch() for efficiency"""
+        print(f"⚠️ WARNING: Using individual featured lookup for event {event_id}. Consider batch lookup for better performance.")
+        try:
+            result = self.Client.table("all_events").select("featured").eq("id", event_id).maybe_single().execute()
+            return result.data.get("featured", False) if result.data else False
+        except Exception as e:
+            print(f"Error checking featured status for event {event_id}: {e}")
+            return False
+
     def get_age_group(self, age):
         if age is None:
             return None
@@ -581,10 +574,16 @@ class EventRecommendationSystem:
                         event["distance"] = None
         return all_events_filtered
     
-    def build_interactions(self, users):
-        """Build user interactions using saved_events_all_time for richer interaction history"""
+    def build_interactions(self, users, events_data=None):
+        """Build user interactions with optional events data to avoid N+1 queries for featured lookups"""
         interactions = []
         total_users_with_interactions = 0
+        
+        # Build featured lookup from events_data if provided (N+1 query optimization)
+        featured_lookup = {}
+        if events_data:
+            featured_lookup = {event["id"]: event.get("featured", False) for event in events_data}
+            print(f"🚀 N+1 optimization: Built featured lookup for {len(featured_lookup)} events from existing data")
         
         for user in users:
             user_name = user.get("email")
@@ -629,12 +628,17 @@ class EventRecommendationSystem:
             
             current_saved_set = set(current_saved_events)
             
-            # Create weighted interactions
+            # Create weighted interactions with optional featured boosting
             for event_id in saved_events_all_time:
                 try:
                     event_id = int(event_id)
-                    # Give higher weight (2.0) to currently saved events, normal weight (1.0) to historical likes
+                    # Base weight: higher (2.0) for currently saved events, normal (1.0) for historical
                     weight = 2.0 if event_id in current_saved_set else 1.0
+                    
+                    # N+1 optimized featured boost: use lookup dict instead of individual API calls
+                    if featured_lookup and featured_lookup.get(event_id, False):
+                        weight *= 1.5  # 50% boost for featured events
+                    
                     interactions.append((user_name, event_id, weight))
                 except (ValueError, TypeError):
                     # Skip invalid event IDs
@@ -647,159 +651,16 @@ class EventRecommendationSystem:
             unique_users = len(set(interaction[0] for interaction in interactions))
             unique_events = len(set(interaction[1] for interaction in interactions))
             avg_interactions_per_user = len(interactions) / unique_users if unique_users > 0 else 0
+            featured_interactions = sum(1 for _, event_id, weight in interactions if weight > 2.0)
             print(f"Interaction stats: {unique_users} unique users, {unique_events} unique events, {avg_interactions_per_user:.2f} avg interactions per user")
+            if featured_lookup:
+                print(f"Featured boost applied to {featured_interactions} interactions")
         
         return interactions
     
-    def is_featured_event(self, event_id):
-        """Helper method to check if an event is featured"""
-        try:
-            result = self.Client.table("all_events").select("featured").eq("id", event_id).single().execute()
-            return result.data.get("featured", False) if result.data else False
-        except Exception:
-            return False
+
     
-    def build_enhanced_interactions(self, users, target_user_email=None, social_connections_data=None):
-        """Build enhanced interactions including both positive (saved) and negative (rejected) interactions with social boosting"""
-        interactions = []
-        total_users_with_interactions = 0
-        
-        # Build social connections events set for boosting
-        social_saved_events = set()
-        if target_user_email and social_connections_data:
-            for connection in social_connections_data:
-                connection_saved = connection.get("saved_events_all_time", []) or connection.get("saved_events", [])
-                if connection_saved:
-                    if isinstance(connection_saved, str):
-                        try:
-                            connection_saved = [int(e.strip()) for e in connection_saved.strip('{}').split(',') if e.strip()]
-                        except (ValueError, AttributeError):
-                            connection_saved = []
-                    elif not isinstance(connection_saved, (list, tuple)):
-                        connection_saved = []
-                    
-                    social_saved_events.update(connection_saved)
-            
-            print(f"🌐 Social network: {len(social_connections_data)} connections with {len(social_saved_events)} unique saved events")
-        
-        for user in users:
-            user_name = user.get("email")
-            if not user_name:
-                continue
-            
-            user_has_interactions = False
-            is_target_user = (user_name == target_user_email)
-            
-            # Positive interactions from saved_events_all_time
-            saved_events_all_time = user.get("saved_events_all_time", [])
-            if not saved_events_all_time:
-                saved_events_all_time = user.get("saved_events", [])
-            
-            # Ensure saved_events_all_time is not None and is iterable
-            if saved_events_all_time is None:
-                saved_events_all_time = []
-            elif isinstance(saved_events_all_time, str):
-                try:
-                    saved_events_all_time = [int(e.strip()) for e in saved_events_all_time.strip('{}').split(',') if e.strip()]
-                except (ValueError, AttributeError):
-                    saved_events_all_time = []
-            elif not isinstance(saved_events_all_time, (list, tuple)):
-                saved_events_all_time = []
-            
-            # Get current saved events for weighting
-            current_saved_events = user.get("saved_events", [])
-            if current_saved_events is None:
-                current_saved_events = []
-            elif isinstance(current_saved_events, str):
-                try:
-                    current_saved_events = [int(e.strip()) for e in current_saved_events.strip('{}').split(',') if e.strip()]
-                except (ValueError, AttributeError):
-                    current_saved_events = []
-            elif not isinstance(current_saved_events, (list, tuple)):
-                current_saved_events = []
-            
-            current_saved_set = set(current_saved_events)
-            
-            # Add positive interactions with enhanced weighting
-            for event_id in saved_events_all_time:
-                try:
-                    event_id = int(event_id)
-                    # Higher weight for currently saved events
-                    base_weight = 2.0 if event_id in current_saved_set else 1.0
-                    
-                    # FEATURED BOOST: Check if this is a featured event
-                    is_featured = self.is_featured_event(event_id)
-                    featured_multiplier = 1.5 if is_featured else 1.0
-                    
-                    # SOCIAL BOOST: For target user, boost events that social connections have saved
-                    social_multiplier = 1.0
-                    if is_target_user and event_id in social_saved_events:
-                        social_multiplier = 1.8  # 80% boost for socially-saved events
-                        print(f"🎯 Social boost applied to event {event_id} for user {user_name}")
-                    
-                    final_weight = base_weight * featured_multiplier * social_multiplier
-                    interactions.append((user_name, event_id, final_weight))
-                    user_has_interactions = True
-                except (ValueError, TypeError):
-                    continue
-            
-            # SOCIAL RECOMMENDATION INJECTION: Add virtual interactions for socially-saved events
-            if is_target_user and social_saved_events:
-                target_saved_set = set(saved_events_all_time)
-                for social_event_id in social_saved_events:
-                    if social_event_id not in target_saved_set:  # Don't duplicate existing interactions
-                        # Add synthetic positive interaction based on social recommendation
-                        social_rec_weight = 1.2  # Medium positive weight for social recommendations
-                        interactions.append((user_name, social_event_id, social_rec_weight))
-                        user_has_interactions = True
-            
-            # Negative interactions from rejected_events (with reduced penalty for featured)
-            rejected_events = user.get("rejected_events", [])
-            if rejected_events is None:
-                rejected_events = []
-            elif isinstance(rejected_events, str):
-                try:
-                    rejected_events = [int(e.strip()) for e in rejected_events.strip('{}').split(',') if e.strip()]
-                except (ValueError, AttributeError):
-                    rejected_events = []
-            elif not isinstance(rejected_events, (list, tuple)):
-                rejected_events = []
-            
-            # Add negative interactions with reduced penalty for featured events and friend-saved events
-            for event_id in rejected_events:
-                try:
-                    event_id = int(event_id)
-                    # FEATURED PROTECTION: Reduce negative impact for featured events
-                    is_featured = self.is_featured_event(event_id)
-                    base_negative_weight = -0.25 if is_featured else -0.5
-                    
-                    # SOCIAL PROTECTION: Reduce negative impact if social connections have saved this event
-                    if is_target_user and event_id in social_saved_events:
-                        base_negative_weight *= 0.5  # Halve the negative impact for socially-saved events
-                        print(f"🛡️ Social protection applied to rejected event {event_id} for user {user_name}")
-                    
-                    interactions.append((user_name, event_id, base_negative_weight))
-                    user_has_interactions = True
-                except (ValueError, TypeError):
-                    continue
-            
-            if user_has_interactions:
-                total_users_with_interactions += 1
-                
-        print(f"Built {len(interactions)} enhanced interactions (positive + negative + friends) from {total_users_with_interactions} users")
-        
-        # Log statistics
-        if interactions:
-            positive_interactions = [i for i in interactions if i[2] > 0]
-            negative_interactions = [i for i in interactions if i[2] < 0]
-            social_boosted = [i for i in interactions if i[2] > 2.5]  # Likely socially-boosted
-            unique_users = len(set(interaction[0] for interaction in interactions))
-            unique_events = len(set(interaction[1] for interaction in interactions))
-            
-            print(f"Enhanced interaction stats: {len(positive_interactions)} positive, {len(negative_interactions)} negative, {len(social_boosted)} socially-boosted")
-            print(f"Users: {unique_users}, Events: {unique_events}")
-        
-        return interactions
+
     
     def build_user_features(self, users):
         """Build user features WITHOUT preferences to avoid ML bias - filtering happens at API level"""
@@ -953,9 +814,30 @@ class EventRecommendationSystem:
                 print(f"Error parsing user data: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error parsing user data: {str(e)}")
 
-            # Handle saved_events format
-            if isinstance(saved_events, str):
-                saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
+            # Handle saved_events format with better error handling
+            try:
+                if isinstance(saved_events, str):
+                    if saved_events.strip():
+                        saved_events = [int(e.strip()) for e in saved_events.strip('{}').split(',') if e.strip()]
+                    else:
+                        saved_events = []
+                elif saved_events is None:
+                    saved_events = []
+                elif not isinstance(saved_events, list):
+                    saved_events = []
+                print(f"💾 Parsed saved_events: {saved_events}")
+            except Exception as e:
+                print(f"⚠️ Error parsing saved_events: {e}, defaulting to empty list")
+                saved_events = []
+                
+            # Additional validation for rejected_events parsing
+            try:
+                if not isinstance(rejected_events, list):
+                    rejected_events = []
+                print(f"🚫 Parsed rejected_events: {rejected_events}")
+            except Exception as e:
+                print(f"⚠️ Error parsing rejected_events: {e}, defaulting to empty list") 
+                rejected_events = []
 
             # 2. Fetch ALL events from Supabase (no filtering at database level)
             try:
@@ -1036,6 +918,7 @@ class EventRecommendationSystem:
                 exclude_ids = set(saved_events) | set(rejected_events)
                 final_events = [e for e in all_events_filtered if e["id"] not in exclude_ids]
                 event_ids_filtered = [event["id"] for event in final_events]
+                print(f"🚫 Excluded IDs (saved + rejected): {exclude_ids}")
                 print(f"Events after removing saved/rejected: {len(event_ids_filtered)}")
             except Exception as e:
                 print(f"Error filtering saved/rejected events: {str(e)}")
@@ -1048,260 +931,65 @@ class EventRecommendationSystem:
                     "total_found": 0
                 }
 
-            # 4. ML Recommendation logic - SIMPLIFIED (no preference bias in ML model)
-            try:
-                # GET SOCIAL CONNECTIONS DATA for social boosting
-                social_connections_data = []
-                if user_data and user_data.get("id"):
-                    social_connections_data = self.get_user_social_connections(user_data.get("id"))
-                    print(f"🌐 Found {len(social_connections_data)} social connections for user {email}")
-                
-                # Use cloud-native BeaconAI for per-user models
-                self.rec.user_id = email  # Set user ID for per-user model storage
-                
-                # TRY FAST PATH: Load existing model without rebuilding features
-                print("🚀 Attempting fast inference path...")
-                model_status = self.rec.load_model_if_exists()
-                
-                if model_status and self.rec.is_model_loaded():
-                    print("✅ Using pre-trained model for fast inference")
-                    # Extract liked/rejected event IDs for simple filtering
-                    liked_and_rejected_ids = set(saved_events) | set(rejected_events)
-                    
-                    # Fast recommendation without feature/interaction building
-                    recommendations = self.rec.recommend_for_user(
-                        email,
-                        top_n=5,
-                        filter_liked=True,
-                        liked_event_ids=list(liked_and_rejected_ids)
-                    )
-                    print(f"🚀 Fast recommendations generated: {len(recommendations)}")
-                    
-                else:
-                    print("📚 No existing model found, falling back to training...")
-                    # SLOW PATH: Need to build features and train
-                    # Fetch all users with their interaction history
-                    all_users_result = self.Client.table("all_users").select(
-                        "email, preferences, travel-distance, saved_events, saved_events_all_time, rejected_events, start-time, end-time, birthday, gender, preferred_days"
-                    ).execute()
-                    all_users = all_users_result.data
-                    print(f"Users fetched: {len(all_users)}")
-                
-                    user_emails = [user.get("email") for user in all_users if user.get("email")]
-                    
-                    # Choose interaction method based on data availability
-                    use_enhanced_interactions = True  # Can be made configurable
-                    
-                    if use_enhanced_interactions:
-                        interactions = self.build_enhanced_interactions(all_users, target_user_email=email, social_connections_data=social_connections_data)
-                        print(f"Enhanced interactions built: {len(interactions)}")
-                    else:
-                        interactions = self.build_interactions(all_users)
-                        print(f"Basic interactions built: {len(interactions)}")
-                    
-                    # Debug: Show sample interactions
-                    if interactions:
-                        print(f"Debug: Sample interactions: {interactions[:5]}")
-                        positive_interactions = [i for i in interactions if i[2] > 0]
-                        negative_interactions = [i for i in interactions if i[2] < 0]
-                        print(f"Debug: Positive interactions: {len(positive_interactions)}, Negative: {len(negative_interactions)}")
-                    else:
-                        print("Warning: No interactions found for training!")
+            # 4. ML Recommendation logic
+            all_users_result = self.Client.table("all_users").select(
+                "email, preferences, travel-distance, saved_events, saved_events_all_time, rejected_events, start-time, end-time, birthday, gender, preferred_days"
+            ).execute()
+            all_users = all_users_result.data
+            user_emails = [user.get("email") for user in all_users if user.get("email")]
+            event_ids = [event["id"] for event in all_events_filtered]
 
-                    user_feature_tuples = self.build_user_features(all_users)
-                    print(f"User features built: {len(user_feature_tuples)} (WITHOUT preference bias)")
+            # N+1 Query Optimization: Pass events data to avoid individual featured lookups
+            interactions = self.build_interactions(all_users, events_data=all_events_filtered)
+            user_feature_tuples = self.build_user_features(all_users)
+            event_feature_tuples = self.build_event_features(all_events_filtered)
 
-                    # Get ALL events for ML training (not just preference-filtered events)
-                    all_events_for_training = self.get_all_events_data()
-                    training_event_ids = [event["id"] for event in all_events_for_training]
-                    print(f"All events for training: {len(all_events_for_training)}")
-                    
-                    # Use ALL events for feature building (not just filtered events)
-                    event_feature_tuples = self.build_event_features(all_events_for_training)
-                    print(f"Event features built: {len(event_feature_tuples)}")
-                    
-                    # Load or train model for this user
-                    status = self.rec.load_or_train(
-                        user_emails, 
-                        training_event_ids,  # Use all event IDs for training
-                        user_feature_tuples, 
-                        event_feature_tuples, 
-                        interactions,
-                        epochs=10,
-                        learning_rate=0.01,
-                        batch_size=256
-                    )
-                    print(f"Model status: {status}")
+            # Use cloud-native BeaconAI
+            self.rec.user_id = email
+            status = self.rec.load_or_train(
+                user_emails, event_ids, user_feature_tuples, event_feature_tuples, interactions,
+                epochs=10, learning_rate=0.01, batch_size=256
+            )
 
-                    # Extract liked/rejected event IDs for filtering
-                    liked_and_rejected_ids = set(saved_events) | set(rejected_events)
-                    
-                    # Generate recommendations with optimized filtering
-                    recommendations = self.rec.recommend_for_user(
-                        email,
-                        top_n=5,
-                        filter_liked=True,
-                        liked_event_ids=list(liked_and_rejected_ids)
-                    )
-                    print(f"📚 Training path recommendations generated: {len(recommendations)}")
+            # Generate recommendations
+            liked_and_rejected_ids = set(saved_events) | set(rejected_events)
+            recommendations = self.rec.recommend_for_user(
+                email, top_n=15, filter_liked=True, liked_event_ids=list(liked_and_rejected_ids)
+            )
 
-                # Get social connections' saved events for post-processing boost
-                social_connections_saved_events = set()
-                if user_data and user_data.get("id"):
-                    print(f"🌐 Processing {len(social_connections_data)} social connections for social boost...")
-                    for connection in social_connections_data:
-                        connection_saved = connection.get("saved_events_all_time", []) or connection.get("saved_events", [])
-                        if connection_saved:
-                            if isinstance(connection_saved, str):
-                                try:
-                                    connection_saved = [int(e.strip()) for e in connection_saved.strip('{}').split(',') if e.strip()]
-                                except (ValueError, AttributeError):
-                                    connection_saved = []
-                            elif not isinstance(connection_saved, (list, tuple)):
-                                connection_saved = []
-                            social_connections_saved_events.update(connection_saved)
-                            print(f"🤝 Connection {connection.get('email', 'unknown')} has {len(connection_saved)} saved events")
-                    
-                    print(f"📊 Total unique social events found: {len(social_connections_saved_events)}")
-                    if social_connections_saved_events:
-                        print(f"📊 Social event IDs: {list(social_connections_saved_events)[:10]}...")  # Show first 10
+            # Get the full event objects for the recommended events
+            recommended_events = []
+            for eid, score in recommendations:
+                if eid in exclude_ids:
+                    continue
+                event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
+                if event_obj:
+                    recommended_events.append(event_obj)
+
+            # Apply additional filters
+            events_filtered = recommended_events
+
+            # Apply distance filter
+            if filter_distance and latitude is not None and longitude is not None:
+                events_filtered = self.apply_distance_filter(events_filtered, latitude, longitude, filter_distance, max_distance=50)
+
+            # Apply time filters
+            if final_start_time and final_end_time:
+                events_filtered = self.filter_by_time(events_filtered, final_start_time, final_end_time)
+
+            # Apply calendar date filter
+            if use_calendar_filter and selected_dates:
+                events_filtered = self.filter_by_dates(events_filtered, selected_dates)
+
+            return {
+                "summary": f"Found {len(events_filtered)} recommended events for {email}",
+                "events": events_filtered[:5],  # Return top 5
+                "total_found": len(all_events_filtered)
+            }
+        except Exception as e:
+            print(f"Error in ML recommendation logic: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error in ML recommendation logic: {str(e)}")
                 
-                # Get the full event objects for the recommended events with enhanced scoring
-                                                 # Get the full event objects for the recommended events with enhanced scoring
-                recommended_events = []
-                featured_events = []
-                regular_events = []
-                social_events = []
-                
-                print(f"🔍 Processing {len(recommendations)} recommended events...")
-                missing_events = []
-                
-                # CRITICAL FIX: Look up recommended events from FILTERED events only  
-                # This ensures that preference filtering is respected in final recommendations
-                print(f"🔍 Looking up {len(recommendations)} ML recommendations in {len(all_events_filtered)} preference-filtered events")
-                
-                for eid, score in recommendations:
-                    # IMPORTANT: Find event object from FILTERED events (respects user preferences)
-                    event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
-                    if event_obj:
-                        # DEBUG: Check event types to confirm filtering worked
-                        event_types = event_obj.get('event_type', [])
-                        if isinstance(event_types, str):
-                            event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
-                        print(f"✅ ML recommendation {eid} matches filter - event types: {event_types}")
-                        # SOCIAL POST-PROCESSING BOOST: Additional boost for socially-saved events
-                        if eid in social_connections_saved_events:
-                            social_boosted_score = score * 1.4  # 40% additional boost for social recommendations
-                            print(f"🎯 Post-processing social boost applied to event {eid} (score: {score:.3f} -> {social_boosted_score:.3f})")
-                            social_events.append((event_obj, social_boosted_score))
-                        # FEATURED POST-PROCESSING BOOST: Separate featured and regular events
-                        elif event_obj.get("featured", False):
-                            # Apply additional score boost to featured events
-                            boosted_score = score * 1.3  # 30% score boost
-                            print(f"⭐ Featured event boost applied to event {eid} (score: {score:.3f} -> {boosted_score:.3f})")
-                            featured_events.append((event_obj, boosted_score))
-                        else:
-                            print(f"📝 Regular event {eid} (score: {score:.3f})")
-                            regular_events.append((event_obj, score))
-                    else:
-                        print(f"⚠️ Warning: Event {eid} not found in database")
-                        missing_events.append(eid)
-                
-                # CONSERVATIVE FALLBACK: Only use fallback if NO ML recommendations match filters
-                # This is expected behavior when user preferences filter out ML recommendations
-                if len(missing_events) >= len(recommendations) and len(recommendations) > 0:  # ALL missing
-                    print(f"🔄 FALLBACK: {len(missing_events)}/{len(recommendations)} recommended events missing. Using rule-based fallback...")
-                    print(f"💡 SUGGESTION: Model may be stale. Consider retraining with current event data.")
-                    
-                    # Score available events based on social connections and features
-                    fallback_events = []
-                    for event in all_events_filtered:
-                        eid = event["id"]
-                        base_score = 0.5  # Base score for all events
-                        
-                        # Social boost
-                        if eid in social_connections_saved_events:
-                            base_score += 0.4
-                            print(f"🎯 Fallback social boost for event {eid}")
-                        
-                        # Featured boost
-                        if event.get("featured", False):
-                            base_score += 0.3
-                        
-                        # User preference match boost
-                        event_types = event.get('event_type', [])
-                        if isinstance(event_types, str):
-                            event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
-                        
-                        user_preferences = self.parse_preferences(user_data.get("preferences", []))
-                        if any(pref in event_types for pref in user_preferences):
-                            base_score += 0.2
-                        
-                        fallback_events.append((event, base_score))
-                    
-                    # Sort by score and take top 5
-                    fallback_events.sort(key=lambda x: x[1], reverse=True)
-                    
-                    # Re-categorize fallback events
-                    social_events = []
-                    featured_events = []
-                    regular_events = []
-                    
-                    for event, score in fallback_events[:5]:
-                        eid = event["id"]
-                        if eid in social_connections_saved_events:
-                            social_events.append((event, score))
-                        elif event.get("featured", False):
-                            featured_events.append((event, score))
-                        else:
-                            regular_events.append((event, score))
-                    
-                    print(f"🔄 Fallback generated: {len(social_events)} social, {len(featured_events)} featured, {len(regular_events)} regular events")
-                
-                # Sort each group by score
-                social_events.sort(key=lambda x: x[1], reverse=True)
-                featured_events.sort(key=lambda x: x[1], reverse=True)
-                regular_events.sort(key=lambda x: x[1], reverse=True)
-                
-                # Interleave with priority: Social events > Featured events > Regular events
-                recommended_events = []
-                s_idx = f_idx = r_idx = 0
-                position = 0
-                
-                while len(recommended_events) < 5 and (s_idx < len(social_events) or f_idx < len(featured_events) or r_idx < len(regular_events)):
-                    # Highest priority: socially-saved events (positions 0, 2, 4...)
-                    if position % 2 == 0 and s_idx < len(social_events):
-                        recommended_events.append(social_events[s_idx][0])
-                        s_idx += 1
-                    # Medium priority: featured events
-                    elif position % 3 != 2 and f_idx < len(featured_events):
-                        recommended_events.append(featured_events[f_idx][0])
-                        f_idx += 1
-                    # Lower priority: regular events
-                    elif r_idx < len(regular_events):
-                        recommended_events.append(regular_events[r_idx][0])
-                        r_idx += 1
-                    # Fill remaining slots with any available events
-                    elif s_idx < len(social_events):
-                        recommended_events.append(social_events[s_idx][0])
-                        s_idx += 1
-                    elif f_idx < len(featured_events):
-                        recommended_events.append(featured_events[f_idx][0])
-                        f_idx += 1
-                    
-                    position += 1
-                
-                print(f"Final recommendations: {len([e for e in recommended_events if e.get('id') in social_connections_saved_events])} socially-recommended, {len([e for e in recommended_events if e.get('featured')])} featured, {len([e for e in recommended_events if not e.get('featured') and e.get('id') not in social_connections_saved_events])} regular")
-                
-                return {
-                    "summary": f"Found {len(recommended_events)} recommended events for {email}",
-                    "events": recommended_events,  # Now returning full event objects with image URLs
-                    "total_found": len(event_ids_filtered)
-                }
-            except Exception as e:
-                print(f"Error in ML recommendation logic: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"Error in ML recommendation logic: {str(e)}")
-            
         except Exception as e:
             print(f"Unexpected error in recommend_events: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -1594,18 +1282,33 @@ async def test_event_type_filter(request: Request):
         }
         
         # Get sample of filtered events
-        for event in filtered_events[:5]:
+        sample_events = filtered_events[:5]
+        sample_event_ids = [event.get("id") for event in sample_events if event.get("id")]
+        
+        # DEMO: Efficient batch featured lookup vs individual lookups
+        if sample_event_ids:
+            print("🚀 N+1 Demo: Using batch featured lookup for sample events")
+            featured_lookup = recommender.get_featured_events_batch(sample_event_ids)
+        else:
+            featured_lookup = {}
+        
+        for event in sample_events:
             event_types = event.get('event_type', [])
             if isinstance(event_types, str):
                 parsed_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
             else:
                 parsed_types = event_types
+            
+            event_id = event.get("id")
+            # Use batch lookup result instead of individual API call
+            is_featured = featured_lookup.get(event_id, False)
                 
             debug_info["sample_filtered_events"].append({
-                "id": event.get("id"),
+                "id": event_id,
                 "name": event.get("name", "")[:50],
                 "event_type_raw": str(event_types),
                 "parsed_types": parsed_types,
+                "featured": is_featured,
                 "matches_filter": any(pref in parsed_types for pref in test_preferences)
             })
         
@@ -1614,255 +1317,7 @@ async def test_event_type_filter(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
-@app.post("/admin/train")
-async def admin_trigger_training(request: Request):
-    """Admin endpoint to trigger model training for any user (requires service role key)"""
-    try:
-        body = await request.json()
-        email = body.get("email")
-        force_retrain = body.get("force_retrain", False)
-        
-        if not email:
-            return {"error": "Email required"}
-        
-        # Get token from Authorization header
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return {"error": "No valid token provided"}
 
-        token = auth_header.split(' ')[1]
-        
-        # For admin endpoint, we expect a service role key
-        # Verify the service role key works by making a privileged query
-        try:
-            # Test service role access by checking if we can query users table
-            # We'll use a new Supabase client with the provided token
-            from supabase import create_client
-            import os
-            
-            admin_client = create_client(
-                os.getenv('SUPABASE_URL'),
-                token  # Use the provided token (should be service role key)
-            )
-            
-            test_query = admin_client.table("all_users").select("email").limit(1).execute()
-            if not test_query.data:
-                return {"error": "Service role verification failed - no access to users table"}
-        except Exception as e:
-            return {"error": f"Service role verification failed: {str(e)}"}
-        
-        # Get user data and prepare training data
-        user_data = recommender.get_user_data(email)
-        if not user_data:
-            return {"error": "User not found"}
-        
-        # Get all users and events for training
-        all_users_result = recommender.Client.table("all_users").select("*").execute()
-        all_users = all_users_result.data
-        
-        user_preferences = recommender.parse_preferences(user_data.get("preferences", []))
-        all_events = recommender.get_events_data(user_preferences if user_preferences else None)
-        
-        user_emails = [user.get("email") for user in all_users if user.get("email")]
-        event_ids = [event["id"] for event in all_events]
-        
-        # Get social connections data for social boosting
-        social_connections_data = []
-        if user_data and user_data.get("id"):
-            social_connections_data = recommender.get_user_social_connections(user_data.get("id"))
-            print(f"🤝 Found {len(social_connections_data)} social connections for user {email}")
-        
-        interactions = recommender.build_enhanced_interactions(all_users, target_user_email=email, social_connections_data=social_connections_data)
-        user_feature_tuples = recommender.build_user_features(all_users)
-        event_feature_tuples = recommender.build_event_features(all_events)
-        
-        # Set user ID for per-user model
-        recommender.rec.user_id = email
-        
-        # Train model
-        status = recommender.rec.load_or_train(
-            user_emails,
-            event_ids,
-            user_feature_tuples,
-            event_feature_tuples,
-            interactions,
-            force_retrain=force_retrain,
-            epochs=15,  # More epochs for manual training
-            learning_rate=0.01,
-            batch_size=256
-        )
-        
-        return {
-            "success": True,
-            "status": status,
-            "message": f"Admin training completed for user {email}",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/train")
-async def trigger_training(request: Request):
-    """User-specific training endpoint (requires user authentication)"""
-    try:
-        body = await request.json()
-        email = body.get("email")
-        force_retrain = body.get("force_retrain", False)
-        
-        if not email:
-            return {"error": "Email required"}
-        
-        # Get token from Authorization header
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return {"error": "No valid token provided"}
-
-        token = auth_header.split(' ')[1]
-        
-        # Verify user (user can only train their own model)
-        user = recommender.Client.auth.get_user(token)
-        if user.user.email != email:
-            return {"error": "Token doesn't match requested email"}
-        
-        # Get user data and prepare training data
-        user_data = recommender.get_user_data(email)
-        if not user_data:
-            return {"error": "User not found"}
-        
-        # Get all users and events for training
-        all_users_result = recommender.Client.table("all_users").select("*").execute()
-        all_users = all_users_result.data
-        
-        user_preferences = recommender.parse_preferences(user_data.get("preferences", []))
-        all_events = recommender.get_events_data(user_preferences if user_preferences else None)
-        
-        user_emails = [user.get("email") for user in all_users if user.get("email")]
-        event_ids = [event["id"] for event in all_events]
-        
-        # Get social connections data for social boosting
-        social_connections_data = []
-        if user_data and user_data.get("id"):
-            social_connections_data = recommender.get_user_social_connections(user_data.get("id"))
-            print(f"🤝 Found {len(social_connections_data)} social connections for user {email}")
-        
-        interactions = recommender.build_enhanced_interactions(all_users, target_user_email=email, social_connections_data=social_connections_data)
-        user_feature_tuples = recommender.build_user_features(all_users)
-        event_feature_tuples = recommender.build_event_features(all_events)
-        
-        # Set user ID for per-user model
-        recommender.rec.user_id = email
-        
-        # Train model
-        status = recommender.rec.load_or_train(
-            user_emails,
-            event_ids,
-            user_feature_tuples,
-            event_feature_tuples,
-            interactions,
-            force_retrain=force_retrain,
-            epochs=15,  # More epochs for manual training
-            learning_rate=0.01,
-            batch_size=256
-        )
-        
-        return {
-            "success": True,
-            "status": status,
-            "message": f"Training completed for user {email}",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/models/{user_email}")
-async def get_model_info(user_email: str, request: Request):
-    """Get information about a user's trained model"""
-    try:
-        # Get token from Authorization header
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return {"error": "No valid token provided"}
-
-        token = auth_header.split(' ')[1]
-        
-        # Verify user
-        user = recommender.Client.auth.get_user(token)
-        if user.user.email != user_email:
-            return {"error": "Token doesn't match requested email"}
-        
-        # Check for existing model
-        stored_model = recommender.rec.storage.load_model(user_email)
-        
-        if stored_model:
-            return {
-                "has_model": True,
-                "created_at": stored_model["created_at"],
-                "data_fingerprint": stored_model["data_fingerprint"],
-                "metadata": stored_model["metadata"]
-            }
-        else:
-            return {
-                "has_model": False,
-                "message": "No trained model found for this user"
-            }
-            
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.delete("/models/{user_email}")
-async def delete_user_model(user_email: str, request: Request):
-    """Delete a user's trained model"""
-    try:
-        # Get token from Authorization header
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return {"error": "No valid token provided"}
-
-        token = auth_header.split(' ')[1]
-        
-        # Verify user
-        user = recommender.Client.auth.get_user(token)
-        if user.user.email != user_email:
-            return {"error": "Token doesn't match requested email"}
-        
-        # Delete model by creating a "deleted" entry (or implement actual deletion in Supabase)
-        # For now, we'll rely on the model's age-based cleanup
-        return {
-            "success": True,
-            "message": f"Model deletion scheduled for user {user_email}. It will be removed during next cleanup."
-        }
-        
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/admin/cleanup")
-async def cleanup_old_models():
-    """Admin endpoint to clean up old models"""
-    try:
-        recommender.rec.cleanup_old_models(days_to_keep=7)
-        return {
-            "success": True,
-            "message": "Model cleanup completed",
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/admin/cleanup-duplicates")
-async def cleanup_duplicate_models():
-    """Admin endpoint to clean up duplicate models - ensures only one model per user"""
-    try:
-        deleted_count = recommender.rec.storage.cleanup_duplicate_models()
-        return {
-            "success": True,
-            "message": f"Duplicate cleanup completed - deleted {deleted_count} duplicate models",
-            "deleted_count": deleted_count,
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {"error": str(e)}
 
 # For local development
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ interface UserProfileModalProps {
   userId: number;
   userName: string;
   userEmail: string;
+  initialFriendshipStatus?: 'pending' | 'accepted' | 'blocked' | 'declined' | 'incoming' | 'none' | null;
 }
 
 export default function UserProfileModal({
@@ -34,7 +35,8 @@ export default function UserProfileModal({
   onClose,
   userId,
   userName,
-  userEmail
+  userEmail,
+  initialFriendshipStatus
 }: UserProfileModalProps) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -88,100 +90,93 @@ export default function UserProfileModal({
 
   const fetchRelationshipStatus = async () => {
     if (!currentUserProfile?.email || !currentUserProfile?.id) {
-      console.log('Missing current user profile data for relationship check');
+      console.log('❌ Missing current user profile data for relationship check');
       return;
     }
     
-    console.log(`Checking relationship status between ${currentUserProfile.email} and ${userEmail}`);
+    console.log(`🔍 Checking relationship status between user ${currentUserProfile.id} and target user ${userId}`);
     setRelationshipLoading(true);
     
     try {
-      // Check both friendship and follow status
-      const { data: statusData, error: statusError } = await supabase.rpc('check_follow_status', {
-        follower_email: currentUserProfile.email,
-        following_email: userEmail
-      });
+      // STEP 1: Check if they are already friends
+      console.log('🤝 Checking friends table for existing friendship...');
+      const { data: friendshipData, error: friendshipError } = await supabase
+        .from('friends')
+        .select('id, status')
+        .or(`and(user_id.eq.${currentUserProfile.id},friend_id.eq.${userId}),and(user_id.eq.${userId},friend_id.eq.${currentUserProfile.id})`)
+        .eq('status', 'accepted')
+        .limit(1);
 
-      if (statusError) {
-        console.error('Error in check_follow_status RPC:', statusError);
-        // Continue with manual checks if RPC fails
+      if (friendshipError) {
+        console.error('🚨 Error checking friendship:', friendshipError);
       }
 
-      if (statusData && statusData.length > 0) {
-        const status = statusData[0]; // Get first row of results
-        console.log('Follow status data:', status);
-        setIsFollowing(status.is_following);
-        
-        if (status.is_friend) {
-          console.log('Users are already friends');
-          setFriendshipStatus('accepted');
-          return;
-        } else if (status.friendship_status === 'pending') {
-          console.log('Friend request is pending');
-          setFriendshipStatus('pending');
-          return;
-        }
-      }
-
-      // Check if there's an incoming friend request (sent by the viewed user to current user)
-      console.log('Checking for incoming friend requests...');
-      const { data: incomingRequest, error: incomingError } = await supabase
-        .from('friend_requests')
-        .select('id, status, created_at')
-        .eq('sender_id', userId)
-        .eq('receiver_id', currentUserProfile.id)
-        .eq('status', 'pending')
-        .maybeSingle();
-
-      if (incomingError) {
-        console.error('Error checking incoming requests:', incomingError);
-      }
-
-      if (incomingRequest) {
-        console.log('Found incoming friend request:', incomingRequest);
-        setFriendshipStatus('incoming');
+      if (friendshipData && friendshipData.length > 0) {
+        console.log('✅ Found existing friendship:', friendshipData[0]);
+        setFriendshipStatus('accepted');
+        // Still check follow status
       } else {
-        // Double-check if we missed a sent request (current user sent to viewed user)
-        const { data: sentRequest, error: sentError } = await supabase
+        // STEP 2: Check for incoming friend request (viewed user sent to current user)
+        console.log('📥 Checking for incoming friend requests...');
+        const { data: incomingRequest, error: incomingError } = await supabase
           .from('friend_requests')
           .select('id, status, created_at')
-          .eq('sender_id', currentUserProfile.id)
-          .eq('receiver_id', userId)
+          .eq('sender_id', userId)
+          .eq('receiver_id', currentUserProfile.id)
           .eq('status', 'pending')
           .maybeSingle();
 
-        if (sentError) {
-          console.error('Error checking sent requests:', sentError);
+        if (incomingError) {
+          console.error('🚨 Error checking incoming requests:', incomingError);
         }
 
-        if (sentRequest) {
-          console.log('Found sent friend request:', sentRequest);
-          setFriendshipStatus('pending');
+        if (incomingRequest) {
+          console.log('📥 Found incoming friend request:', incomingRequest);
+          setFriendshipStatus('incoming');
         } else {
-          console.log('No friend relationship found - setting to none');
-          setFriendshipStatus('none');
+          // STEP 3: Check for outgoing friend request (current user sent to viewed user)
+          console.log('📤 Checking for outgoing friend requests...');
+          const { data: sentRequest, error: sentError } = await supabase
+            .from('friend_requests')
+            .select('id, status, created_at')
+            .eq('sender_id', currentUserProfile.id)
+            .eq('receiver_id', userId)
+            .eq('status', 'pending')
+            .maybeSingle();
+
+          if (sentError) {
+            console.error('🚨 Error checking sent requests:', sentError);
+          }
+
+          if (sentRequest) {
+            console.log('📤 Found outgoing friend request:', sentRequest);
+            setFriendshipStatus('pending');
+          } else {
+            console.log('❌ No friend relationship found - setting to none');
+            setFriendshipStatus('none');
+          }
         }
       }
 
-      // Set follow status if RPC didn't work
-      if (!statusData || statusData.length === 0) {
-        console.log('RPC failed, checking follow status manually...');
-        const { data: followData, error: followError } = await supabase
-          .from('follows')
-          .select('id')
-          .eq('follower_id', currentUserProfile.id)
-          .eq('followed_id', userId)
-          .maybeSingle();
+      // STEP 4: Check follow status manually (skip RPC as it's unreliable)
+      console.log('👥 Checking follow status manually...');
+      const { data: followData, error: followError } = await supabase
+        .from('follows')
+        .select('id')
+        .eq('follower_id', currentUserProfile.id)
+        .eq('followed_id', userId)
+        .maybeSingle();
 
-        if (!followError && followData) {
-          setIsFollowing(true);
-        } else {
-          setIsFollowing(false);
-        }
+      if (!followError && followData) {
+        console.log('✅ User is following target');
+        setIsFollowing(true);
+      } else {
+        console.log('❌ User is not following target');
+        setIsFollowing(false);
       }
 
     } catch (error) {
-      console.error('Error fetching relationship status:', error);
+      console.error('🚨 Error fetching relationship status:', error);
       // Set default states on error
       setFriendshipStatus('none');
       setIsFollowing(false);
@@ -191,98 +186,242 @@ export default function UserProfileModal({
   };
 
   const handleFollow = async () => {
-    if (!currentUserProfile?.email) return;
+    if (!currentUserProfile?.email || !currentUserProfile?.id) return;
     
     try {
-      console.log('Attempting to follow user:', {
-        follower_email: currentUserProfile.email,
-        target_email: userEmail
-      });
+      console.log(`🔍 UserProfile: Following user ${userEmail} by ${currentUserProfile.email}`);
+      
+      // Get target user ID first
+      const { data: targetUser, error: targetError } = await supabase
+        .from('all_users')
+        .select('id')
+        .eq('email', userEmail)
+        .single();
 
-      const { data, error } = await supabase.rpc('follow_user', {
-        follower_email: currentUserProfile.email,
-        target_email: userEmail
-      });
-
-      console.log('Follow user response:', { data, error });
-
-      if (error) throw error;
-
-      // Handle both array and object responses
-      const result = Array.isArray(data) ? data[0] : data;
-      console.log('Processed result:', result);
-
-      if (result && result.success) {
-        setIsFollowing(true);
-        Alert.alert('Success', result.message || 'Successfully followed user');
-      } else {
-        const message = result?.message || 'Unable to follow user - already following or other issue';
-        Alert.alert('Info', message);
+      if (targetError || !targetUser) {
+        console.error('🚨 Error finding target user:', targetError);
+        Alert.alert('Error', 'User not found');
+        return;
       }
+
+      // Check if already following to avoid duplicates
+      const { data: existingFollow, error: checkError } = await supabase
+        .from('follows')
+        .select('id')
+        .eq('follower_id', currentUserProfile.id)
+        .eq('followed_id', targetUser.id)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error('🚨 Error checking existing follow:', checkError);
+        throw checkError;
+      }
+
+      if (existingFollow) {
+        console.log('⚠️ Already following this user');
+        Alert.alert('Info', 'You are already following this user');
+        setIsFollowing(true);
+        return;
+      }
+
+      // Use direct database operations instead of broken RPC function
+      const { error: followError } = await supabase
+        .from('follows')
+        .insert({
+          follower_id: currentUserProfile.id,
+          followed_id: targetUser.id,
+          created_at: new Date().toISOString()
+        });
+
+      if (followError) {
+        console.error('🚨 UserProfile: Error following user:', followError);
+        throw followError;
+      }
+
+      console.log('✅ UserProfile: Successfully followed user');
+      setIsFollowing(true);
+      Alert.alert('Success', 'Successfully followed user');
+      
     } catch (error) {
-      console.error('Error following user:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      Alert.alert('Error', `Failed to follow user: ${errorMessage}`);
+      console.error('🚨 UserProfile: Error following user:', error);
+      Alert.alert('Error', 'Failed to follow user');
     }
   };
 
   const handleUnfollow = async () => {
-    if (!currentUserProfile?.email) return;
+    if (!currentUserProfile?.email || !currentUserProfile?.id) return;
     
     try {
-      console.log('Attempting to unfollow user:', {
-        follower_email: currentUserProfile.email,
-        target_email: userEmail
-      });
+      console.log(`🔍 UserProfile: Unfollowing user ${userEmail} by ${currentUserProfile.email}`);
+      
+      // Get target user ID first
+      const { data: targetUser, error: targetError } = await supabase
+        .from('all_users')
+        .select('id')
+        .eq('email', userEmail)
+        .single();
 
-      const { data, error } = await supabase.rpc('unfollow_user', {
-        follower_email: currentUserProfile.email,
-        target_email: userEmail
-      });
-
-      console.log('Unfollow user response:', { data, error });
-
-      if (error) throw error;
-
-      // Handle both array and object responses
-      const result = Array.isArray(data) ? data[0] : data;
-      console.log('Processed result:', result);
-
-      if (result && result.success) {
-        setIsFollowing(false);
-        Alert.alert('Success', result.message || 'Successfully unfollowed user');
-      } else {
-        const message = result?.message || 'Unable to unfollow user - not following or other issue';
-        Alert.alert('Info', message);
+      if (targetError || !targetUser) {
+        console.error('🚨 Error finding target user:', targetError);
+        Alert.alert('Error', 'User not found');
+        return;
       }
+
+      // Use direct database operations instead of broken RPC function
+      const { error: unfollowError } = await supabase
+        .from('follows')
+        .delete()
+        .eq('follower_id', currentUserProfile.id)
+        .eq('followed_id', targetUser.id);
+
+      if (unfollowError) {
+        console.error('🚨 UserProfile: Error unfollowing user:', unfollowError);
+        throw unfollowError;
+      }
+
+      console.log('✅ UserProfile: Successfully unfollowed user');
+      setIsFollowing(false);
+      Alert.alert('Success', 'Successfully unfollowed user');
+      
     } catch (error) {
-      console.error('Error unfollowing user:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      Alert.alert('Error', `Failed to unfollow user: ${errorMessage}`);
+      console.error('🚨 UserProfile: Error unfollowing user:', error);
+      Alert.alert('Error', 'Failed to unfollow user');
     }
   };
 
   const handleFriendRequest = async () => {
-    if (!currentUserProfile?.email) return;
+    if (!currentUserProfile?.id) {
+      console.error('No current user ID available for sending friend request');
+      Alert.alert('Error', 'User profile not loaded properly');
+      return;
+    }
+    
+    console.log(`🔍 Sending friend request from user ${currentUserProfile.id} to user ${userId}`);
+    
+    // Immediately update UI to show loading state
+    setRelationshipLoading(true);
     
     try {
-      const { data, error } = await supabase.rpc('send_friend_request', {
-        target_email: userEmail
-      });
+      // Check if a friend request already exists to avoid duplicates
+      console.log(`🔍 Checking for existing friend request: sender=${currentUserProfile.id}, receiver=${userId}`);
+      const { data: existingRequest, error: checkError } = await supabase
+        .from('friend_requests')
+        .select('id, status')
+        .eq('sender_id', currentUserProfile.id)
+        .eq('receiver_id', userId)
+        .maybeSingle();
 
-      if (error) throw error;
+      console.log('📋 Existing request check result:', { data: existingRequest, error: checkError });
 
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        // Refresh the relationship status
-        await fetchRelationshipStatus();
-        Alert.alert('Success', result.message);
-      } else {
-        Alert.alert('Info', result.message);
+      if (checkError) {
+        console.error('🚨 Error checking existing friend request:', checkError);
+        throw checkError;
       }
+
+      if (existingRequest) {
+        console.log(`📝 Found existing request with status: ${existingRequest.status}`);
+        if (existingRequest.status === 'pending') {
+          console.log('⚠️ Friend request already pending');
+          Alert.alert('Info', 'Friend request already sent');
+          setFriendshipStatus('pending'); // Ensure UI shows correct state
+          return;
+        } else if (existingRequest.status === 'declined' || existingRequest.status === 'accepted') {
+          // Update existing declined/accepted request to pending (for when friendship was removed)
+          console.log(`🔄 Updating ${existingRequest.status} request to pending...`);
+          const { error: updateError } = await supabase
+            .from('friend_requests')
+            .update({ 
+              status: 'pending', 
+              updated_at: new Date().toISOString() 
+            })
+            .eq('id', existingRequest.id);
+
+          if (updateError) {
+            console.error('🚨 Error updating friend request:', updateError);
+            throw updateError;
+          }
+
+          console.log(`✅ Previous ${existingRequest.status} request updated to pending`);
+        }
+      } else {
+        // Create new friend request
+        console.log('📤 Creating new friend request...');
+        const { data: insertData, error: insertError } = await supabase
+          .from('friend_requests')
+          .insert({
+            sender_id: currentUserProfile.id,
+            receiver_id: userId,
+            status: 'pending',
+            created_at: new Date().toISOString()
+          })
+          .select();
+
+        console.log('📤 Friend request insert result:', { data: insertData, error: insertError });
+
+        if (insertError) {
+          console.error('🚨 Error creating friend request:', insertError);
+          throw insertError;
+        }
+
+        console.log('✅ Friend request created successfully:', insertData);
+      }
+
+      // Also automatically follow the user when sending friend request
+      try {
+        console.log('🔍 Auto-following user when sending friend request...');
+        
+        // Check if already following to avoid duplicates
+        const { data: existingFollow, error: checkFollowError } = await supabase
+          .from('follows')
+          .select('id')
+          .eq('follower_id', currentUserProfile.id)
+          .eq('followed_id', userId)
+          .maybeSingle();
+
+        if (checkFollowError) {
+          console.log('⚠️ Error checking existing follow, but friend request was sent:', checkFollowError);
+        } else if (existingFollow) {
+          console.log('⚠️ Already following this user');
+        } else {
+          // Create follow relationship using direct database operations
+          const { error: followError } = await supabase
+            .from('follows')
+            .insert({
+              follower_id: currentUserProfile.id,
+              followed_id: userId,
+              created_at: new Date().toISOString()
+            });
+
+          if (followError) {
+            console.log('⚠️ Auto-follow failed, but friend request was sent:', followError);
+          } else {
+            console.log('✅ Auto-follow successful');
+            setIsFollowing(true);
+          }
+        }
+      } catch (followError) {
+        console.log('⚠️ Auto-follow error, but friend request was sent:', followError);
+      }
+
+      // Immediately set the UI to pending status for better UX
+      console.log('✅ Friend request process completed, updating UI to pending status');
+      setFriendshipStatus('pending');
+      
+      // Force refresh from database to confirm (ignore initial status)
+      setTimeout(() => {
+        console.log('🔄 Force refreshing relationship status from database after friend request');
+        fetchRelationshipStatus();
+      }, 500);
+      
+      Alert.alert('Success', 'Friend request sent successfully!');
+      
     } catch (error) {
-      console.error('Error sending friend request:', error);
+      console.error('🚨 Error sending friend request:', error);
       Alert.alert('Error', 'Failed to send friend request');
+      // Refresh status in case of error to get current state
+      await fetchRelationshipStatus();
+    } finally {
+      setRelationshipLoading(false);
     }
   };
 
@@ -290,40 +429,73 @@ export default function UserProfileModal({
     if (!currentUserProfile?.id) return;
     
     try {
+      console.log(`🔍 UserProfile: Accepting friend request from ${userId} to ${currentUserProfile.id}`);
+      
       // First, find the friend request
       const { data: requestData, error: requestError } = await supabase
         .from('friend_requests')
-        .select('id')
+        .select('id, sender_id, receiver_id')
         .eq('sender_id', userId)
         .eq('receiver_id', currentUserProfile.id)
         .eq('status', 'pending')
         .single();
 
-      if (requestError) throw requestError;
+      if (requestError) {
+        console.error('🚨 Error fetching friend request:', requestError);
+        throw requestError;
+      }
 
       if (!requestData) {
-        Alert.alert('Error', 'Friend request not found');
+        Alert.alert('Error', 'Friend request not found or already processed');
         return;
       }
 
-      // Accept the friend request
-      const { data, error } = await supabase.rpc('respond_to_friend_request', {
-        request_id: requestData.id,
-        response: 'accepted'
-      });
+      console.log('📋 UserProfile: Friend request data:', requestData);
 
-      if (error) throw error;
+      // Update the friend request status to accepted
+      const { error: updateError } = await supabase
+        .from('friend_requests')
+        .update({ status: 'accepted', updated_at: new Date().toISOString() })
+        .eq('id', requestData.id);
 
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        // Refresh the relationship status
-        await fetchRelationshipStatus();
-        Alert.alert('Success', result.message);
-      } else {
-        Alert.alert('Error', result.message);
+      if (updateError) {
+        console.error('🚨 Error updating friend request:', updateError);
+        throw updateError;
       }
+
+      // Create friendship entries in both directions
+      const friendshipData = [
+        {
+          user_id: requestData.sender_id,
+          friend_id: requestData.receiver_id,
+          status: 'accepted',
+          created_at: new Date().toISOString()
+        },
+        {
+          user_id: requestData.receiver_id,
+          friend_id: requestData.sender_id,
+          status: 'accepted',
+          created_at: new Date().toISOString()
+        }
+      ];
+
+      const { error: friendshipError } = await supabase
+        .from('friends')
+        .insert(friendshipData);
+
+      if (friendshipError) {
+        console.error('🚨 Error creating friendship:', friendshipError);
+        throw friendshipError;
+      }
+
+      console.log('✅ UserProfile: Friend request accepted successfully');
+      
+      // Refresh the relationship status
+      await fetchRelationshipStatus();
+      Alert.alert('Success', 'Friend request accepted! You are now friends.');
+      
     } catch (error) {
-      console.error('Error accepting friend request:', error);
+      console.error('🚨 UserProfile: Error accepting friend request:', error);
       Alert.alert('Error', 'Failed to accept friend request');
     }
   };
@@ -332,6 +504,8 @@ export default function UserProfileModal({
     if (!currentUserProfile?.id) return;
     
     try {
+      console.log(`🔍 UserProfile: Declining friend request from ${userId} to ${currentUserProfile.id}`);
+      
       // First, find the friend request
       const { data: requestData, error: requestError } = await supabase
         .from('friend_requests')
@@ -341,31 +515,37 @@ export default function UserProfileModal({
         .eq('status', 'pending')
         .single();
 
-      if (requestError) throw requestError;
+      if (requestError) {
+        console.error('🚨 Error fetching friend request:', requestError);
+        throw requestError;
+      }
 
       if (!requestData) {
-        Alert.alert('Error', 'Friend request not found');
+        Alert.alert('Error', 'Friend request not found or already processed');
         return;
       }
 
-      // Decline the friend request
-      const { data, error } = await supabase.rpc('respond_to_friend_request', {
-        request_id: requestData.id,
-        response: 'declined'
-      });
+      console.log('📋 UserProfile: Friend request data:', requestData);
 
-      if (error) throw error;
+      // Update the friend request status to declined
+      const { error: updateError } = await supabase
+        .from('friend_requests')
+        .update({ status: 'declined', updated_at: new Date().toISOString() })
+        .eq('id', requestData.id);
 
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        // Refresh the relationship status
-        await fetchRelationshipStatus();
-        Alert.alert('Success', result.message);
-      } else {
-        Alert.alert('Info', result.message);
+      if (updateError) {
+        console.error('🚨 Error updating friend request:', updateError);
+        throw updateError;
       }
+
+      console.log('✅ UserProfile: Friend request declined successfully');
+      
+      // Refresh the relationship status
+      await fetchRelationshipStatus();
+      Alert.alert('Success', 'Friend request declined.');
+      
     } catch (error) {
-      console.error('Error declining friend request:', error);
+      console.error('🚨 UserProfile: Error declining friend request:', error);
       Alert.alert('Error', 'Failed to decline friend request');
     }
   };
@@ -379,9 +559,28 @@ export default function UserProfileModal({
 
   useEffect(() => {
     if (visible && userId && currentUserProfile?.email) {
-      fetchRelationshipStatus();
+      // If initial friendship status is provided (from Discover), use it
+      if (initialFriendshipStatus !== undefined && initialFriendshipStatus !== null) {
+        console.log(`🎯 Using initial friendship status: ${initialFriendshipStatus}`);
+        // Map external status types to internal types
+        let mappedStatus: 'pending' | 'accepted' | 'incoming' | 'none';
+        if (initialFriendshipStatus === 'blocked' || initialFriendshipStatus === 'declined' || initialFriendshipStatus === 'none') {
+          mappedStatus = 'none';
+        } else if (initialFriendshipStatus === 'pending') {
+          mappedStatus = 'pending';
+        } else if (initialFriendshipStatus === 'accepted') {
+          mappedStatus = 'accepted';
+        } else {
+          mappedStatus = 'none';
+        }
+        setFriendshipStatus(mappedStatus);
+        setRelationshipLoading(false);
+      } else {
+        console.log('🔍 No initial friendship status provided, fetching from database');
+        fetchRelationshipStatus();
+      }
     }
-  }, [visible, userId, currentUserProfile?.email]);
+  }, [visible, userId, currentUserProfile?.email, initialFriendshipStatus]);
 
   const profileImageUrl = userProfile?.profileImage || 
     `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${userEmail.replace('@', '_').replace(/\./g, '_')}/profile.jpg`;
@@ -455,7 +654,7 @@ export default function UserProfileModal({
                 {__DEV__ && (
                   <View style={styles.debugInfo}>
                     <Text style={styles.debugText}>
-                      Debug: Status={friendshipStatus}, Following={isFollowing ? 'Yes' : 'No'}, Loading={relationshipLoading ? 'Yes' : 'No'}
+                      Debug: Status={friendshipStatus}, Following={isFollowing ? 'Yes' : 'No'}, Loading={relationshipLoading ? 'Yes' : 'No'}, Initial={initialFriendshipStatus || 'undefined'}
                     </Text>
                   </View>
                 )}

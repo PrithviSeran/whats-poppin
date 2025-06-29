@@ -8,7 +8,7 @@ import { Colors } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import FriendsModal from './FriendsModal';
 import { supabase } from '@/lib/supabase';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import GlobalDataManager, { UserProfile } from '@/lib/GlobalDataManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -88,17 +88,138 @@ export default function Profile() {
     }
   };
 
+  // Test function to directly query friend requests table
+  const testDirectFriendRequestsQuery = async (userId: number) => {
+    try {
+      console.log(`🧪 Testing direct friend_requests query for user ${userId}`);
+      
+      // First, get ALL friend requests for this user without filtering
+      const { data: allData, error: allError } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .eq('receiver_id', userId);
+
+      console.log(`🧪 ALL friend_requests for user ${userId}:`, { data: allData, error: allError });
+      
+      if (allData && allData.length > 0) {
+        console.log(`🎯 Found ${allData.length} total friend requests for user ${userId}`);
+        
+        // Check different status values
+        const pendingRequests = allData.filter(req => req.status === 'pending');
+        const acceptedRequests = allData.filter(req => req.status === 'accepted');
+        const otherRequests = allData.filter(req => req.status !== 'pending' && req.status !== 'accepted');
+        
+        console.log(`⏳ Pending: ${pendingRequests.length}, ✅ Accepted: ${acceptedRequests.length}, 🔍 Other: ${otherRequests.length}`);
+        console.log(`📊 Status breakdown:`, allData.map(req => ({ id: req.id, status: req.status, sender_id: req.sender_id })));
+        
+        return allData;
+      } else {
+        console.log(`❌ No friend requests found for user ${userId}`);
+        return [];
+      }
+    } catch (error) {
+      console.error('🚨 Error in direct friend requests test:', error);
+      return [];
+    }
+  };
+
   // Direct friend requests fetching with user ID (for initial load)
   const fetchFriendRequestsWithUserId = async (userId: number) => {
+    console.log(`🔍 Profile: fetchFriendRequestsWithUserId for user ID ${userId}`);
     try {
-      const { data, error } = await supabase.rpc('get_pending_friend_requests', {
-        target_user_id: userId
-      });
-      if (error) throw error;
-      setFriendRequests(data || []);
-      console.log('Friend requests loaded:', data?.length || 0);
+      // First run the test function to see all data
+      await testDirectFriendRequestsQuery(userId);
+      
+      // Use direct query as primary method since RPC is broken
+      console.log('🔄 Profile: Using direct database query as primary method...');
+      
+      // Get all friend requests first, then filter in JavaScript to avoid SQL issues
+      const { data: allDirectData, error: directError } = await supabase
+        .from('friend_requests')
+        .select('id, sender_id, created_at, status')
+        .eq('receiver_id', userId);
+
+      console.log(`📥 Profile: All direct query result:`, { data: allDirectData, error: directError });
+
+      if (directError) {
+        console.error('🚨 Profile: Direct query error:', directError);
+        throw directError;
+      }
+
+             // Filter for pending requests in JavaScript
+       const directData = allDirectData?.filter(req => req.status === 'pending') || [];
+       console.log(`🔍 Filtered to ${directData.length} pending requests from ${allDirectData?.length || 0} total`);
+
+      // Get sender details
+      const senderIds = directData?.map(req => req.sender_id) || [];
+      let senderDetails: any[] = [];
+      if (senderIds.length > 0) {
+        const { data: sendersData } = await supabase
+          .from('all_users')
+          .select('id, name, email')
+          .in('id', senderIds);
+        senderDetails = sendersData || [];
+        console.log(`👥 Profile: Sender details fetched:`, senderDetails);
+      }
+
+      // Transform the data
+      const transformedData = directData?.map(request => {
+        const sender = senderDetails.find(s => s.id === request.sender_id);
+        return {
+          request_id: request.id,
+          sender_id: request.sender_id,
+          sender_name: sender?.name || 'Unknown',
+          sender_email: sender?.email || 'Unknown',
+          created_at: request.created_at
+        };
+      }) || [];
+
+      console.log(`🔄 Profile: Final transformed data:`, transformedData);
+      console.log(`✅ Profile: Found ${transformedData.length} pending friend requests for user ${userId}`);
+      setFriendRequests(transformedData);
     } catch (error) {
-      console.error('Error fetching friend requests with user ID:', error);
+      console.error('🚨 Profile: Error fetching friend requests with user ID:', error);
+    }
+  };
+
+  // Direct follow counts fetching with user ID (for initial load)
+  const fetchFollowCountsWithUserId = async (userId: number) => {
+    try {
+      console.log(`🔍 Profile: Fetching follow counts for user ID ${userId}`);
+      
+      // Get followers count using direct database query
+      const { data: followersData, error: followersError } = await supabase
+        .from('follows')
+        .select('id', { count: 'exact' })
+        .eq('followed_id', userId);
+
+      if (!followersError && followersData) {
+        const followersCount = followersData.length;
+        setFollowersCount(followersCount);
+        console.log('📊 Profile: Followers count loaded:', followersCount);
+      } else {
+        console.error('🚨 Profile: Error fetching followers count:', followersError);
+        setFollowersCount(0);
+      }
+
+      // Get following count using direct database query
+      const { data: followingData, error: followingError } = await supabase
+        .from('follows')
+        .select('id', { count: 'exact' })
+        .eq('follower_id', userId);
+
+      if (!followingError && followingData) {
+        const followingCount = followingData.length;
+        setFollowingCount(followingCount);
+        console.log('📊 Profile: Following count loaded:', followingCount);
+      } else {
+        console.error('🚨 Profile: Error fetching following count:', followingError);
+        setFollowingCount(0);
+      }
+    } catch (error) {
+      console.error('🚨 Profile: Error fetching follow counts with user ID:', error);
+      setFollowersCount(0);
+      setFollowingCount(0);
     }
   };
 
@@ -132,7 +253,7 @@ export default function Profile() {
         await Promise.all([
           fetchFriendsWithUserId(userProfile.id),
           fetchFriendRequestsWithUserId(userProfile.id),
-          fetchFollowCounts()
+          fetchFollowCountsWithUserId(userProfile.id)
         ]);
         console.log('All social data loaded successfully');
       } else {
@@ -197,16 +318,43 @@ export default function Profile() {
     loadNotificationState();
   }, []);
 
+  // Add periodic refresh for friend requests every 30 seconds when app is active
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (profile?.id) {
+        console.log('🔄 Periodic refresh: Checking for new friend requests...');
+        fetchFriendRequestsWithUserId(profile.id);
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(intervalId);
+  }, [profile?.id]);
+
   // Update notification state when friends or requests change
   useEffect(() => {
     updateNotificationState();
   }, [friends.length, friendRequests.length, lastViewedFriendsCount, lastViewedRequestsCount]);
 
-  // Removed: No longer fetch friends data after component is visible
-  // All data is loaded during initial loading phase
-
-  // Removed automatic refresh on focus to prevent visible updates when switching tabs
-  // Data is loaded once during initial mount and updated only through user actions
+  // Update profile data when returning from edit screens
+  useFocusEffect(
+    React.useCallback(() => {
+      // Only refresh if we already have a profile loaded (not on initial mount)
+      if (profile?.id && !loading) {
+        console.log('🔄 Profile: Screen focused, checking for updated data...');
+        
+        // Get the updated profile from cache (should already be fresh from edit screens)
+        dataManager.getUserProfile().then((updatedProfile) => {
+          if (updatedProfile) {
+            console.log('✅ Profile: Updated profile data loaded from cache');
+            setProfile(updatedProfile);
+            setEditedProfile(updatedProfile);
+          }
+        }).catch(error => {
+          console.error('🚨 Profile: Error loading updated profile:', error);
+        });
+      }
+    }, [profile?.id, loading, dataManager])
+  );
 
   // Start the animations when component mounts
   useEffect(() => {
@@ -304,12 +452,9 @@ export default function Profile() {
     if (!profile?.id) return;
     
     try {
-      const { data, error } = await supabase.rpc('get_user_friends', {
-        target_user_id: profile.id
-      });
-
-      if (error) throw error;
-      setFriends(data || []);
+      console.log(`🔍 Profile: fetchFriends (legacy) for user ID ${profile.id}`);
+      // Use the enhanced direct database method instead
+      await fetchFriendsWithUserId(profile.id);
     } catch (error) {
       console.error('Error fetching friends:', error);
     }
@@ -319,45 +464,39 @@ export default function Profile() {
     if (!profile?.id) return;
     
     try {
-      const { data, error } = await supabase.rpc('get_pending_friend_requests', {
-        target_user_id: profile.id
-      });
-
-      if (error) throw error;
-      setFriendRequests(data || []);
+      console.log(`🔍 Profile: fetchFriendRequests (legacy) for user ID ${profile.id}`);
+      // Use the enhanced direct database method instead
+      await fetchFriendRequestsWithUserId(profile.id);
     } catch (error) {
       console.error('Error fetching friend requests:', error);
     }
   };
 
-  const fetchFollowCounts = async () => {
-    if (!profile?.id) return;
-    
-    try {
-      // Get followers count
-      const { data: followersData, error: followersError } = await supabase.rpc('get_followers_count', {
-        target_user_id: profile.id
-      });
-      if (!followersError) {
-        setFollowersCount(followersData || 0);
-      }
+  const handleOpenFriendsModal = () => {
+    setFriendsModalVisible(true);
+    // Refresh friend requests when opening modal to get latest data
+    if (profile?.id) {
+      console.log('🔄 Refreshing friend requests data when opening modal...');
+      fetchFriendRequestsWithUserId(profile.id);
+    }
+    // Mark friends as viewed when opening modal
+    setTimeout(() => markFriendsAsViewed(), 500);
+  };
 
-      // Get following count
-      const { data: followingData, error: followingError } = await supabase.rpc('get_following_count', {
-        target_user_id: profile.id
-      });
-      if (!followingError) {
-        setFollowingCount(followingData || 0);
-      }
-    } catch (error) {
-      console.error('Error fetching follow counts:', error);
+  // Function to refresh follow counts when called from FriendsModal
+  const refreshFollowCounts = () => {
+    if (profile?.id) {
+      console.log('Refreshing follow counts after social action...');
+      fetchFollowCountsWithUserId(profile.id);
     }
   };
 
-  const handleOpenFriendsModal = () => {
-    setFriendsModalVisible(true);
-    // Mark friends as viewed when opening modal
-    setTimeout(() => markFriendsAsViewed(), 500);
+  // Function to refresh friend requests when called from FriendsModal
+  const refreshFriendRequests = () => {
+    if (profile?.id) {
+      console.log('🔄 Profile: Refreshing friend requests after social action...');
+      fetchFriendRequestsWithUserId(profile.id);
+    }
   };
 
   const handleSaveImages = async () => {
@@ -462,7 +601,6 @@ export default function Profile() {
           .update({
             profile_image: profileImageUrl,
             banner_image: bannerImageUrl,
-            updated_at: new Date().toISOString(),
           })
           .eq('email', user.email)
           .select();
@@ -881,6 +1019,8 @@ export default function Profile() {
         friendRequests={friendRequests}
         onFriendsUpdate={setFriends}
         onRequestsUpdate={setFriendRequests}
+        onFollowCountsUpdate={refreshFollowCounts}
+        onRefreshRequests={refreshFriendRequests}
       />
 
       {/* Legal Document Modals */}

@@ -49,6 +49,8 @@ interface FriendsModalProps {
   friendRequests: FriendRequest[];
   onFriendsUpdate: (friends: Friend[]) => void;
   onRequestsUpdate: (requests: FriendRequest[]) => void;
+  onFollowCountsUpdate?: () => void;
+  onRefreshRequests?: () => void;
 }
 
 export default function FriendsModal({
@@ -58,7 +60,9 @@ export default function FriendsModal({
   friends,
   friendRequests,
   onFriendsUpdate,
-  onRequestsUpdate
+  onRequestsUpdate,
+  onFollowCountsUpdate,
+  onRefreshRequests
 }: FriendsModalProps) {
   const colorScheme = useColorScheme();
   const [loading, setLoading] = useState(false);
@@ -135,33 +139,197 @@ export default function FriendsModal({
     
     try {
       if (showLoading) setLoading(true);
-      const { data, error } = await supabase.rpc('get_user_friends', {
-        target_user_id: profile.id
-      });
+      
+      console.log(`🔍 FriendsModal: fetchFriends for user ID ${profile.id}`);
+      
+      // Use direct database query instead of broken RPC function
+      console.log('🔄 FriendsModal: Using direct database query for friends...');
+      
+      const { data: directData, error: directError } = await supabase
+        .from('friends')
+        .select(`
+          id,
+          friend_id,
+          status,
+          created_at,
+          all_users!friends_friend_id_fkey (
+            id,
+            name,
+            email
+          )
+        `)
+        .eq('user_id', profile.id)
+        .eq('status', 'accepted');
 
-      if (error) throw error;
-      onFriendsUpdate(data || []);
+      console.log(`📥 FriendsModal: Direct friends query result:`, { data: directData, error: directError });
+
+      if (directError) {
+        console.error('🚨 FriendsModal: Direct friends query error:', directError);
+        throw directError;
+      }
+
+      // Transform the data to match expected format
+      const transformedData = directData?.map((friend: any) => ({
+        friend_id: friend.friend_id,
+        friend_name: friend.all_users?.name || 'Unknown',
+        friend_email: friend.all_users?.email || 'Unknown',
+        friendship_id: friend.id,
+        status: friend.status,
+        created_at: friend.created_at
+      })) || [];
+
+      console.log(`🔄 FriendsModal: Transformed friends data:`, transformedData);
+      console.log(`✅ FriendsModal: Found ${transformedData.length} friends for user ${profile.id}`);
+      onFriendsUpdate(transformedData);
+      
     } catch (error) {
-      console.error('Error fetching friends:', error);
+      console.error('🚨 FriendsModal: Error fetching friends:', error);
       if (showLoading) Alert.alert('Error', 'Failed to load friends');
     } finally {
       if (showLoading) setLoading(false);
     }
   };
 
-  const fetchFriendRequests = async (showLoading: boolean = true) => {
-    if (!profile?.id) return;
-    
+  // Debug function to check friend requests manually
+  const debugFriendRequests = async () => {
+    if (!profile?.id) {
+      console.log('🚨 DEBUG: No profile ID available');
+      return;
+    }
+
+    console.log(`🔍 DEBUG: Checking friend requests for user ID ${profile.id}`);
+    console.log(`👤 DEBUG: Profile info:`, { id: profile.id, email: profile.email, name: profile.name });
+
     try {
-      if (showLoading) setLoading(true);
-      const { data, error } = await supabase.rpc('get_pending_friend_requests', {
+      // Check all friend requests in the database for this user
+      const { data: allRequests, error: allError } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .eq('receiver_id', profile.id);
+
+      console.log(`📋 DEBUG: All friend requests for user ${profile.id}:`, allRequests);
+
+      // Check pending requests specifically
+      const { data: pendingRequests, error: pendingError } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .eq('receiver_id', profile.id)
+        .eq('status', 'pending');
+
+      console.log(`⏳ DEBUG: Pending friend requests:`, pendingRequests);
+
+      // Also check what the RPC function returns
+      const { data: rpcRequests, error: rpcError } = await supabase.rpc('get_pending_friend_requests', {
         target_user_id: profile.id
       });
 
-      if (error) throw error;
-      onRequestsUpdate(data || []);
+      console.log(`🔧 DEBUG: RPC function result:`, { data: rpcRequests, error: rpcError });
+
     } catch (error) {
-      console.error('Error fetching friend requests:', error);
+      console.error('🚨 DEBUG: Error in debug function:', error);
+    }
+  };
+
+  // Debug function to check relationship between two users
+  const debugRelationship = async (userId1: number, userId2: number) => {
+    console.log(`🔍 DEBUG: Checking relationship between users ${userId1} and ${userId2}`);
+    
+    try {
+      // Check friend requests in both directions
+      const { data: requests1to2 } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .eq('sender_id', userId1)
+        .eq('receiver_id', userId2);
+      
+      const { data: requests2to1 } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .eq('sender_id', userId2)
+        .eq('receiver_id', userId1);
+
+      // Check friendships in both directions
+      const { data: friendships } = await supabase
+        .from('friends')
+        .select('*')
+        .or(`and(user_id.eq.${userId1},friend_id.eq.${userId2}),and(user_id.eq.${userId2},friend_id.eq.${userId1})`);
+
+      // Check follows in both directions
+      const { data: follows } = await supabase
+        .from('follows')
+        .select('*')
+        .or(`and(follower_id.eq.${userId1},followed_id.eq.${userId2}),and(follower_id.eq.${userId2},followed_id.eq.${userId1})`);
+
+      console.log('📋 DEBUG: Friend requests 1→2:', requests1to2);
+      console.log('📋 DEBUG: Friend requests 2→1:', requests2to1);
+      console.log('👥 DEBUG: Friendships:', friendships);
+      console.log('🔗 DEBUG: Follows:', follows);
+
+    } catch (error) {
+      console.error('🚨 DEBUG: Error checking relationship:', error);
+    }
+  };
+
+  // Add debug button to modal when in development
+  const isDev = __DEV__ || process.env.NODE_ENV === 'development';
+
+  const fetchFriendRequests = async (showLoading: boolean = true) => {
+    if (!profile?.id) {
+      console.log('🚨 fetchFriendRequests: No profile ID available');
+      return;
+    }
+    
+    console.log(`🔍 FriendsModal: fetchFriendRequests for user ID ${profile.id}`);
+    
+    try {
+      if (showLoading) setLoading(true);
+      
+      // Use direct database query instead of broken RPC function
+      console.log('🔄 FriendsModal: Using direct database query...');
+      
+      const { data: directData, error: directError } = await supabase
+        .from('friend_requests')
+        .select('id, sender_id, created_at')
+        .eq('receiver_id', profile.id)
+        .eq('status', 'pending');
+
+      console.log(`📥 FriendsModal: Direct query result:`, { data: directData, error: directError });
+
+      if (directError) {
+        console.error('🚨 FriendsModal: Direct query error:', directError);
+        throw directError;
+      }
+
+      // Get sender details separately
+      const senderIds = directData?.map(req => req.sender_id) || [];
+      let senderDetails: any[] = [];
+      if (senderIds.length > 0) {
+        const { data: sendersData } = await supabase
+          .from('all_users')
+          .select('id, name, email')
+          .in('id', senderIds);
+        senderDetails = sendersData || [];
+        console.log(`👥 FriendsModal: Sender details fetched:`, senderDetails);
+      }
+
+      // Transform the data to match expected format
+      const transformedData = directData?.map(request => {
+        const sender = senderDetails.find(s => s.id === request.sender_id);
+        return {
+          request_id: request.id,
+          sender_id: request.sender_id,
+          sender_name: sender?.name || 'Unknown',
+          sender_email: sender?.email || 'Unknown',
+          created_at: request.created_at
+        };
+      }) || [];
+
+      console.log(`🔄 FriendsModal: Final transformed data:`, transformedData);
+      console.log(`✅ FriendsModal: Found ${transformedData.length} pending friend requests for user ${profile.id}`);
+      onRequestsUpdate(transformedData);
+      
+    } catch (error) {
+      console.error('🚨 FriendsModal: Error fetching friend requests:', error);
       if (showLoading) Alert.alert('Error', 'Failed to load friend requests');
     } finally {
       if (showLoading) setLoading(false);
@@ -173,14 +341,47 @@ export default function FriendsModal({
     
     try {
       if (showLoading) setLoading(true);
-      const { data, error } = await supabase.rpc('get_user_followers', {
-        target_user_id: profile.id
-      });
+      
+      console.log(`🔍 FriendsModal: fetchFollowers for user ID ${profile.id}`);
+      
+      // Use direct database query instead of broken RPC function
+      console.log('🔄 FriendsModal: Using direct database query for followers...');
+      
+      const { data: directData, error: directError } = await supabase
+        .from('follows')
+        .select(`
+          id,
+          follower_id,
+          created_at,
+          all_users!follows_follower_id_fkey (
+            id,
+            name,
+            email
+          )
+        `)
+        .eq('followed_id', profile.id);
 
-      if (error) throw error;
-      setFollowers(data || []);
+      console.log(`📥 FriendsModal: Direct followers query result:`, { data: directData, error: directError });
+
+      if (directError) {
+        console.error('🚨 FriendsModal: Direct followers query error:', directError);
+        throw directError;
+      }
+
+      // Transform the data to match expected format
+      const transformedData = directData?.map((follow: any) => ({
+        follower_id: follow.follower_id,
+        follower_name: follow.all_users?.name || 'Unknown',
+        follower_email: follow.all_users?.email || 'Unknown',
+        created_at: follow.created_at
+      })) || [];
+
+      console.log(`🔄 FriendsModal: Transformed followers data:`, transformedData);
+      console.log(`✅ FriendsModal: Found ${transformedData.length} followers for user ${profile.id}`);
+      setFollowers(transformedData);
+      
     } catch (error) {
-      console.error('Error fetching followers:', error);
+      console.error('🚨 FriendsModal: Error fetching followers:', error);
       if (showLoading) Alert.alert('Error', 'Failed to load followers');
     } finally {
       if (showLoading) setLoading(false);
@@ -192,14 +393,47 @@ export default function FriendsModal({
     
     try {
       if (showLoading) setLoading(true);
-      const { data, error } = await supabase.rpc('get_user_following', {
-        target_user_id: profile.id
-      });
+      
+      console.log(`🔍 FriendsModal: fetchFollowing for user ID ${profile.id}`);
+      
+      // Use direct database query instead of broken RPC function
+      console.log('🔄 FriendsModal: Using direct database query for following...');
+      
+      const { data: directData, error: directError } = await supabase
+        .from('follows')
+        .select(`
+          id,
+          followed_id,
+          created_at,
+          all_users!follows_followed_id_fkey (
+            id,
+            name,
+            email
+          )
+        `)
+        .eq('follower_id', profile.id);
 
-      if (error) throw error;
-      setFollowing(data || []);
+      console.log(`📥 FriendsModal: Direct following query result:`, { data: directData, error: directError });
+
+      if (directError) {
+        console.error('🚨 FriendsModal: Direct following query error:', directError);
+        throw directError;
+      }
+
+      // Transform the data to match expected format
+      const transformedData = directData?.map((follow: any) => ({
+        following_id: follow.followed_id,
+        following_name: follow.all_users?.name || 'Unknown',
+        following_email: follow.all_users?.email || 'Unknown',
+        created_at: follow.created_at
+      })) || [];
+
+      console.log(`🔄 FriendsModal: Transformed following data:`, transformedData);
+      console.log(`✅ FriendsModal: Found ${transformedData.length} following for user ${profile.id}`);
+      setFollowing(transformedData);
+      
     } catch (error) {
-      console.error('Error fetching following:', error);
+      console.error('🚨 FriendsModal: Error fetching following:', error);
       if (showLoading) Alert.alert('Error', 'Failed to load following');
     } finally {
       if (showLoading) setLoading(false);
@@ -208,24 +442,163 @@ export default function FriendsModal({
 
   const respondToFriendRequest = async (requestId: number, response: 'accepted' | 'declined' | 'blocked') => {
     try {
-      const { data, error } = await supabase.rpc('respond_to_friend_request', {
-        request_id: requestId,
-        response: response
-      });
+      console.log(`🔍 Responding to friend request ${requestId} with response: ${response}`);
+      
+      // Since RPC functions have conflicts, handle this manually with direct database operations
+      if (response === 'accepted') {
+        // First, get the friend request details
+        const { data: requestData, error: requestError } = await supabase
+          .from('friend_requests')
+          .select('sender_id, receiver_id')
+          .eq('id', requestId)
+          .eq('status', 'pending')
+          .single();
 
-      if (error) throw error;
+        if (requestError) {
+          console.error('🚨 Error fetching friend request:', requestError);
+          throw requestError;
+        }
 
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        Alert.alert('Success', result.message);
-        // Refresh both friend requests and friends lists with loading
-        fetchFriendRequests(true);
-        fetchFriends(true);
+        if (!requestData) {
+          Alert.alert('Error', 'Friend request not found or already processed');
+          return;
+        }
+
+        console.log('📋 Friend request data:', requestData);
+
+        // Update the friend request status to accepted
+        const { error: updateError } = await supabase
+          .from('friend_requests')
+          .update({ status: 'accepted', updated_at: new Date().toISOString() })
+          .eq('id', requestId);
+
+        if (updateError) {
+          console.error('🚨 Error updating friend request:', updateError);
+          throw updateError;
+        }
+
+        // Check if friendship already exists to avoid duplicates
+        const { data: existingFriendships, error: checkError } = await supabase
+          .from('friends')
+          .select('id')
+          .or(`and(user_id.eq.${requestData.sender_id},friend_id.eq.${requestData.receiver_id}),and(user_id.eq.${requestData.receiver_id},friend_id.eq.${requestData.sender_id})`);
+
+        if (checkError) {
+          console.error('🚨 Error checking existing friendships:', checkError);
+          // Continue with creation anyway, let the database handle duplicates
+        }
+
+        if (existingFriendships && existingFriendships.length > 0) {
+          console.log('⚠️ Friendship already exists, updating status instead of creating new');
+          
+          // Update existing friendships instead of creating new ones
+          const { error: updateFriendshipError } = await supabase
+            .from('friends')
+            .update({ 
+              status: 'accepted', 
+              updated_at: new Date().toISOString() 
+            })
+            .or(`and(user_id.eq.${requestData.sender_id},friend_id.eq.${requestData.receiver_id}),and(user_id.eq.${requestData.receiver_id},friend_id.eq.${requestData.sender_id})`);
+
+          if (updateFriendshipError) {
+            console.error('🚨 Error updating existing friendship:', updateFriendshipError);
+            throw updateFriendshipError;
+          }
+
+          console.log('✅ Existing friendships updated to accepted status');
+        } else {
+          // Create new friendship entries in both directions
+          const friendshipData = [
+            {
+              user_id: requestData.sender_id,
+              friend_id: requestData.receiver_id,
+              status: 'accepted',
+              created_at: new Date().toISOString()
+            },
+            {
+              user_id: requestData.receiver_id,
+              friend_id: requestData.sender_id,
+              status: 'accepted',
+              created_at: new Date().toISOString()
+            }
+          ];
+
+          console.log('📝 Creating new friendships:', friendshipData);
+
+          const { data: insertResult, error: friendshipError } = await supabase
+            .from('friends')
+            .insert(friendshipData)
+            .select();
+
+          console.log('📤 Friendship insert result:', { data: insertResult, error: friendshipError });
+
+          if (friendshipError) {
+            console.error('🚨 Error creating friendship:', friendshipError);
+            console.error('🚨 Friendship error details:', JSON.stringify(friendshipError, null, 2));
+            
+            // If it's a duplicate key error, try to handle it gracefully
+            if (friendshipError.message?.includes('duplicate') || friendshipError.code === '23505') {
+              console.log('🔄 Duplicate key error detected, friendship may already exist');
+              Alert.alert('Success', 'Friend request accepted! You are now friends.');
+            } else {
+              throw friendshipError;
+            }
+          } else {
+            console.log('✅ New friendships created successfully:', insertResult);
+          }
+        }
+
+        // Verify the friendship was created by checking the friends table directly
+        const { data: verifyFriendship, error: verifyError } = await supabase
+          .from('friends')
+          .select('id, user_id, friend_id, status')
+          .or(`and(user_id.eq.${requestData.sender_id},friend_id.eq.${requestData.receiver_id}),and(user_id.eq.${requestData.receiver_id},friend_id.eq.${requestData.sender_id})`)
+          .eq('status', 'accepted');
+
+        console.log('🔍 Friendship verification result:', { data: verifyFriendship, error: verifyError });
+
+        if (verifyFriendship && verifyFriendship.length >= 2) {
+          console.log('✅ Friend request accepted successfully - bidirectional friendship confirmed');
+        } else if (verifyFriendship && verifyFriendship.length === 1) {
+          console.log('⚠️ Only one direction of friendship found, may need to fix RPC function');
+        } else {
+          console.log('🚨 No friendship entries found after creation - there may be a database issue');
+        }
+        
+        Alert.alert('Success', 'Friend request accepted! You are now friends.');
+        
       } else {
-        Alert.alert('Error', result.message);
+        // For declined/blocked, just update the status
+        const { error: updateError } = await supabase
+          .from('friend_requests')
+          .update({ status: response, updated_at: new Date().toISOString() })
+          .eq('id', requestId);
+
+        if (updateError) {
+          console.error('🚨 Error updating friend request:', updateError);
+          throw updateError;
+        }
+
+        console.log(`✅ Friend request ${response} successfully`);
+        Alert.alert('Success', `Friend request ${response}.`);
       }
+
+      // Refresh both friend requests and friends lists
+      fetchFriendRequests(true);
+      fetchFriends(true);
+      
+      // Update parent Profile component's follow counts if friend request was accepted
+      if (response === 'accepted' && onFollowCountsUpdate) {
+        onFollowCountsUpdate();
+      }
+      
+      // Refresh parent Profile component's friend requests data
+      if (onRefreshRequests) {
+        onRefreshRequests();
+      }
+
     } catch (error) {
-      console.error('Error responding to friend request:', error);
+      console.error('🚨 Error responding to friend request:', error);
       Alert.alert('Error', 'Failed to respond to friend request');
     }
   };
@@ -243,22 +616,47 @@ export default function FriendsModal({
           style: 'destructive',
           onPress: async () => {
             try {
-              const { data, error } = await supabase.rpc('remove_friend', {
-                user_id: profile.id,
-                friend_id: friendId
-              });
+              console.log(`🔍 Removing friend - user: ${profile.id}, friend: ${friendId}`);
+              
+              // Since RPC function has conflicts, handle this manually with direct database operations
+              // Remove both directions of the friendship
+              const { error: removeError } = await supabase
+                .from('friends')
+                .delete()
+                .or(`and(user_id.eq.${profile.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${profile.id})`);
 
-              if (error) throw error;
+              console.log('📤 Friend removal result:', { error: removeError });
 
-              const result = data as { success: boolean; message: string };
-              if (result.success) {
-                Alert.alert('Success', result.message);
-                fetchFriends(true); // Show loading since user initiated this action
-              } else {
-                Alert.alert('Error', result.message);
+              if (removeError) {
+                console.error('🚨 Error removing friend:', removeError);
+                throw removeError;
               }
+
+              // Also clean up any old friend requests between these users to allow fresh requests
+              console.log('🧹 Cleaning up old friend requests between users...');
+              const { error: cleanupError } = await supabase
+                .from('friend_requests')
+                .delete()
+                .or(`and(sender_id.eq.${profile.id},receiver_id.eq.${friendId}),and(sender_id.eq.${friendId},receiver_id.eq.${profile.id})`);
+
+              if (cleanupError) {
+                console.log('⚠️ Warning: Could not clean up old friend requests:', cleanupError);
+                // Don't throw error here - friend removal was successful
+              } else {
+                console.log('✅ Old friend requests cleaned up successfully');
+              }
+
+              console.log('✅ Friend removed successfully');
+              Alert.alert('Success', 'Friend removed successfully');
+              fetchFriends(true); // Show loading since user initiated this action
+              
+              // Update parent Profile component's follow counts
+              if (onFollowCountsUpdate) {
+                onFollowCountsUpdate();
+              }
+              
             } catch (error) {
-              console.error('Error removing friend:', error);
+              console.error('🚨 Error removing friend:', error);
               Alert.alert('Error', 'Failed to remove friend');
             }
           }
@@ -268,25 +666,46 @@ export default function FriendsModal({
   };
 
   const handleUnfollow = async (targetEmail: string) => {
-    if (!profile?.email) return;
+    if (!profile?.email || !profile?.id) return;
     
     try {
-      const { data, error } = await supabase.rpc('unfollow_user', {
-        follower_email: profile.email,
-        target_email: targetEmail
-      });
+      console.log(`🔍 FriendsModal: Unfollowing user ${targetEmail} by ${profile.email}`);
+      
+      // Get target user ID first
+      const { data: targetUser, error: targetError } = await supabase
+        .from('all_users')
+        .select('id')
+        .eq('email', targetEmail)
+        .single();
 
-      if (error) throw error;
+      if (targetError || !targetUser) {
+        console.error('🚨 Error finding target user:', targetError);
+        Alert.alert('Error', 'User not found');
+        return;
+      }
 
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        Alert.alert('Success', result.message);
-        fetchFollowing(true); // Refresh following list
-      } else {
-        Alert.alert('Error', result.message);
+      // Use direct database operations instead of broken RPC function
+      const { error: unfollowError } = await supabase
+        .from('follows')
+        .delete()
+        .eq('follower_id', profile.id)
+        .eq('followed_id', targetUser.id);
+
+      if (unfollowError) {
+        console.error('🚨 FriendsModal: Error unfollowing user:', unfollowError);
+        throw unfollowError;
+      }
+
+      console.log('✅ FriendsModal: Successfully unfollowed user');
+      Alert.alert('Success', 'User unfollowed successfully');
+      
+      fetchFollowing(true); // Refresh following list
+      // Update parent Profile component's follow counts
+      if (onFollowCountsUpdate) {
+        onFollowCountsUpdate();
       }
     } catch (error) {
-      console.error('Error unfollowing user:', error);
+      console.error('🚨 FriendsModal: Error unfollowing user:', error);
       Alert.alert('Error', 'Failed to unfollow user');
     }
   };
@@ -325,8 +744,15 @@ export default function FriendsModal({
     console.log('Refreshing all social data for modal interaction...');
     fetchFriends(true);
     fetchFriendRequests(true);
-    fetchFollowers(false);
-    fetchFollowing(false);
+    fetchFollowers(true); // Force refresh followers with loading
+    fetchFollowing(true); // Force refresh following with loading to catch new auto-follows
+    
+    // Also refresh parent Profile component's data
+    if (onRefreshRequests) {
+      console.log('🔄 FriendsModal: Requesting parent to refresh friend requests data...');
+      onRefreshRequests();
+    }
+    
     // Mark friends as viewed when opening modal (defaults to friends tab)
     setTimeout(() => markFriendsAsViewed(), 500);
   };
@@ -403,7 +829,7 @@ export default function FriendsModal({
             style={styles.unfollowButton}
             onPress={() => handleUnfollow(userEmail)}
           >
-            <Text style={styles.unfollowButtonText}>Unfollow</Text>
+            <Ionicons name="person-remove-outline" size={20} color="#fff" />
           </TouchableOpacity>
         )}
         
@@ -500,15 +926,45 @@ export default function FriendsModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      presentationStyle="fullScreen"
+      onRequestClose={() => {}} // Prevent closing with back button or gestures
     >
       <SafeAreaView style={[styles.modalContainer, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
         <View style={styles.modalHeader}>
           <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Social</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {isDev && (
+              <>
+                <TouchableOpacity onPress={debugFriendRequests} style={{ padding: 5 }}>
+                  <Text style={{ color: '#FF6B9D', fontSize: 12, fontWeight: 'bold' }}>DEBUG</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => {
+                    console.log('🔄 Manual refresh triggered...');
+                    fetchFriendRequests(true);
+                    if (onRefreshRequests) onRefreshRequests();
+                  }} 
+                  style={{ padding: 5 }}
+                >
+                  <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold' }}>REFRESH</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => {
+                    // Example usage - you can change these IDs to test specific relationships
+                    if (profile?.id) {
+                      debugRelationship(profile.id, profile.id + 1); // Debug with next user ID
+                    }
+                  }} 
+                  style={{ padding: 5 }}
+                >
+                  <Text style={{ color: '#9C27B0', fontSize: 12, fontWeight: 'bold' }}>REL</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Tab Navigation */}
@@ -618,6 +1074,7 @@ export default function FriendsModal({
         userId={selectedUserId}
         userName={selectedUserName}
         userEmail={selectedUserEmail}
+        initialFriendshipStatus={undefined}
       />
     </Modal>
   );
@@ -722,8 +1179,8 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
-    paddingHorizontal: 4,
-    paddingTop: 8,
+    paddingHorizontal: 0,
+    paddingTop: 10,
   },
   emptyContainer: {
     flex: 1,
@@ -747,17 +1204,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    marginVertical: 8,
-    marginHorizontal: 4,
-    borderRadius: 16,
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    padding: 20,
+    marginVertical: 6,
+    marginHorizontal: 0,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(158, 149, 189, 0.1)',
+    borderColor: 'rgba(158, 149, 189, 0.08)',
+    backgroundColor: 'rgba(158, 149, 189, 0.02)',
   },
   userInfo: {
     flexDirection: 'row',
@@ -765,37 +1218,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#9E95BD',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#F5F5F7',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    marginRight: 18,
+    borderWidth: 2,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
   },
   userAvatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 24,
+    borderRadius: 26,
   },
   userDetails: {
     flex: 1,
   },
   userName: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    marginBottom: 4,
-    letterSpacing: 0.3,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+    letterSpacing: 0.2,
   },
   userEmail: {
-    fontSize: 14,
-    opacity: 0.8,
-    fontWeight: '500',
+    fontSize: 13,
+    opacity: 0.65,
+    fontWeight: '400',
+    marginTop: 1,
   },
   dateContainer: {
     flexDirection: 'row',
@@ -803,53 +1254,49 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   dateText: {
-    fontSize: 12,
-    opacity: 0.7,
+    fontSize: 11,
+    opacity: 0.6,
     marginLeft: 4,
-    fontStyle: 'italic',
+    fontWeight: '400',
   },
   removeButton: {
-    padding: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 68, 68, 0.1)',
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 68, 68, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 68, 68, 0.15)',
   },
   unfollowButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
-    backgroundColor: '#ff4444',
-  },
-  unfollowButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  requestActions: {
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#FF3B30',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 44,
+    minHeight: 44,
+      },
+    requestActions: {
     flexDirection: 'row',
     gap: 10,
   },
   acceptButton: {
-    backgroundColor: '#9E95BD',
-    borderRadius: 20,
-    padding: 10,
-    minWidth: 36,
+    backgroundColor: '#34C759',
+    borderRadius: 10,
+    padding: 12,
+    minWidth: 40,
     alignItems: 'center',
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 199, 89, 0.2)',
   },
   declineButton: {
-    backgroundColor: '#ff4444',
-    borderRadius: 20,
-    padding: 10,
-    minWidth: 36,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    padding: 12,
+    minWidth: 40,
     alignItems: 'center',
-    shadowColor: '#ff4444',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.2)',
   },
 }); 

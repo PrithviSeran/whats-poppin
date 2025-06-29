@@ -242,10 +242,19 @@ export default function EditImages() {
       console.log('Profile image URL:', updatedProfile.profileImage);
       console.log('Banner image URL:', updatedProfile.bannerImage);
 
-      // Navigate back with updated profile
-      navigation.navigate('me', {
-        params: { updatedProfile }
-      });
+      // Immediately refresh the GlobalDataManager cache with fresh data
+      const GlobalDataManager = require('@/lib/GlobalDataManager').default;
+      const dataManager = GlobalDataManager.getInstance();
+      await dataManager.refreshAllData();
+      console.log('✅ GlobalDataManager cache refreshed with updated image data');
+
+      // Show success message and go back to previous screen
+      Alert.alert('Success', 'Images updated successfully!', [
+        {
+          text: 'OK',
+          onPress: () => navigation.goBack()
+        }
+      ]);
 
     } catch (error) {
       console.error('Error saving images:', error);

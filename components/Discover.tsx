@@ -23,7 +23,8 @@ interface SearchUser {
   user_id: number; // This handles BIGINT from PostgreSQL
   name: string;
   email: string;
-  friendship_status: 'pending' | 'accepted' | 'blocked' | 'declined' | null;
+  friendship_status: 'pending' | 'accepted' | 'blocked' | 'declined' | 'incoming' | null;
+  following_status: boolean; // Whether current user is following this user
 }
 
 interface Friend {
@@ -106,6 +107,7 @@ export default function Discover() {
   const [selectedUserId, setSelectedUserId] = useState<number>(0);
   const [selectedUserName, setSelectedUserName] = useState<string>('');
   const [selectedUserEmail, setSelectedUserEmail] = useState<string>('');
+  const [selectedFriendshipStatus, setSelectedFriendshipStatus] = useState<'pending' | 'accepted' | 'blocked' | 'declined' | 'incoming' | null>(null);
 
   // Animation refs
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -131,14 +133,87 @@ export default function Discover() {
     
     try {
       setUserLoading(true);
-      const { data, error } = await supabase.rpc('search_users_with_follow_status', {
-        searcher_id: userProfile.id,
-        search_query: query.trim(),
-        limit_count: 10
+      
+      // Search users by name or email, excluding current user
+      const { data: users, error: searchError } = await supabase
+        .from('all_users')
+        .select('id, name, email')
+        .or(`name.ilike.%${query.trim()}%,email.ilike.%${query.trim()}%`)
+        .neq('id', userProfile.id)
+        .limit(10);
+
+      if (searchError) throw searchError;
+
+      if (!users || users.length === 0) {
+        setSearchResults([]);
+        return;
+      }
+
+      // Get user IDs for batch queries
+      const userIds = users.map(user => user.id);
+
+      // Check friendship status for all users in parallel
+      const { data: friendships } = await supabase
+        .from('friends')
+        .select('friend_id, status')
+        .eq('user_id', userProfile.id)
+        .in('friend_id', userIds);
+
+      // Check outgoing friend requests in parallel
+      const { data: sentRequests } = await supabase
+        .from('friend_requests')
+        .select('receiver_id, status')
+        .eq('sender_id', userProfile.id)
+        .in('receiver_id', userIds)
+        .eq('status', 'pending');
+
+      // Check incoming friend requests in parallel
+      const { data: receivedRequests } = await supabase
+        .from('friend_requests')
+        .select('sender_id, status')
+        .eq('receiver_id', userProfile.id)
+        .in('sender_id', userIds)
+        .eq('status', 'pending');
+
+      // Check following status in parallel
+      const { data: followingRelations } = await supabase
+        .from('follows')
+        .select('followed_id')
+        .eq('follower_id', userProfile.id)
+        .in('followed_id', userIds);
+
+      // Transform the results
+      const searchResults: SearchUser[] = users.map(user => {
+        // Determine friendship status
+        let friendshipStatus: SearchUser['friendship_status'] = null;
+        
+        const friendship = friendships?.find(f => f.friend_id === user.id);
+        if (friendship?.status === 'accepted') {
+          friendshipStatus = 'accepted';
+        } else {
+          const sentRequest = sentRequests?.find(r => r.receiver_id === user.id);
+          const receivedRequest = receivedRequests?.find(r => r.sender_id === user.id);
+          
+          if (sentRequest) {
+            friendshipStatus = 'pending';
+          } else if (receivedRequest) {
+            friendshipStatus = 'incoming';
+          }
+        }
+
+        // Determine following status
+        const isFollowing = followingRelations?.some(f => f.followed_id === user.id) || false;
+
+        return {
+          user_id: user.id,
+          name: user.name,
+          email: user.email,
+          friendship_status: friendshipStatus,
+          following_status: isFollowing
+        };
       });
 
-      if (error) throw error;
-      setSearchResults(data || []);
+      setSearchResults(searchResults);
     } catch (error) {
       console.error('Error searching users:', error);
       Alert.alert('Error', 'Failed to search users');
@@ -148,39 +223,264 @@ export default function Discover() {
   };
 
   const sendFriendRequest = async (receiverId: number) => {
-    if (!userProfile?.id) return;
+    if (!userProfile?.id) {
+      console.error('No current user ID available for sending friend request');
+      Alert.alert('Error', 'User profile not loaded properly');
+      return;
+    }
+    
+    console.log(`🔍 Discover: Sending friend request from user ${userProfile.id} to user ${receiverId}`);
     
     try {
-      const { data, error } = await supabase.rpc('send_friend_request', {
-        sender_id: userProfile.id,
-        receiver_id: receiverId
-      });
+      // Check if a friend request already exists to avoid duplicates
+      console.log(`🔍 Checking for existing friend request: sender=${userProfile.id}, receiver=${receiverId}`);
+      const { data: existingRequest, error: checkError } = await supabase
+        .from('friend_requests')
+        .select('id, status')
+        .eq('sender_id', userProfile.id)
+        .eq('receiver_id', receiverId)
+        .maybeSingle();
 
-      if (error) throw error;
+      console.log('📋 Existing request check result:', { data: existingRequest, error: checkError });
 
-      const result = data as { success: boolean; message: string };
-      if (result.success) {
-        Alert.alert('Success', result.message);
-        // Refresh search results to update button states
-        if (searchQuery.trim().length >= 2) {
-          searchUsers(searchQuery);
+      if (checkError) {
+        console.error('🚨 Error checking existing friend request:', checkError);
+        throw checkError;
+      }
+
+      if (existingRequest) {
+        console.log(`📝 Found existing request with status: ${existingRequest.status}`);
+        if (existingRequest.status === 'pending') {
+          console.log('⚠️ Friend request already pending');
+          Alert.alert('Info', 'Friend request already sent');
+          // Refresh search results to update button states
+          if (searchQuery.trim().length >= 2) {
+            searchUsers(searchQuery);
+          }
+          return;
+        } else if (existingRequest.status === 'declined' || existingRequest.status === 'accepted') {
+          // Update existing declined/accepted request to pending (for when friendship was removed)
+          console.log(`🔄 Updating ${existingRequest.status} request to pending...`);
+          const { error: updateError } = await supabase
+            .from('friend_requests')
+            .update({ 
+              status: 'pending', 
+              updated_at: new Date().toISOString() 
+            })
+            .eq('id', existingRequest.id);
+
+          if (updateError) {
+            console.error('🚨 Error updating friend request:', updateError);
+            throw updateError;
+          }
+
+          console.log(`✅ Previous ${existingRequest.status} request updated to pending`);
         }
       } else {
-        Alert.alert('Info', result.message);
+        // Create new friend request
+        console.log('📤 Creating new friend request...');
+        const { data: insertData, error: insertError } = await supabase
+          .from('friend_requests')
+          .insert({
+            sender_id: userProfile.id,
+            receiver_id: receiverId,
+            status: 'pending',
+            created_at: new Date().toISOString()
+          })
+          .select();
+
+        console.log('📤 Friend request insert result:', { data: insertData, error: insertError });
+
+        if (insertError) {
+          console.error('🚨 Error creating friend request:', insertError);
+          throw insertError;
+        }
+
+        console.log('✅ Friend request created successfully:', insertData);
       }
+
+      // Auto-follow the user when sending friend request
+      try {
+        console.log('🔍 Discover: Auto-following user when sending friend request...');
+        
+        // Check if already following to avoid duplicates
+        const { data: existingFollow, error: checkFollowError } = await supabase
+          .from('follows')
+          .select('id')
+          .eq('follower_id', userProfile.id)
+          .eq('followed_id', receiverId)
+          .maybeSingle();
+
+        if (checkFollowError) {
+          console.log('⚠️ Error checking existing follow, but friend request was sent:', checkFollowError);
+        } else if (existingFollow) {
+          console.log('⚠️ Already following this user');
+        } else {
+          // Create follow relationship
+          const { error: followError } = await supabase
+            .from('follows')
+            .insert({
+              follower_id: userProfile.id,
+              followed_id: receiverId,
+              created_at: new Date().toISOString()
+            });
+
+          if (followError) {
+            console.log('⚠️ Auto-follow failed, but friend request was sent:', followError);
+          } else {
+            console.log('✅ Auto-follow successful');
+          }
+        }
+      } catch (followError) {
+        console.log('⚠️ Auto-follow error, but friend request was sent:', followError);
+      }
+
+      Alert.alert('Success', 'Friend request sent successfully!');
+      
+      // Refresh search results to update button states
+      if (searchQuery.trim().length >= 2) {
+        searchUsers(searchQuery);
+      }
+      
     } catch (error) {
-      console.error('Error sending friend request:', error);
+      console.error('🚨 Error sending friend request:', error);
       Alert.alert('Error', 'Failed to send friend request');
     }
   };
 
+  const handleFollowToggle = async (userId: number, currentlyFollowing: boolean) => {
+    if (!userProfile?.id) {
+      console.error('No current user ID available for follow action');
+      Alert.alert('Error', 'User profile not loaded properly');
+      return;
+    }
+    
+    try {
+      if (currentlyFollowing) {
+        // Unfollow user
+        console.log(`🔍 Discover: Unfollowing user ${userId}`);
+        const { error: unfollowError } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', userProfile.id)
+          .eq('followed_id', userId);
 
+        if (unfollowError) {
+          console.error('🚨 Error unfollowing user:', unfollowError);
+          throw unfollowError;
+        }
+
+        console.log('✅ Successfully unfollowed user');
+      } else {
+        // Follow user
+        console.log(`🔍 Discover: Following user ${userId}`);
+        
+        // Check if already following to avoid duplicates
+        const { data: existingFollow, error: checkError } = await supabase
+          .from('follows')
+          .select('id')
+          .eq('follower_id', userProfile.id)
+          .eq('followed_id', userId)
+          .maybeSingle();
+
+        if (checkError) {
+          console.error('🚨 Error checking existing follow:', checkError);
+          throw checkError;
+        }
+
+        if (existingFollow) {
+          console.log('⚠️ Already following this user');
+          Alert.alert('Info', 'You are already following this user');
+          return;
+        }
+
+        const { error: followError } = await supabase
+          .from('follows')
+          .insert({
+            follower_id: userProfile.id,
+            followed_id: userId,
+            created_at: new Date().toISOString()
+          });
+
+        if (followError) {
+          console.error('🚨 Error following user:', followError);
+          throw followError;
+        }
+
+        console.log('✅ Successfully followed user');
+      }
+      
+      // Refresh search results to update button states
+      if (searchQuery.trim().length >= 2) {
+        searchUsers(searchQuery);
+      }
+      
+    } catch (error) {
+      console.error('🚨 Error toggling follow status:', error);
+      Alert.alert('Error', 'Failed to update follow status');
+    }
+  };
 
   // Open user profile modal
-  const handleUserProfileNavigation = (userId: number, userName: string, userEmail: string) => {
+  const handleUserProfileNavigation = async (userId: number, userName: string, userEmail: string, friendshipStatus?: 'pending' | 'accepted' | 'blocked' | 'declined' | 'incoming' | null) => {
     setSelectedUserId(userId);
     setSelectedUserName(userName);
     setSelectedUserEmail(userEmail);
+    
+    // CRITICAL FIX: The RPC function returns "pending" incorrectly for both sent and received requests
+    // We need to determine the correct direction by checking who is the sender vs receiver
+    let correctedFriendshipStatus = friendshipStatus;
+    
+    if (friendshipStatus === 'pending' && userProfile?.id) {
+      console.log(`🔍 Discover: Checking friend request direction between current user ${userProfile.id} and target user ${userId}`);
+      
+      try {
+        // Check if current user SENT a request to target user (should show "Request Sent")
+        const { data: sentRequest, error: sentError } = await supabase
+          .from('friend_requests')
+          .select('id')
+          .eq('sender_id', userProfile.id)
+          .eq('receiver_id', userId)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+        if (sentError) {
+          console.error('🚨 Error checking sent requests:', sentError);
+        }
+
+        if (sentRequest) {
+          console.log('📤 Current user sent request to target user - status should be "pending"');
+          correctedFriendshipStatus = 'pending'; // Current user sent request
+        } else {
+          // Check if target user SENT a request to current user (should show "Accept/Decline")
+          const { data: receivedRequest, error: receivedError } = await supabase
+            .from('friend_requests')
+            .select('id')
+            .eq('sender_id', userId)
+            .eq('receiver_id', userProfile.id)
+            .eq('status', 'pending')
+            .maybeSingle();
+
+          if (receivedError) {
+            console.error('🚨 Error checking received requests:', receivedError);
+          }
+
+          if (receivedRequest) {
+            console.log('📥 Current user received request from target user - status should be "incoming"');
+            correctedFriendshipStatus = 'incoming'; // Current user received request
+          } else {
+            console.log('❓ No pending request found in either direction - setting to null');
+            correctedFriendshipStatus = null;
+          }
+        }
+      } catch (error) {
+        console.error('🚨 Error checking friend request direction:', error);
+        // Fall back to original status if there's an error
+      }
+    }
+    
+    console.log(`🎯 Discover: Final friendship status for user ${userId}: ${correctedFriendshipStatus} (original: ${friendshipStatus})`);
+    setSelectedFriendshipStatus(correctedFriendshipStatus || null);
     setUserProfileModalVisible(true);
   };
 
@@ -856,7 +1156,7 @@ export default function Discover() {
                 <View key={user.user_id} style={[styles.userItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
                   <TouchableOpacity 
                     style={styles.userInfo}
-                    onPress={() => handleUserProfileNavigation(user.user_id, user.name, user.email)}
+                    onPress={() => handleUserProfileNavigation(user.user_id, user.name, user.email, user.friendship_status)}
                   >
                     <View style={styles.userAvatar}>
                       <Image 
@@ -877,44 +1177,8 @@ export default function Discover() {
                       <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
                         {user.email}
                       </Text>
-                      <View style={styles.userStatusContainer}>
-                        <Ionicons 
-                          name={user.friendship_status === 'accepted' ? 'checkmark-circle-outline' : 
-                                user.friendship_status === 'pending' ? 'time-outline' : 'person-add-outline'} 
-                          size={12} 
-                          color="#9E95BD" 
-                        />
-                        <Text style={[styles.userStatusText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          {user.friendship_status === 'accepted' ? 'Friends' :
-                           user.friendship_status === 'pending' ? 'Friend request pending' : 'Not friends'}
-                        </Text>
-                      </View>
                     </View>
                   </TouchableOpacity>
-                  
-                  {/* Action buttons container */}
-                  <View style={styles.userActionButtons}>
-                    {/* Friend request button */}
-                    <TouchableOpacity
-                      style={[
-                        styles.addFriendButton,
-                        user.friendship_status === 'pending' && styles.addFriendButtonPending,
-                        user.friendship_status === 'accepted' && styles.addFriendButtonAccepted
-                      ]}
-                      onPress={() => sendFriendRequest(user.user_id)}
-                      disabled={user.friendship_status !== null}
-                    >
-                      {user.friendship_status === null && (
-                        <Ionicons name="person-add" size={18} color="#fff" />
-                      )}
-                      {user.friendship_status === 'pending' && (
-                        <Ionicons name="hourglass" size={18} color="#fff" />
-                      )}
-                      {user.friendship_status === 'accepted' && (
-                        <Ionicons name="checkmark" size={18} color="#fff" />
-                      )}
-                    </TouchableOpacity>
-                  </View>
                 </View>
               ))}
             </View>
@@ -1254,6 +1518,7 @@ export default function Discover() {
         userId={selectedUserId}
         userName={selectedUserName}
         userEmail={selectedUserEmail}
+        initialFriendshipStatus={selectedFriendshipStatus}
       />
     </SafeAreaView>
   );
@@ -1510,23 +1775,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   userResultsContainer: {
-    padding: 15,
+    paddingHorizontal: 20,
+    paddingTop: 10,
   },
   userItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    marginVertical: 8,
-    marginHorizontal: 4,
-    borderRadius: 16,
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    padding: 20,
+    marginVertical: 6,
+    marginHorizontal: 0,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(158, 149, 189, 0.1)',
+    borderColor: 'rgba(158, 149, 189, 0.08)',
+    backgroundColor: 'rgba(158, 149, 189, 0.02)',
   },
   userInfo: {
     flexDirection: 'row',
@@ -1534,66 +1796,89 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#9E95BD',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#F5F5F7',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    marginRight: 18,
+    borderWidth: 2,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
   },
   userAvatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 24,
+    borderRadius: 26,
   },
   userDetails: {
     flex: 1,
   },
   userName: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    marginBottom: 4,
-    letterSpacing: 0.3,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+    letterSpacing: 0.2,
   },
   userEmail: {
-    fontSize: 14,
-    opacity: 0.8,
-    fontWeight: '500',
+    fontSize: 13,
+    opacity: 0.65,
+    fontWeight: '400',
+    marginTop: 1,
   },
   userStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginTop: 4,
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
   userStatusText: {
-    fontSize: 12,
-    opacity: 0.7,
+    fontSize: 11,
+    opacity: 0.6,
     marginLeft: 4,
-    fontStyle: 'italic',
+    fontWeight: '400',
   },
   addFriendButton: {
     backgroundColor: '#9E95BD',
-    borderRadius: 20,
-    padding: 10,
-    minWidth: 36,
+    borderRadius: 10,
+    padding: 12,
+    minWidth: 40,
     alignItems: 'center',
-    shadowColor: '#9E95BD',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.2)',
+    minHeight: 44,
+    justifyContent: 'center',
   },
   addFriendButtonPending: {
     backgroundColor: '#FFA500',
   },
   addFriendButtonAccepted: {
     backgroundColor: '#888',
+  },
+  actionButton: {
+    backgroundColor: '#9E95BD',
+    borderRadius: 10,
+    padding: 10,
+    minWidth: 36,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.2)',
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  addFriendButtonIncoming: {
+    backgroundColor: '#007AFF',
+    borderColor: 'rgba(0, 122, 255, 0.2)',
+  },
+  followingButton: {
+    backgroundColor: '#FF3B30',
+    borderColor: 'rgba(255, 59, 48, 0.2)',
+  },
+  notFollowingButton: {
+    backgroundColor: '#007AFF',
+    borderColor: 'rgba(0, 122, 255, 0.2)',
   },
   userActionButtons: {
     flexDirection: 'row',
