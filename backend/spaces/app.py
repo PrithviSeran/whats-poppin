@@ -844,6 +844,19 @@ class EventRecommendationSystem:
                 all_events_raw = self.get_all_events_data()
                 print(f"All events fetched: {len(all_events_raw)}")
                 
+                # DEBUG: Check event type distribution in database
+                if all_events_raw:
+                    event_type_counts = {}
+                    for event in all_events_raw[:50]:  # Sample first 50 events
+                        event_types = event.get('event_type', [])
+                        if isinstance(event_types, str):
+                            event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+                        elif not isinstance(event_types, list):
+                            event_types = []
+                        for event_type in event_types:
+                            event_type_counts[event_type] = event_type_counts.get(event_type, 0) + 1
+                    print(f"🎭 Event type distribution in database (sample): {event_type_counts}")
+                
                 # 3. Apply preference filtering AFTER getting all events
                 print(f"🔍 Filtering - Event types: {user_preferences}, Featured only: {featured_only}")
                 if user_preferences or featured_only:
@@ -852,6 +865,19 @@ class EventRecommendationSystem:
                     events_after_pref = len(all_events_raw)
                     print(f"✅ Preference filtering: {events_before_pref} -> {events_after_pref} events (filtered out: {events_before_pref - events_after_pref})")
                     print(f"🎯 Applied filters - Event types: {user_preferences}, Featured only: {featured_only}")
+                    
+                    # DEBUG: Check event type distribution after filtering
+                    if all_events_raw:
+                        filtered_event_type_counts = {}
+                        for event in all_events_raw[:20]:  # Sample filtered events
+                            event_types = event.get('event_type', [])
+                            if isinstance(event_types, str):
+                                event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+                            elif not isinstance(event_types, list):
+                                event_types = []
+                            for event_type in event_types:
+                                filtered_event_type_counts[event_type] = filtered_event_type_counts.get(event_type, 0) + 1
+                        print(f"🎭 Event type distribution AFTER filtering: {filtered_event_type_counts}")
                 else:
                     print("No preferences or featured filter to apply, using all events")
                     
@@ -944,11 +970,26 @@ class EventRecommendationSystem:
             user_feature_tuples = self.build_user_features(all_users)
             event_feature_tuples = self.build_event_features(all_events_filtered)
 
-            # Use cloud-native BeaconAI
+            # DEBUG: Check event types available for ML training
+            if all_events_filtered:
+                ml_event_type_counts = {}
+                for event in all_events_filtered[:30]:  # Sample events for ML training
+                    event_types = event.get('event_type', [])
+                    if isinstance(event_types, str):
+                        event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+                    elif not isinstance(event_types, list):
+                        event_types = []
+                    for event_type in event_types:
+                        ml_event_type_counts[event_type] = ml_event_type_counts.get(event_type, 0) + 1
+                print(f"🤖 Event types available for ML training: {ml_event_type_counts}")
+                print(f"📊 Total events for ML training: {len(all_events_filtered)}")
+                
+            # Use cloud-native BeaconAI with FORCED FRESH TRAINING
             self.rec.user_id = email
+            print("🔄 FORCING FRESH MODEL TRAINING - No cached weights will be used")
             status = self.rec.load_or_train(
                 user_emails, event_ids, user_feature_tuples, event_feature_tuples, interactions,
-                epochs=10, learning_rate=0.01, batch_size=256
+                epochs=10, learning_rate=0.01, batch_size=256, force_retrain=True
             )
 
             # Generate recommendations
@@ -956,6 +997,11 @@ class EventRecommendationSystem:
             recommendations = self.rec.recommend_for_user(
                 email, top_n=15, filter_liked=True, liked_event_ids=list(liked_and_rejected_ids)
             )
+            
+            print(f"🎯 ML model generated {len(recommendations)} recommendations")
+            if recommendations:
+                rec_event_ids = [eid for eid, score in recommendations[:10]]
+                print(f"🔢 Top 10 recommended event IDs: {rec_event_ids}")
 
             # Get the full event objects for the recommended events
             recommended_events = []
@@ -965,6 +1011,20 @@ class EventRecommendationSystem:
                 event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
                 if event_obj:
                     recommended_events.append(event_obj)
+                    
+            # DEBUG: Check event types in ML recommendations
+            if recommended_events:
+                rec_event_type_counts = {}
+                for event in recommended_events[:10]:  # Sample recommended events
+                    event_types = event.get('event_type', [])
+                    if isinstance(event_types, str):
+                        event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+                    elif not isinstance(event_types, list):
+                        event_types = []
+                    for event_type in event_types:
+                        rec_event_type_counts[event_type] = rec_event_type_counts.get(event_type, 0) + 1
+                print(f"🎯 Event types in ML recommendations: {rec_event_type_counts}")
+                print(f"📈 Total ML recommended events: {len(recommended_events)}")
 
             # Apply additional filters
             events_filtered = recommended_events
@@ -980,6 +1040,25 @@ class EventRecommendationSystem:
             # Apply calendar date filter
             if use_calendar_filter and selected_dates:
                 events_filtered = self.filter_by_dates(events_filtered, selected_dates)
+                
+            # DEBUG: Check final event types being returned to user
+            final_events_to_return = events_filtered[:5]
+            if final_events_to_return:
+                final_event_type_counts = {}
+                for event in final_events_to_return:
+                    event_types = event.get('event_type', [])
+                    if isinstance(event_types, str):
+                        event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
+                    elif not isinstance(event_types, list):
+                        event_types = []
+                    for event_type in event_types:
+                        final_event_type_counts[event_type] = final_event_type_counts.get(event_type, 0) + 1
+                print(f"🎉 FINAL event types being returned to user: {final_event_type_counts}")
+                print(f"🏁 Final events returned: {len(final_events_to_return)} out of {len(events_filtered)} filtered")
+                
+                # Show event names for debugging
+                final_event_names = [event.get('name', 'Unknown')[:50] for event in final_events_to_return]
+                print(f"📝 Final event names: {final_event_names}")
 
             return {
                 "summary": f"Found {len(events_filtered)} recommended events for {email}",
