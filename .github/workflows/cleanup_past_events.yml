@@ -3,7 +3,7 @@ name: Cleanup Past Events
 on:
   schedule:
     # Run every day at 2 AM UTC (1 hour after training to avoid conflicts)
-    - cron: '0 3 * * *'
+    - cron: '0 2 * * *'
   workflow_dispatch:  # Allow manual triggering
     inputs:
       dry_run:
