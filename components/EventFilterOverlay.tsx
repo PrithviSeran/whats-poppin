@@ -107,16 +107,20 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
 
   const fetchUserPreferences = async () => {
     try {
+      console.log('🚀 OFFLINE-FIRST: Loading all preferences from AsyncStorage');
       
-      const userProfile = await dataManager.getUserProfile();
-
-      const prefs = userProfile as UserProfile;
-      // Set event types and extract featured events preference
+      // OFFLINE-FIRST: Load all preferences from AsyncStorage instead of database
+      
+      // Load event type preferences
+      const savedPreferences = await AsyncStorage.getItem('userPreferences');
       let eventTypes: string[] = [];
-      if (Array.isArray(prefs.preferences)) {
-        eventTypes = prefs.preferences;
-      } else if (typeof prefs.preferences === 'string' && prefs.preferences.length > 0) {
-        eventTypes = prefs.preferences.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+      if (savedPreferences) {
+        try {
+          eventTypes = JSON.parse(savedPreferences);
+        } catch (e) {
+          console.error('Error parsing saved preferences:', e);
+          eventTypes = [];
+        }
       }
       
       // Extract "Featured Events" from event types and set the checkbox state
@@ -126,17 +130,22 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       // Remove "Featured Events" from regular event types (it's now a separate checkbox)
       const regularEventTypes = eventTypes.filter(type => type !== 'Featured Events');
       setSelectedEventTypes(regularEventTypes);
-      // Set time preferences
-      const startTimeStr = prefs['start-time'] || defaultStart;
-      const endTimeStr = prefs['end-time'] || defaultEnd;
+      
+      // Load time preferences
+      const startTimeStr = await AsyncStorage.getItem('userStartTime') || defaultStart;
+      const endTimeStr = await AsyncStorage.getItem('userEndTime') || defaultEnd;
       const [startHour, startMin] = startTimeStr.split(':').map(Number);
       const [endHour, endMin] = endTimeStr.split(':').map(Number);
       setStartTime(startHour * 60 + startMin);
       setEndTime(endHour * 60 + endMin);
-      // Set location
-      setManualLocation(prefs.location || '');
-      // Set travel distance
-      setTravelDistance(prefs['travel-distance'] || 8);
+      
+      // Load location preference
+      const savedLocation = await AsyncStorage.getItem('userLocation') || '';
+      setManualLocation(savedLocation);
+      
+      // Load travel distance preference
+      const savedTravelDistance = await AsyncStorage.getItem('userTravelDistance');
+      setTravelDistance(savedTravelDistance ? parseFloat(savedTravelDistance) : 8);
       
       // Load calendar preferences from AsyncStorage
       const calendarModeStr = await AsyncStorage.getItem('isCalendarMode');
@@ -155,12 +164,16 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
         }
       } else {
         setIsCalendarMode(false);
-        // Set day preferences only if not in calendar mode
+        // Load day preferences from AsyncStorage
+        const savedPreferredDays = await AsyncStorage.getItem('userPreferredDays');
         let days: string[] = [];
-        if (Array.isArray(prefs.preferred_days)) {
-          days = prefs.preferred_days;
-        } else if (typeof prefs.preferred_days === 'string' && prefs.preferred_days.length > 0) {
-          days = prefs.preferred_days.replace(/[{}"']+/g, '').split(',').map((s: string) => s.trim()).filter(Boolean);
+        if (savedPreferredDays) {
+          try {
+            days = JSON.parse(savedPreferredDays);
+          } catch (e) {
+            console.error('Error parsing saved preferred days:', e);
+            days = [];
+          }
         }
         setSelectedDayPreferences(days.length > 0 ? days : DAYS_OF_WEEK);
       }
@@ -168,8 +181,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       // Load filter by distance preference
       const filterByDistanceStr = await dataManager.getIsFilterByDistance();
       setFilterByDistance(filterByDistanceStr);
+      
+      console.log('✅ OFFLINE-FIRST: All preferences loaded from AsyncStorage successfully');
     } catch (error) {
-      console.error('Error in fetchUserPreferences:', error);
+      console.error('❌ Error loading preferences from AsyncStorage:', error);
     }
   };
 
@@ -381,56 +396,53 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     const start = formatTimeString(startTime);
     const end = formatTimeString(endTime);
 
-    const userProfile = await dataManager.getUserProfile();
+    console.log('🚀 OFFLINE-FIRST: Saving all preferences to AsyncStorage only');
 
-    if (!userProfile) {
-      Alert.alert('Error', 'User profile not found');
-      return;
-    }
-
-    // Update user preferences in Supabase
-    // Combine regular event types with featured events preference
-    const preferencesToSave = [...selectedEventTypes];
-    if (featuredEventsOnly) {
-      preferencesToSave.push('Featured Events');
-    }
-    userProfile.preferences = preferencesToSave;
-    userProfile['start-time'] = start;
-    userProfile['end-time'] = end;
-    userProfile.location = manualLocation;
-    userProfile['travel-distance'] = travelDistance;
-
-
-
-    // Save calendar mode and preferences
+    // OFFLINE-FIRST: Save all preferences to AsyncStorage instead of database
     try {
+      // Save event type preferences (including featured events)
+      const preferencesToSave = [...selectedEventTypes];
+      if (featuredEventsOnly) {
+        preferencesToSave.push('Featured Events');
+      }
+      await AsyncStorage.setItem('userPreferences', JSON.stringify(preferencesToSave));
+      
+      // Save time preferences
+      await AsyncStorage.setItem('userStartTime', start);
+      await AsyncStorage.setItem('userEndTime', end);
+      
+      // Save location preference
+      await AsyncStorage.setItem('userLocation', manualLocation);
+      
+      // Save travel distance preference
+      await AsyncStorage.setItem('userTravelDistance', travelDistance.toString());
+      
+      // Save calendar mode and date/day preferences
       await AsyncStorage.setItem('isCalendarMode', isCalendarMode.toString());
       
       if (isCalendarMode) {
         // In calendar mode, save selected dates and clear preferred_days
         await AsyncStorage.setItem('selectedDates', JSON.stringify(selectedDates));
-        userProfile.preferred_days = []; // Clear days when using calendar mode
-        console.log('Saving calendar mode with dates:', selectedDates);
+        await AsyncStorage.setItem('userPreferredDays', JSON.stringify([])); // Clear days when using calendar mode
+        console.log('✅ OFFLINE-FIRST: Saved calendar mode with dates:', selectedDates);
       } else {
         // In days mode, save preferred days and clear selected dates
         const daysToSave = selectedDayPreferences.length > 0 ? selectedDayPreferences : DAYS_OF_WEEK;
-        userProfile.preferred_days = daysToSave;
+        await AsyncStorage.setItem('userPreferredDays', JSON.stringify(daysToSave));
         await AsyncStorage.setItem('selectedDates', JSON.stringify([])); // Clear dates when using days mode
-        console.log('Saving days mode with days:', daysToSave);
+        console.log('✅ OFFLINE-FIRST: Saved days mode with days:', daysToSave);
       }
+
+      // Save filter by distance preference
+      await dataManager.setIsFilterByDistance(filterByDistance);
+      
+      console.log('✅ OFFLINE-FIRST: All preferences saved to AsyncStorage successfully');
+      
     } catch (error) {
-      console.error('Error saving calendar preferences:', error);
+      console.error('❌ Error saving preferences to AsyncStorage:', error);
+      Alert.alert('Error', 'Failed to save preferences. Please try again.');
+      return;
     }
-
-    // Save filter by distance preference
-    await dataManager.setIsFilterByDistance(filterByDistance);
-
-    await dataManager.setUserProfile(userProfile);
-
-    // IMPORTANT: Ensure all components are synchronized with latest data state
-    // This prevents the filter application from overriding recently cleared events
-    console.log('EventFilterOverlay: Refreshing data before applying filters');
-    await dataManager.refreshAllDataImmediate();
 
     // Play the same closing animation as the close button
     Animated.parallel([
@@ -454,6 +466,8 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   };
 
    const handleReset = async () => {
+    console.log('🚀 OFFLINE-FIRST: Resetting all preferences in AsyncStorage');
+    
     // Reset local state
     setSelectedEventTypes([]);
     setSelectedDayPreferences([]);
@@ -468,10 +482,19 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     setSelectedDates([]);
     
     try {
+      // OFFLINE-FIRST: Clear all preferences from AsyncStorage
+      await AsyncStorage.setItem('userPreferences', JSON.stringify([]));
+      await AsyncStorage.setItem('userStartTime', '21:00');
+      await AsyncStorage.setItem('userEndTime', '03:00');
+      await AsyncStorage.setItem('userLocation', '');
+      await AsyncStorage.setItem('userTravelDistance', '8');
+      await AsyncStorage.setItem('userPreferredDays', JSON.stringify([]));
       await AsyncStorage.setItem('isCalendarMode', 'false');
       await AsyncStorage.setItem('selectedDates', JSON.stringify([]));
+      
+      console.log('✅ OFFLINE-FIRST: All preferences cleared from AsyncStorage');
     } catch (error) {
-      console.error('Error resetting calendar preferences:', error);
+      console.error('❌ Error resetting preferences in AsyncStorage:', error);
     }
     
     // Reset filter by distance preference

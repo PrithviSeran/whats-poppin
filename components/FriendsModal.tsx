@@ -7,39 +7,9 @@ import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserProfile } from '@/lib/GlobalDataManager';
 import UserProfileModal from './UserProfileModal';
+import SocialDataManager, { Friend, FriendRequest, Follower, Following } from '@/lib/SocialDataManager';
 
-// Friends interfaces
-interface Friend {
-  friend_id: number;
-  friend_name: string;
-  friend_email: string;
-  friendship_id: number;
-  status: 'pending' | 'accepted' | 'blocked' | 'declined';
-  created_at: string;
-}
-
-interface FriendRequest {
-  request_id: number;
-  sender_id: number;
-  sender_name: string;
-  sender_email: string;
-  created_at: string;
-}
-
-// Follow interfaces
-interface Follower {
-  follower_id: number;
-  follower_name: string;
-  follower_email: string;
-  created_at: string;
-}
-
-interface Following {
-  following_id: number;
-  following_name: string;
-  following_email: string;
-  created_at: string;
-}
+// Social interfaces now imported from SocialDataManager
 
 interface FriendsModalProps {
   visible: boolean;
@@ -71,6 +41,9 @@ export default function FriendsModal({
   // Follow state
   const [followers, setFollowers] = useState<Follower[]>([]);
   const [following, setFollowing] = useState<Following[]>([]);
+  
+  // Get SocialDataManager instance
+  const socialDataManager = SocialDataManager.getInstance();
   
   // UserProfileModal state
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false);
@@ -134,61 +107,7 @@ export default function FriendsModal({
     updateNotificationState();
   }, [friends.length, friendRequests.length, lastViewedFriendsCount, lastViewedRequestsCount]);
 
-  const fetchFriends = async (showLoading: boolean = true) => {
-    if (!profile?.id) return;
-    
-    try {
-      if (showLoading) setLoading(true);
-      
-      console.log(`🔍 FriendsModal: fetchFriends for user ID ${profile.id}`);
-      
-      // Use direct database query instead of broken RPC function
-      console.log('🔄 FriendsModal: Using direct database query for friends...');
-      
-      const { data: directData, error: directError } = await supabase
-        .from('friends')
-        .select(`
-          id,
-          friend_id,
-          status,
-          created_at,
-          all_users!friends_friend_id_fkey (
-            id,
-            name,
-            email
-          )
-        `)
-        .eq('user_id', profile.id)
-        .eq('status', 'accepted');
-
-      console.log(`📥 FriendsModal: Direct friends query result:`, { data: directData, error: directError });
-
-      if (directError) {
-        console.error('🚨 FriendsModal: Direct friends query error:', directError);
-        throw directError;
-      }
-
-      // Transform the data to match expected format
-      const transformedData = directData?.map((friend: any) => ({
-        friend_id: friend.friend_id,
-        friend_name: friend.all_users?.name || 'Unknown',
-        friend_email: friend.all_users?.email || 'Unknown',
-        friendship_id: friend.id,
-        status: friend.status,
-        created_at: friend.created_at
-      })) || [];
-
-      console.log(`🔄 FriendsModal: Transformed friends data:`, transformedData);
-      console.log(`✅ FriendsModal: Found ${transformedData.length} friends for user ${profile.id}`);
-      onFriendsUpdate(transformedData);
-      
-    } catch (error) {
-      console.error('🚨 FriendsModal: Error fetching friends:', error);
-      if (showLoading) Alert.alert('Error', 'Failed to load friends');
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  };
+  // REMOVED: fetchFriends - now handled by SocialDataManager in parent component
 
   // Debug function to check friend requests manually
   const debugFriendRequests = async () => {
@@ -273,332 +192,56 @@ export default function FriendsModal({
   // Add debug button to modal when in development
   const isDev = __DEV__ || process.env.NODE_ENV === 'development';
 
-  const fetchFriendRequests = async (showLoading: boolean = true) => {
-    if (!profile?.id) {
-      console.log('🚨 fetchFriendRequests: No profile ID available');
-      return;
-    }
-    
-    console.log(`🔍 FriendsModal: fetchFriendRequests for user ID ${profile.id}`);
-    
-    try {
-      if (showLoading) setLoading(true);
-      
-      // Use direct database query instead of broken RPC function
-      console.log('🔄 FriendsModal: Using direct database query...');
-      
-      const { data: directData, error: directError } = await supabase
-        .from('friend_requests')
-        .select('id, sender_id, created_at')
-        .eq('receiver_id', profile.id)
-        .eq('status', 'pending');
-
-      console.log(`📥 FriendsModal: Direct query result:`, { data: directData, error: directError });
-
-      if (directError) {
-        console.error('🚨 FriendsModal: Direct query error:', directError);
-        throw directError;
-      }
-
-      // Get sender details separately
-      const senderIds = directData?.map(req => req.sender_id) || [];
-      let senderDetails: any[] = [];
-      if (senderIds.length > 0) {
-        const { data: sendersData } = await supabase
-          .from('all_users')
-          .select('id, name, email')
-          .in('id', senderIds);
-        senderDetails = sendersData || [];
-        console.log(`👥 FriendsModal: Sender details fetched:`, senderDetails);
-      }
-
-      // Transform the data to match expected format
-      const transformedData = directData?.map(request => {
-        const sender = senderDetails.find(s => s.id === request.sender_id);
-        return {
-          request_id: request.id,
-          sender_id: request.sender_id,
-          sender_name: sender?.name || 'Unknown',
-          sender_email: sender?.email || 'Unknown',
-          created_at: request.created_at
-        };
-      }) || [];
-
-      console.log(`🔄 FriendsModal: Final transformed data:`, transformedData);
-      console.log(`✅ FriendsModal: Found ${transformedData.length} pending friend requests for user ${profile.id}`);
-      onRequestsUpdate(transformedData);
-      
-    } catch (error) {
-      console.error('🚨 FriendsModal: Error fetching friend requests:', error);
-      if (showLoading) Alert.alert('Error', 'Failed to load friend requests');
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  };
-
-  const fetchFollowers = async (showLoading: boolean = true) => {
-    if (!profile?.id) return;
-    
-    try {
-      if (showLoading) setLoading(true);
-      
-      console.log(`🔍 FriendsModal: fetchFollowers for user ID ${profile.id}`);
-      
-      // Use direct database query instead of broken RPC function
-      console.log('🔄 FriendsModal: Using direct database query for followers...');
-      
-      const { data: directData, error: directError } = await supabase
-        .from('follows')
-        .select(`
-          id,
-          follower_id,
-          created_at,
-          all_users!follows_follower_id_fkey (
-            id,
-            name,
-            email
-          )
-        `)
-        .eq('followed_id', profile.id);
-
-      console.log(`📥 FriendsModal: Direct followers query result:`, { data: directData, error: directError });
-
-      if (directError) {
-        console.error('🚨 FriendsModal: Direct followers query error:', directError);
-        throw directError;
-      }
-
-      // Transform the data to match expected format
-      const transformedData = directData?.map((follow: any) => ({
-        follower_id: follow.follower_id,
-        follower_name: follow.all_users?.name || 'Unknown',
-        follower_email: follow.all_users?.email || 'Unknown',
-        created_at: follow.created_at
-      })) || [];
-
-      console.log(`🔄 FriendsModal: Transformed followers data:`, transformedData);
-      console.log(`✅ FriendsModal: Found ${transformedData.length} followers for user ${profile.id}`);
-      setFollowers(transformedData);
-      
-    } catch (error) {
-      console.error('🚨 FriendsModal: Error fetching followers:', error);
-      if (showLoading) Alert.alert('Error', 'Failed to load followers');
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  };
-
-  const fetchFollowing = async (showLoading: boolean = true) => {
-    if (!profile?.id) return;
-    
-    try {
-      if (showLoading) setLoading(true);
-      
-      console.log(`🔍 FriendsModal: fetchFollowing for user ID ${profile.id}`);
-      
-      // Use direct database query instead of broken RPC function
-      console.log('🔄 FriendsModal: Using direct database query for following...');
-      
-      const { data: directData, error: directError } = await supabase
-        .from('follows')
-        .select(`
-          id,
-          followed_id,
-          created_at,
-          all_users!follows_followed_id_fkey (
-            id,
-            name,
-            email
-          )
-        `)
-        .eq('follower_id', profile.id);
-
-      console.log(`📥 FriendsModal: Direct following query result:`, { data: directData, error: directError });
-
-      if (directError) {
-        console.error('🚨 FriendsModal: Direct following query error:', directError);
-        throw directError;
-      }
-
-      // Transform the data to match expected format
-      const transformedData = directData?.map((follow: any) => ({
-        following_id: follow.followed_id,
-        following_name: follow.all_users?.name || 'Unknown',
-        following_email: follow.all_users?.email || 'Unknown',
-        created_at: follow.created_at
-      })) || [];
-
-      console.log(`🔄 FriendsModal: Transformed following data:`, transformedData);
-      console.log(`✅ FriendsModal: Found ${transformedData.length} following for user ${profile.id}`);
-      setFollowing(transformedData);
-      
-    } catch (error) {
-      console.error('🚨 FriendsModal: Error fetching following:', error);
-      if (showLoading) Alert.alert('Error', 'Failed to load following');
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  };
+  // REMOVED: fetchFriendRequests, fetchFollowers, fetchFollowing - now handled by SocialDataManager
 
   const respondToFriendRequest = async (requestId: number, response: 'accepted' | 'declined' | 'blocked') => {
+    if (!profile?.id) return;
+    
     try {
-      console.log(`🔍 Responding to friend request ${requestId} with response: ${response}`);
+      console.log(`🚀 OFFLINE-FIRST: Responding to friend request ${requestId} with response: ${response}`);
       
-      // Since RPC functions have conflicts, handle this manually with direct database operations
+      let success = false;
+      
       if (response === 'accepted') {
-        // First, get the friend request details
-        const { data: requestData, error: requestError } = await supabase
-          .from('friend_requests')
-          .select('sender_id, receiver_id')
-          .eq('id', requestId)
-          .eq('status', 'pending')
-          .single();
-
-        if (requestError) {
-          console.error('🚨 Error fetching friend request:', requestError);
-          throw requestError;
-        }
-
-        if (!requestData) {
-          Alert.alert('Error', 'Friend request not found or already processed');
+        // Get the sender ID from the friend request
+        const request = friendRequests.find(req => req.request_id === requestId);
+        if (!request) {
+          Alert.alert('Error', 'Friend request not found');
           return;
         }
-
-        console.log('📋 Friend request data:', requestData);
-
-        // Update the friend request status to accepted
-        const { error: updateError } = await supabase
-          .from('friend_requests')
-          .update({ status: 'accepted', updated_at: new Date().toISOString() })
-          .eq('id', requestId);
-
-        if (updateError) {
-          console.error('🚨 Error updating friend request:', updateError);
-          throw updateError;
-        }
-
-        // Check if friendship already exists to avoid duplicates
-        const { data: existingFriendships, error: checkError } = await supabase
-          .from('friends')
-          .select('id')
-          .or(`and(user_id.eq.${requestData.sender_id},friend_id.eq.${requestData.receiver_id}),and(user_id.eq.${requestData.receiver_id},friend_id.eq.${requestData.sender_id})`);
-
-        if (checkError) {
-          console.error('🚨 Error checking existing friendships:', checkError);
-          // Continue with creation anyway, let the database handle duplicates
-        }
-
-        if (existingFriendships && existingFriendships.length > 0) {
-          console.log('⚠️ Friendship already exists, updating status instead of creating new');
-          
-          // Update existing friendships instead of creating new ones
-          const { error: updateFriendshipError } = await supabase
-            .from('friends')
-            .update({ 
-              status: 'accepted', 
-              updated_at: new Date().toISOString() 
-            })
-            .or(`and(user_id.eq.${requestData.sender_id},friend_id.eq.${requestData.receiver_id}),and(user_id.eq.${requestData.receiver_id},friend_id.eq.${requestData.sender_id})`);
-
-          if (updateFriendshipError) {
-            console.error('🚨 Error updating existing friendship:', updateFriendshipError);
-            throw updateFriendshipError;
-          }
-
-          console.log('✅ Existing friendships updated to accepted status');
-        } else {
-          // Create new friendship entries in both directions
-          const friendshipData = [
-            {
-              user_id: requestData.sender_id,
-              friend_id: requestData.receiver_id,
-              status: 'accepted',
-              created_at: new Date().toISOString()
-            },
-            {
-              user_id: requestData.receiver_id,
-              friend_id: requestData.sender_id,
-              status: 'accepted',
-              created_at: new Date().toISOString()
-            }
-          ];
-
-          console.log('📝 Creating new friendships:', friendshipData);
-
-          const { data: insertResult, error: friendshipError } = await supabase
-            .from('friends')
-            .insert(friendshipData)
-            .select();
-
-          console.log('📤 Friendship insert result:', { data: insertResult, error: friendshipError });
-
-          if (friendshipError) {
-            console.error('🚨 Error creating friendship:', friendshipError);
-            console.error('🚨 Friendship error details:', JSON.stringify(friendshipError, null, 2));
-            
-            // If it's a duplicate key error, try to handle it gracefully
-            if (friendshipError.message?.includes('duplicate') || friendshipError.code === '23505') {
-              console.log('🔄 Duplicate key error detected, friendship may already exist');
-              Alert.alert('Success', 'Friend request accepted! You are now friends.');
-            } else {
-              throw friendshipError;
-            }
-          } else {
-            console.log('✅ New friendships created successfully:', insertResult);
-          }
-        }
-
-        // Verify the friendship was created by checking the friends table directly
-        const { data: verifyFriendship, error: verifyError } = await supabase
-          .from('friends')
-          .select('id, user_id, friend_id, status')
-          .or(`and(user_id.eq.${requestData.sender_id},friend_id.eq.${requestData.receiver_id}),and(user_id.eq.${requestData.receiver_id},friend_id.eq.${requestData.sender_id})`)
-          .eq('status', 'accepted');
-
-        console.log('🔍 Friendship verification result:', { data: verifyFriendship, error: verifyError });
-
-        if (verifyFriendship && verifyFriendship.length >= 2) {
-          console.log('✅ Friend request accepted successfully - bidirectional friendship confirmed');
-        } else if (verifyFriendship && verifyFriendship.length === 1) {
-          console.log('⚠️ Only one direction of friendship found, may need to fix RPC function');
-        } else {
-          console.log('🚨 No friendship entries found after creation - there may be a database issue');
-        }
         
-        Alert.alert('Success', 'Friend request accepted! You are now friends.');
+        // Use SocialDataManager to accept friend request (auto-updates cache)
+        success = await socialDataManager.acceptFriendRequest(requestId, request.sender_id, profile.id);
         
+        if (success) {
+          Alert.alert('Success', 'Friend request accepted! You are now friends.');
+        } else {
+          Alert.alert('Error', 'Failed to accept friend request');
+          return;
+        }
       } else {
-        // For declined/blocked, just update the status
-        const { error: updateError } = await supabase
-          .from('friend_requests')
-          .update({ status: response, updated_at: new Date().toISOString() })
-          .eq('id', requestId);
-
-        if (updateError) {
-          console.error('🚨 Error updating friend request:', updateError);
-          throw updateError;
+        // Use SocialDataManager to decline friend request (auto-updates cache)
+        success = await socialDataManager.declineFriendRequest(requestId, profile.id);
+        
+        if (success) {
+          Alert.alert('Success', `Friend request ${response}.`);
+        } else {
+          Alert.alert('Error', `Failed to ${response} friend request`);
+          return;
         }
-
-        console.log(`✅ Friend request ${response} successfully`);
-        Alert.alert('Success', `Friend request ${response}.`);
       }
 
-      // Refresh both friend requests and friends lists
-      fetchFriendRequests(true);
-      fetchFriends(true);
-      
-      // Update parent Profile component's follow counts if friend request was accepted
-      if (response === 'accepted' && onFollowCountsUpdate) {
+      // Refresh parent Profile component's social data (triggers cache refresh)
+      if (onFollowCountsUpdate) {
         onFollowCountsUpdate();
       }
       
-      // Refresh parent Profile component's friend requests data
       if (onRefreshRequests) {
         onRefreshRequests();
       }
 
     } catch (error) {
-      console.error('🚨 Error responding to friend request:', error);
+      console.error('🚨 OFFLINE-FIRST: Error responding to friend request:', error);
       Alert.alert('Error', 'Failed to respond to friend request');
     }
   };
@@ -616,47 +259,24 @@ export default function FriendsModal({
           style: 'destructive',
           onPress: async () => {
             try {
-              console.log(`🔍 Removing friend - user: ${profile.id}, friend: ${friendId}`);
+              console.log(`🚀 OFFLINE-FIRST: Removing friend - user: ${profile.id}, friend: ${friendId}`);
               
-              // Since RPC function has conflicts, handle this manually with direct database operations
-              // Remove both directions of the friendship
-              const { error: removeError } = await supabase
-                .from('friends')
-                .delete()
-                .or(`and(user_id.eq.${profile.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${profile.id})`);
-
-              console.log('📤 Friend removal result:', { error: removeError });
-
-              if (removeError) {
-                console.error('🚨 Error removing friend:', removeError);
-                throw removeError;
-              }
-
-              // Also clean up any old friend requests between these users to allow fresh requests
-              console.log('🧹 Cleaning up old friend requests between users...');
-              const { error: cleanupError } = await supabase
-                .from('friend_requests')
-                .delete()
-                .or(`and(sender_id.eq.${profile.id},receiver_id.eq.${friendId}),and(sender_id.eq.${friendId},receiver_id.eq.${profile.id})`);
-
-              if (cleanupError) {
-                console.log('⚠️ Warning: Could not clean up old friend requests:', cleanupError);
-                // Don't throw error here - friend removal was successful
+              // Use SocialDataManager to remove friend (auto-updates cache)
+              const success = await socialDataManager.removeFriend(profile.id, friendId);
+              
+              if (success) {
+                Alert.alert('Success', 'Friend removed successfully');
+                
+                // Update parent Profile component's social data (triggers cache refresh)
+                if (onFollowCountsUpdate) {
+                  onFollowCountsUpdate();
+                }
               } else {
-                console.log('✅ Old friend requests cleaned up successfully');
-              }
-
-              console.log('✅ Friend removed successfully');
-              Alert.alert('Success', 'Friend removed successfully');
-              fetchFriends(true); // Show loading since user initiated this action
-              
-              // Update parent Profile component's follow counts
-              if (onFollowCountsUpdate) {
-                onFollowCountsUpdate();
+                Alert.alert('Error', 'Failed to remove friend');
               }
               
             } catch (error) {
-              console.error('🚨 Error removing friend:', error);
+              console.error('🚨 OFFLINE-FIRST: Error removing friend:', error);
               Alert.alert('Error', 'Failed to remove friend');
             }
           }
@@ -669,7 +289,7 @@ export default function FriendsModal({
     if (!profile?.email || !profile?.id) return;
     
     try {
-      console.log(`🔍 FriendsModal: Unfollowing user ${targetEmail} by ${profile.email}`);
+      console.log(`🚀 OFFLINE-FIRST: Unfollowing user ${targetEmail} by ${profile.email}`);
       
       // Get target user ID first
       const { data: targetUser, error: targetError } = await supabase
@@ -684,34 +304,27 @@ export default function FriendsModal({
         return;
       }
 
-      // Use direct database operations instead of broken RPC function
-      const { error: unfollowError } = await supabase
-        .from('follows')
-        .delete()
-        .eq('follower_id', profile.id)
-        .eq('followed_id', targetUser.id);
+      // Use SocialDataManager to unfollow user (auto-updates cache)
+      const success = await socialDataManager.unfollowUser(profile.id, targetUser.id);
 
-      if (unfollowError) {
-        console.error('🚨 FriendsModal: Error unfollowing user:', unfollowError);
-        throw unfollowError;
-      }
-
-      console.log('✅ FriendsModal: Successfully unfollowed user');
-      Alert.alert('Success', 'User unfollowed successfully');
-      
-      fetchFollowing(true); // Refresh following list
-      // Update parent Profile component's follow counts
-      if (onFollowCountsUpdate) {
-        onFollowCountsUpdate();
+      if (success) {
+        Alert.alert('Success', 'User unfollowed successfully');
+        
+        // Update parent Profile component's social data (triggers cache refresh)
+        if (onFollowCountsUpdate) {
+          onFollowCountsUpdate();
+        }
+      } else {
+        Alert.alert('Error', 'Failed to unfollow user');
       }
     } catch (error) {
-      console.error('🚨 FriendsModal: Error unfollowing user:', error);
+      console.error('🚨 OFFLINE-FIRST: Error unfollowing user:', error);
       Alert.alert('Error', 'Failed to unfollow user');
     }
   };
 
   // Handle tab switching and mark as viewed
-  const handleTabSwitch = (tab: 'friends' | 'followers' | 'following' | 'requests') => {
+  const handleTabSwitch = async (tab: 'friends' | 'followers' | 'following' | 'requests') => {
     setActiveTab(tab);
     
     // Mark as viewed when switching to tabs
@@ -721,35 +334,36 @@ export default function FriendsModal({
       setTimeout(() => markRequestsAsViewed(), 200);
     }
     
-    // Fetch data for the active tab
-    switch (tab) {
-      case 'friends':
-        fetchFriends(false);
-        break;
-      case 'followers':
-        fetchFollowers(false);
-        break;
-      case 'following':
-        fetchFollowing(false);
-        break;
-      case 'requests':
-        fetchFriendRequests(false);
-        break;
+    // OFFLINE-FIRST: Load data for tabs that need it from cache
+    if ((tab === 'followers' || tab === 'following') && profile?.id) {
+      try {
+        console.log(`🚀 OFFLINE-FIRST: Loading ${tab} data from cache for tab switch`);
+        const socialData = await socialDataManager.getSocialData(profile.id);
+        
+        if (tab === 'followers') {
+          setFollowers(socialData.followers);
+        } else if (tab === 'following') {
+          setFollowing(socialData.following);
+        }
+      } catch (error) {
+        console.error(`❌ Error loading ${tab} data:`, error);
+      }
     }
+    // Friends and requests are already available from props
   };
 
   const handleModalOpen = () => {
     setActiveTab('friends');
-    // Refresh all data when user explicitly opens the modal
-    console.log('Refreshing all social data for modal interaction...');
-    fetchFriends(true);
-    fetchFriendRequests(true);
-    fetchFollowers(true); // Force refresh followers with loading
-    fetchFollowing(true); // Force refresh following with loading to catch new auto-follows
     
-    // Also refresh parent Profile component's data
+    // OFFLINE-FIRST: Data will be fresh from parent's cache refresh
+    console.log('🚀 OFFLINE-FIRST: Modal opened - using cached social data from parent');
+    
+    // Update local follower/following state from props
+    // (Friends and requests are passed as props and already up-to-date)
+    
+    // Trigger parent refresh for latest data
     if (onRefreshRequests) {
-      console.log('🔄 FriendsModal: Requesting parent to refresh friend requests data...');
+      console.log('🔄 OFFLINE-FIRST: Requesting parent to refresh all social data...');
       onRefreshRequests();
     }
     
@@ -940,8 +554,7 @@ export default function FriendsModal({
                 </TouchableOpacity>
                 <TouchableOpacity 
                   onPress={() => {
-                    console.log('🔄 Manual refresh triggered...');
-                    fetchFriendRequests(true);
+                    console.log('🔄 OFFLINE-FIRST: Manual refresh triggered...');
                     if (onRefreshRequests) onRefreshRequests();
                   }} 
                   style={{ padding: 5 }}

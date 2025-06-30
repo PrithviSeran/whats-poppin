@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import SocialDataManager from './SocialDataManager';
 import { EventEmitter } from 'events';
 import { Interface } from 'readline';
 
@@ -806,7 +807,10 @@ class GlobalDataManager extends EventEmitter {
   // Clear all user-specific cached data when user changes
   async clearAllUserData() {
     try {
-      console.log('Clearing all user-specific cached data...');
+      console.log('🧹 OFFLINE-FIRST: Clearing all user-specific cached data...');
+      
+      // Get SocialDataManager instance
+      const socialDataManager = SocialDataManager.getInstance();
       
       // Clear all user-specific AsyncStorage data
       await Promise.all([
@@ -815,7 +819,8 @@ class GlobalDataManager extends EventEmitter {
         AsyncStorage.removeItem('rejectedEvents'),
         AsyncStorage.removeItem('filterByDistance'),
         AsyncStorage.removeItem('allEvents'), // Also clear events to get fresh data
-        this.clearDistanceCache() // Clear distance calculations cache
+        this.clearDistanceCache(), // Clear distance calculations cache
+        socialDataManager.clearCache() // Clear social data cache
       ]);
       
       // Clear session cache
@@ -834,9 +839,9 @@ class GlobalDataManager extends EventEmitter {
         this.dataUpdateTimeout = null;
       }
       
-      console.log('All user-specific cached data cleared successfully');
+      console.log('✅ OFFLINE-FIRST: All user-specific cached data cleared successfully (profile, events, social data)');
     } catch (error) {
-      console.error('Error clearing user data:', error);
+      console.error('❌ Error clearing user data:', error);
       throw error;
     }
   }

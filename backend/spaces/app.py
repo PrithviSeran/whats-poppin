@@ -67,6 +67,16 @@ class RecommendationRequest(BaseModel):
     user_end_time: Optional[str] = None
     # NEW: Add optional event type preferences from UI
     event_type_preferences: Optional[List[str]] = None
+    
+    # OFFLINE-FIRST OPTIMIZATION: Pass user profile data instead of querying database
+    user_id: Optional[int] = None
+    user_preferences: Optional[List[str]] = None  # Fallback if event_type_preferences not provided
+    user_travel_distance: Optional[float] = None
+    user_saved_events: Optional[List[int]] = None
+    user_preferred_days: Optional[List[str]] = None
+    user_birthday: Optional[str] = None
+    user_gender: Optional[str] = None
+    # Note: profile start/end times handled by user_start_time/user_end_time above
 
 class RecommendationResponse(BaseModel):
     summary: str
@@ -750,7 +760,7 @@ class EventRecommendationSystem:
         r = 6371  # Radius of earth in kilometers
         return c * r
     
-    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None, use_calendar_filter=False, selected_dates=None, user_start_time=None, user_end_time=None, event_type_preferences=None):
+    def recommend_events(self, token, email, latitude=None, longitude=None, filter_distance=True, rejected_events=None, use_calendar_filter=False, selected_dates=None, user_start_time=None, user_end_time=None, event_type_preferences=None, user_id=None, user_preferences=None, user_travel_distance=None, user_saved_events=None, user_preferred_days=None, user_birthday=None, user_gender=None):
         """Main recommendation function - ML model is preference-agnostic, filtering happens at API level"""
         try:
             print(f"Starting recommendation process for email: {email}")
@@ -776,43 +786,43 @@ class EventRecommendationSystem:
             print(f"Rejected events: {rejected_events}")
             print(f"UI Event type preferences: {event_type_preferences}")
             
-            # 1. Fetch the target user's preferences
-            try:
-                user_data = self.get_user_data(email)
-                print(f"User data fetched: {user_data is not None}")
-            except Exception as e:
-                print(f"Error fetching user data: {str(e)}")
-                raise HTTPException(status_code=404, detail=f"User {email} not found")
+            # 1. OFFLINE-FIRST: Use passed user profile data instead of database query
+            print("🚀 OFFLINE-FIRST: Using passed user profile data, skipping database query")
             
-            if not user_data:
-                raise HTTPException(status_code=404, detail=f"User {email} not found")
-
-            # Parse user data
+            # Parse user data from passed parameters
             try:
-                # IMPORTANT: Use UI preferences if provided, otherwise fall back to user profile preferences
+                # IMPORTANT: Use UI preferences if provided, otherwise fall back to passed user profile preferences
                 if event_type_preferences is not None:
                     all_preferences = event_type_preferences
                     print(f"🎯 Using UI event type preferences: {all_preferences}")
+                elif user_preferences is not None:
+                    all_preferences = user_preferences
+                    print(f"📊 Using passed profile event type preferences: {all_preferences}")
                 else:
-                    all_preferences = self.parse_preferences(user_data.get("preferences", []))
-                    print(f"📊 Using profile event type preferences: {all_preferences}")
+                    all_preferences = []
+                    print(f"⚠️ No preferences provided, using empty list")
                 
                 # Extract featured events preference and regular event types
                 featured_only = "Featured Events" in all_preferences
-                user_preferences = [pref for pref in all_preferences if pref != "Featured Events"]
-                print(f"🎯 Extracted preferences - Event types: {user_preferences}, Featured only: {featured_only}")
+                final_user_preferences = [pref for pref in all_preferences if pref != "Featured Events"]
+                print(f"🎯 Extracted preferences - Event types: {final_user_preferences}, Featured only: {featured_only}")
                 
-                user_travel_distance = user_data.get("travel-distance", 50)
-                saved_events = user_data.get("saved_events", [])
+                # Use passed travel distance or default
+                final_user_travel_distance = user_travel_distance if user_travel_distance is not None else 50
                 
-                # Use request parameters if provided, otherwise fall back to user profile
-                final_start_time = user_start_time if user_start_time else user_data.get("start-time")
-                final_end_time = user_end_time if user_end_time else user_data.get("end-time")
+                # Use passed saved events or default
+                saved_events = user_saved_events if user_saved_events is not None else []
                 
-                print(f"Time filters - request: {user_start_time}-{user_end_time}, profile: {user_data.get('start-time')}-{user_data.get('end-time')}, final: {final_start_time}-{final_end_time}")
+                # Time filters are already passed as user_start_time/user_end_time
+                final_start_time = user_start_time
+                final_end_time = user_end_time
+                
+                print(f"Time filters: {final_start_time}-{final_end_time}")
+                print(f"Travel distance: {final_user_travel_distance}")
+                print(f"Saved events count: {len(saved_events)}")
             except Exception as e:
-                print(f"Error parsing user data: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"Error parsing user data: {str(e)}")
+                print(f"Error processing passed user data: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error processing user data: {str(e)}")
 
             # Handle saved_events format with better error handling
             try:
@@ -858,13 +868,13 @@ class EventRecommendationSystem:
                     print(f"🎭 Event type distribution in database (sample): {event_type_counts}")
                 
                 # 3. Apply preference filtering AFTER getting all events
-                print(f"🔍 Filtering - Event types: {user_preferences}, Featured only: {featured_only}")
-                if user_preferences or featured_only:
+                print(f"🔍 Filtering - Event types: {final_user_preferences}, Featured only: {featured_only}")
+                if final_user_preferences or featured_only:
                     events_before_pref = len(all_events_raw)
-                    all_events_raw = self.filter_events_by_preferences(all_events_raw, user_preferences, featured_only)
+                    all_events_raw = self.filter_events_by_preferences(all_events_raw, final_user_preferences, featured_only)
                     events_after_pref = len(all_events_raw)
                     print(f"✅ Preference filtering: {events_before_pref} -> {events_after_pref} events (filtered out: {events_before_pref - events_after_pref})")
-                    print(f"🎯 Applied filters - Event types: {user_preferences}, Featured only: {featured_only}")
+                    print(f"🎯 Applied filters - Event types: {final_user_preferences}, Featured only: {featured_only}")
                     
                     # DEBUG: Check event type distribution after filtering
                     if all_events_raw:
@@ -916,16 +926,16 @@ class EventRecommendationSystem:
                     print(f"Calendar date filter: {events_before_date} -> {events_after_date} events (filtered out: {events_before_date - events_after_date})")
                 else:
                     # Use traditional day preference filtering
-                    user_preferred_days = self.parse_days(user_data.get("preferred_days", []))
-                    print(f"Using traditional day filtering with preferred days: {user_preferred_days}")
+                    final_user_preferred_days = user_preferred_days if user_preferred_days is not None else []
+                    print(f"Using traditional day filtering with preferred days: {final_user_preferred_days}")
                     events_before_day = len(all_events_raw)
-                    all_events_raw = self.filter_by_occurrence(all_events_raw, user_preferred_days)
+                    all_events_raw = self.filter_by_occurrence(all_events_raw, final_user_preferred_days)
                     events_after_day = len(all_events_raw)
                     print(f"Day preference filter: {events_before_day} -> {events_after_day} events (filtered out: {events_before_day - events_after_day})")
                 
                 all_events_filtered = self.apply_distance_filter(
                     all_events_raw, latitude, longitude, 
-                    filter_distance, user_travel_distance
+                    filter_distance, final_user_travel_distance
                 )
                 print(f"Events after distance filter: {len(all_events_filtered)}")
             except Exception as e:
@@ -1113,7 +1123,15 @@ async def get_recommendations(request_data: RecommendationRequest, request: Requ
         selected_dates=request_data.selected_dates,
         user_start_time=request_data.user_start_time,
         user_end_time=request_data.user_end_time,
-        event_type_preferences=request_data.event_type_preferences
+        event_type_preferences=request_data.event_type_preferences,
+        # OFFLINE-FIRST: Pass user profile data
+        user_id=request_data.user_id,
+        user_preferences=request_data.user_preferences,
+        user_travel_distance=request_data.user_travel_distance,
+        user_saved_events=request_data.user_saved_events,
+        user_preferred_days=request_data.user_preferred_days,
+        user_birthday=request_data.user_birthday,
+        user_gender=request_data.user_gender
     )
     
     return RecommendationResponse(**result)
@@ -1130,7 +1148,15 @@ async def get_recommendations_get(
     selected_dates: str = Query("", description="Comma-separated selected dates in YYYY-MM-DD format"),
     user_start_time: Optional[str] = Query(None, description="User start time filter (HH:MM format)"),
     user_end_time: Optional[str] = Query(None, description="User end time filter (HH:MM format)"),
-    event_type_preferences: str = Query("", description="Comma-separated event type preferences from UI")
+    event_type_preferences: str = Query("", description="Comma-separated event type preferences from UI"),
+    # OFFLINE-FIRST: User profile data parameters
+    user_id: Optional[int] = Query(None, description="User ID"),
+    user_preferences: str = Query("", description="Comma-separated user profile event type preferences"),
+    user_travel_distance: Optional[float] = Query(None, description="User travel distance preference"),
+    user_saved_events: str = Query("", description="Comma-separated user saved event IDs"),
+    user_preferred_days: str = Query("", description="Comma-separated user preferred days"),
+    user_birthday: Optional[str] = Query(None, description="User birthday"),
+    user_gender: Optional[str] = Query(None, description="User gender")
 ):
     """Get event recommendations via GET request"""
     # Get token from Authorization header
@@ -1150,6 +1176,19 @@ async def get_recommendations_get(
     if event_type_preferences:
         parsed_event_type_preferences = [pref.strip() for pref in event_type_preferences.split(',') if pref.strip()]
     
+    # OFFLINE-FIRST: Parse user profile data from query parameters
+    parsed_user_preferences = None
+    if user_preferences:
+        parsed_user_preferences = [pref.strip() for pref in user_preferences.split(',') if pref.strip()]
+    
+    parsed_user_saved_events = None
+    if user_saved_events:
+        parsed_user_saved_events = [int(id.strip()) for id in user_saved_events.split(',') if id.strip()]
+    
+    parsed_user_preferred_days = None
+    if user_preferred_days:
+        parsed_user_preferred_days = [day.strip() for day in user_preferred_days.split(',') if day.strip()]
+    
     result = recommender.recommend_events(
         token=token,
         email=email,
@@ -1161,7 +1200,15 @@ async def get_recommendations_get(
         selected_dates=parsed_selected_dates,
         user_start_time=user_start_time,
         user_end_time=user_end_time,
-        event_type_preferences=parsed_event_type_preferences
+        event_type_preferences=parsed_event_type_preferences,
+        # OFFLINE-FIRST: Pass parsed user profile data
+        user_id=user_id,
+        user_preferences=parsed_user_preferences,
+        user_travel_distance=user_travel_distance,
+        user_saved_events=parsed_user_saved_events,
+        user_preferred_days=parsed_user_preferred_days,
+        user_birthday=user_birthday,
+        user_gender=user_gender
     )
     
     return result

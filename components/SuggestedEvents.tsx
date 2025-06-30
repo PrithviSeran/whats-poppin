@@ -377,14 +377,43 @@ export default function SuggestedEvents() {
         }
       }
 
-            // Get current user profile to extract time and event type preferences
-      const userProfile = await dataManager.getUserProfile();
-      const currentStartTime = userProfile?.['start-time'] || '21:00';
-      const currentEndTime = userProfile?.['end-time'] || '03:00';
+            // OFFLINE-FIRST OPTIMIZATION: Get preferences from AsyncStorage instead of database
+      console.log('🚀 OFFLINE-FIRST: Using preferences from AsyncStorage, not database');
       
-      // Use profile preferences (this is the original working logic)
-      const eventTypePreferences = userProfile?.preferences || [];
-      console.log('📊 Using profile event type preferences:', eventTypePreferences);
+      // Load time preferences from AsyncStorage
+      const currentStartTime = await AsyncStorage.getItem('userStartTime') || '21:00';
+      const currentEndTime = await AsyncStorage.getItem('userEndTime') || '03:00';
+      
+      // Load event type preferences from AsyncStorage  
+      const savedPreferencesStr = await AsyncStorage.getItem('userPreferences');
+      let eventTypePreferences: string[] = [];
+      if (savedPreferencesStr) {
+        try {
+          eventTypePreferences = JSON.parse(savedPreferencesStr);
+        } catch (e) {
+          console.error('Error parsing saved preferences:', e);
+          eventTypePreferences = [];
+        }
+      }
+      console.log('📊 Using AsyncStorage event type preferences:', eventTypePreferences);
+      
+      // Load other user preferences from AsyncStorage
+      const userTravelDistanceStr = await AsyncStorage.getItem('userTravelDistance');
+      const userTravelDistance = userTravelDistanceStr ? parseFloat(userTravelDistanceStr) : 50;
+      
+      const userPreferredDaysStr = await AsyncStorage.getItem('userPreferredDays');
+      let userPreferredDays: string[] = [];
+      if (userPreferredDaysStr) {
+        try {
+          userPreferredDays = JSON.parse(userPreferredDaysStr);
+        } catch (e) {
+          console.error('Error parsing saved preferred days:', e);
+          userPreferredDays = [];
+        }
+      }
+      
+      // Get minimal user profile data ONLY for ID, saved events, and basic info (NOT preferences)
+      const userProfile = await dataManager.getUserProfile();
 
       const requestBody = {
         email: currentUserEmail,
@@ -396,8 +425,30 @@ export default function SuggestedEvents() {
         use_calendar_filter: isCalendarMode === 'true' && selectedDates.length > 0,
         user_start_time: currentStartTime,
         user_end_time: currentEndTime,
-        event_type_preferences: eventTypePreferences
+        event_type_preferences: eventTypePreferences,
+        
+        // OFFLINE-FIRST: Pass preferences from AsyncStorage + minimal database data
+        user_id: userProfile?.id,
+        user_preferences: eventTypePreferences, // Use AsyncStorage preferences, not database ones
+        user_travel_distance: userTravelDistance,
+        user_saved_events: savedEventIds, // Keep saved events from GlobalDataManager
+        user_preferred_days: userPreferredDays,
+        user_birthday: userProfile?.birthday, // Keep basic profile info from database
+        user_gender: userProfile?.gender
       };
+      
+      console.log('🚀 OFFLINE-FIRST: Sending AsyncStorage preferences + minimal profile to backend');
+      console.log('📊 Data summary:', {
+        id: userProfile?.id,
+        preferences_count: eventTypePreferences.length,
+        travel_distance: userTravelDistance,
+        saved_events_count: savedEventIds.length,
+        preferred_days_count: userPreferredDays.length,
+        has_birthday: !!userProfile?.birthday,
+        has_gender: !!userProfile?.gender,
+        preferences_source: 'AsyncStorage',
+        database_queries_eliminated: 'user preferences, time settings, location, travel distance, preferred days'
+      });
 
       const response = await fetch('https://iamtheprince-whats-poppin.hf.space/recommend', {
         method: 'POST',

@@ -13,6 +13,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import GlobalDataManager, { UserProfile } from '@/lib/GlobalDataManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LegalDocumentViewer from './LegalDocumentViewer';
+import SocialDataManager, { Friend, FriendRequest, Follower, Following, SocialData } from '@/lib/SocialDataManager';
 
 type RootStackParamList = {
   '(tabs)': {
@@ -28,23 +29,7 @@ type RootStackParamList = {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-// Friends interfaces (imported from FriendsModal)
-interface Friend {
-  friend_id: number;
-  friend_name: string;
-  friend_email: string;
-  friendship_id: number;
-  status: 'pending' | 'accepted' | 'blocked' | 'declined';
-  created_at: string;
-}
-
-interface FriendRequest {
-  request_id: number;
-  sender_id: number;
-  sender_name: string;
-  sender_email: string;
-  created_at: string;
-}
+// Social interfaces now imported from SocialDataManager
 
 export default function Profile() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -73,153 +58,34 @@ export default function Profile() {
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   const dataManager = GlobalDataManager.getInstance();
+  const socialDataManager = SocialDataManager.getInstance();
 
-  // Direct friends fetching with user ID (for initial load)
-  const fetchFriendsWithUserId = async (userId: number) => {
+  // OFFLINE-FIRST: Load all social data from cache/database with automatic sync
+  const loadAllSocialData = async (userId: number, forceRefresh: boolean = false) => {
     try {
-      const { data, error } = await supabase.rpc('get_user_friends', {
-        target_user_id: userId
+      console.log(`🚀 OFFLINE-FIRST: Loading social data for user ${userId}`, forceRefresh ? '(forced refresh)' : '');
+      
+      // Get all social data with automatic caching
+      const socialData: SocialData = await socialDataManager.refreshAllSocialData(userId, forceRefresh);
+      
+      // Update all state from cached/fresh data
+      setFriends(socialData.friends);
+      setFriendRequests(socialData.friendRequests);
+      setFollowersCount(socialData.followersCount);
+      setFollowingCount(socialData.followingCount);
+      
+      console.log('✅ OFFLINE-FIRST: All social data loaded and state updated:', {
+        friends: socialData.friends.length,
+        requests: socialData.friendRequests.length,
+        followers: socialData.followersCount,
+        following: socialData.followingCount,
+        dataSource: forceRefresh ? 'database (forced)' : 'cache/database'
       });
-      if (error) throw error;
-      setFriends(data || []);
-      console.log('Friends loaded:', data?.length || 0);
+      
+      return socialData;
     } catch (error) {
-      console.error('Error fetching friends with user ID:', error);
-    }
-  };
-
-  // Test function to directly query friend requests table
-  const testDirectFriendRequestsQuery = async (userId: number) => {
-    try {
-      console.log(`🧪 Testing direct friend_requests query for user ${userId}`);
-      
-      // First, get ALL friend requests for this user without filtering
-      const { data: allData, error: allError } = await supabase
-        .from('friend_requests')
-        .select('*')
-        .eq('receiver_id', userId);
-
-      console.log(`🧪 ALL friend_requests for user ${userId}:`, { data: allData, error: allError });
-      
-      if (allData && allData.length > 0) {
-        console.log(`🎯 Found ${allData.length} total friend requests for user ${userId}`);
-        
-        // Check different status values
-        const pendingRequests = allData.filter(req => req.status === 'pending');
-        const acceptedRequests = allData.filter(req => req.status === 'accepted');
-        const otherRequests = allData.filter(req => req.status !== 'pending' && req.status !== 'accepted');
-        
-        console.log(`⏳ Pending: ${pendingRequests.length}, ✅ Accepted: ${acceptedRequests.length}, 🔍 Other: ${otherRequests.length}`);
-        console.log(`📊 Status breakdown:`, allData.map(req => ({ id: req.id, status: req.status, sender_id: req.sender_id })));
-        
-        return allData;
-      } else {
-        console.log(`❌ No friend requests found for user ${userId}`);
-        return [];
-      }
-    } catch (error) {
-      console.error('🚨 Error in direct friend requests test:', error);
-      return [];
-    }
-  };
-
-  // Direct friend requests fetching with user ID (for initial load)
-  const fetchFriendRequestsWithUserId = async (userId: number) => {
-    console.log(`🔍 Profile: fetchFriendRequestsWithUserId for user ID ${userId}`);
-    try {
-      // First run the test function to see all data
-      await testDirectFriendRequestsQuery(userId);
-      
-      // Use direct query as primary method since RPC is broken
-      console.log('🔄 Profile: Using direct database query as primary method...');
-      
-      // Get all friend requests first, then filter in JavaScript to avoid SQL issues
-      const { data: allDirectData, error: directError } = await supabase
-        .from('friend_requests')
-        .select('id, sender_id, created_at, status')
-        .eq('receiver_id', userId);
-
-      console.log(`📥 Profile: All direct query result:`, { data: allDirectData, error: directError });
-
-      if (directError) {
-        console.error('🚨 Profile: Direct query error:', directError);
-        throw directError;
-      }
-
-             // Filter for pending requests in JavaScript
-       const directData = allDirectData?.filter(req => req.status === 'pending') || [];
-       console.log(`🔍 Filtered to ${directData.length} pending requests from ${allDirectData?.length || 0} total`);
-
-      // Get sender details
-      const senderIds = directData?.map(req => req.sender_id) || [];
-      let senderDetails: any[] = [];
-      if (senderIds.length > 0) {
-        const { data: sendersData } = await supabase
-          .from('all_users')
-          .select('id, name, email')
-          .in('id', senderIds);
-        senderDetails = sendersData || [];
-        console.log(`👥 Profile: Sender details fetched:`, senderDetails);
-      }
-
-      // Transform the data
-      const transformedData = directData?.map(request => {
-        const sender = senderDetails.find(s => s.id === request.sender_id);
-        return {
-          request_id: request.id,
-          sender_id: request.sender_id,
-          sender_name: sender?.name || 'Unknown',
-          sender_email: sender?.email || 'Unknown',
-          created_at: request.created_at
-        };
-      }) || [];
-
-      console.log(`🔄 Profile: Final transformed data:`, transformedData);
-      console.log(`✅ Profile: Found ${transformedData.length} pending friend requests for user ${userId}`);
-      setFriendRequests(transformedData);
-    } catch (error) {
-      console.error('🚨 Profile: Error fetching friend requests with user ID:', error);
-    }
-  };
-
-  // Direct follow counts fetching with user ID (for initial load)
-  const fetchFollowCountsWithUserId = async (userId: number) => {
-    try {
-      console.log(`🔍 Profile: Fetching follow counts for user ID ${userId}`);
-      
-      // Get followers count using direct database query
-      const { data: followersData, error: followersError } = await supabase
-        .from('follows')
-        .select('id', { count: 'exact' })
-        .eq('followed_id', userId);
-
-      if (!followersError && followersData) {
-        const followersCount = followersData.length;
-        setFollowersCount(followersCount);
-        console.log('📊 Profile: Followers count loaded:', followersCount);
-      } else {
-        console.error('🚨 Profile: Error fetching followers count:', followersError);
-        setFollowersCount(0);
-      }
-
-      // Get following count using direct database query
-      const { data: followingData, error: followingError } = await supabase
-        .from('follows')
-        .select('id', { count: 'exact' })
-        .eq('follower_id', userId);
-
-      if (!followingError && followingData) {
-        const followingCount = followingData.length;
-        setFollowingCount(followingCount);
-        console.log('📊 Profile: Following count loaded:', followingCount);
-      } else {
-        console.error('🚨 Profile: Error fetching following count:', followingError);
-        setFollowingCount(0);
-      }
-    } catch (error) {
-      console.error('🚨 Profile: Error fetching follow counts with user ID:', error);
-      setFollowersCount(0);
-      setFollowingCount(0);
+      console.error('❌ Error loading social data:', error);
+      return null;
     }
   };
 
@@ -236,11 +102,11 @@ export default function Profile() {
     }
   };
 
-  // Initial data loading function
+  // Initial data loading function with OFFLINE-FIRST social caching
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      console.log('Starting complete data load...');
+      console.log('🚀 OFFLINE-FIRST: Starting complete data load...');
       
       // First get the user profile
       await fetchUserProfile();
@@ -248,19 +114,15 @@ export default function Profile() {
       // Get user profile from data manager to ensure we have the ID
       const userProfile = await dataManager.getUserProfile();
       if (userProfile?.id) {
-        console.log('User ID found, fetching social data...');
-        // Now fetch all social data with the confirmed user ID
-        await Promise.all([
-          fetchFriendsWithUserId(userProfile.id),
-          fetchFriendRequestsWithUserId(userProfile.id),
-          fetchFollowCountsWithUserId(userProfile.id)
-        ]);
-        console.log('All social data loaded successfully');
+        console.log('✅ User ID found, loading cached social data...');
+        // Load all social data from cache/database in one call
+        await loadAllSocialData(userProfile.id, false);
+        console.log('✅ All social data loaded successfully from cache/database');
       } else {
-        console.log('No user ID found, skipping social data');
+        console.log('⚠️ No user ID found, skipping social data');
       }
     } catch (error) {
-      console.error('Error loading initial data:', error);
+      console.error('❌ Error loading initial data:', error);
     } finally {
       setLoading(false);
     }
@@ -318,12 +180,12 @@ export default function Profile() {
     loadNotificationState();
   }, []);
 
-  // Add periodic refresh for friend requests every 30 seconds when app is active
+  // Add periodic refresh for social data every 30 seconds when app is active
   useEffect(() => {
     const intervalId = setInterval(() => {
       if (profile?.id) {
-        console.log('🔄 Periodic refresh: Checking for new friend requests...');
-        fetchFriendRequestsWithUserId(profile.id);
+        console.log('🔄 OFFLINE-FIRST: Periodic refresh - checking for social updates...');
+        loadAllSocialData(profile.id, true); // Force refresh for periodic check
       }
     }, 30000); // 30 seconds
 
@@ -447,55 +309,34 @@ export default function Profile() {
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
 
-  // Simplified friends functions for Profile component
-  const fetchFriends = async () => {
+  // OFFLINE-FIRST: Simplified social data functions for Profile component
+  const refreshSocialData = async (forceRefresh: boolean = false) => {
     if (!profile?.id) return;
     
     try {
-      console.log(`🔍 Profile: fetchFriends (legacy) for user ID ${profile.id}`);
-      // Use the enhanced direct database method instead
-      await fetchFriendsWithUserId(profile.id);
+      console.log(`🔄 OFFLINE-FIRST: Refreshing social data for user ID ${profile.id}`, forceRefresh ? '(forced)' : '');
+      await loadAllSocialData(profile.id, forceRefresh);
     } catch (error) {
-      console.error('Error fetching friends:', error);
-    }
-  };
-
-  const fetchFriendRequests = async () => {
-    if (!profile?.id) return;
-    
-    try {
-      console.log(`🔍 Profile: fetchFriendRequests (legacy) for user ID ${profile.id}`);
-      // Use the enhanced direct database method instead
-      await fetchFriendRequestsWithUserId(profile.id);
-    } catch (error) {
-      console.error('Error fetching friend requests:', error);
+      console.error('❌ Error refreshing social data:', error);
     }
   };
 
   const handleOpenFriendsModal = () => {
     setFriendsModalVisible(true);
-    // Refresh friend requests when opening modal to get latest data
+    // Refresh social data when opening modal to get latest data
     if (profile?.id) {
-      console.log('🔄 Refreshing friend requests data when opening modal...');
-      fetchFriendRequestsWithUserId(profile.id);
+      console.log('🔄 OFFLINE-FIRST: Refreshing social data when opening modal...');
+      refreshSocialData(true); // Force refresh for modal interaction
     }
     // Mark friends as viewed when opening modal
     setTimeout(() => markFriendsAsViewed(), 500);
   };
 
-  // Function to refresh follow counts when called from FriendsModal
-  const refreshFollowCounts = () => {
+  // Function to refresh all social data when called from FriendsModal
+  const refreshAllSocialCounts = () => {
     if (profile?.id) {
-      console.log('Refreshing follow counts after social action...');
-      fetchFollowCountsWithUserId(profile.id);
-    }
-  };
-
-  // Function to refresh friend requests when called from FriendsModal
-  const refreshFriendRequests = () => {
-    if (profile?.id) {
-      console.log('🔄 Profile: Refreshing friend requests after social action...');
-      fetchFriendRequestsWithUserId(profile.id);
+      console.log('🔄 OFFLINE-FIRST: Refreshing all social data after social action...');
+      refreshSocialData(true); // Force refresh after social interactions
     }
   };
 
@@ -1019,8 +860,8 @@ export default function Profile() {
         friendRequests={friendRequests}
         onFriendsUpdate={setFriends}
         onRequestsUpdate={setFriendRequests}
-        onFollowCountsUpdate={refreshFollowCounts}
-        onRefreshRequests={refreshFriendRequests}
+        onFollowCountsUpdate={refreshAllSocialCounts}
+        onRefreshRequests={refreshAllSocialCounts}
       />
 
       {/* Legal Document Modals */}
