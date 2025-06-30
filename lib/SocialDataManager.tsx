@@ -394,6 +394,48 @@ class SocialDataManager {
     }
   }
 
+  async followUser(followerId: number, followedId: number): Promise<boolean> {
+    try {
+      console.log('👥 Following user:', followedId);
+
+      // Check if already following to avoid duplicates
+      const { data: existingFollow, error: checkError } = await supabase
+        .from('follows')
+        .select('id')
+        .eq('follower_id', followerId)
+        .eq('followed_id', followedId)
+        .maybeSingle();
+
+      if (checkError) throw checkError;
+
+      if (existingFollow) {
+        console.log('⚠️ Already following this user');
+        return true; // Return success since the desired state is already achieved
+      }
+
+      // Add to database
+      const { error: followError } = await supabase
+        .from('follows')
+        .insert({
+          follower_id: followerId,
+          followed_id: followedId,
+          created_at: new Date().toISOString()
+        });
+
+      if (followError) throw followError;
+
+      // Refresh cache for both users
+      await this.refreshAllSocialData(followerId, true);
+      await this.refreshAllSocialData(followedId, true);
+
+      console.log('✅ User followed and cache updated');
+      return true;
+    } catch (error) {
+      console.error('❌ Error following user:', error);
+      return false;
+    }
+  }
+
   async declineFriendRequest(requestId: number, receiverId: number): Promise<boolean> {
     try {
       console.log('❌ Declining friend request:', requestId);

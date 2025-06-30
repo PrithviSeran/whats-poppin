@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Animated, Easing, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Animated, Easing, ScrollView, RefreshControl, StatusBar, Modal, FlatList, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,7 +31,15 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 // Social interfaces now imported from SocialDataManager
 
-export default function Profile() {
+interface ProfileProps {
+  dataManager?: GlobalDataManager;
+  socialDataManager?: SocialDataManager;
+}
+
+export default memo(function Profile({ 
+  dataManager = GlobalDataManager.getInstance(), 
+  socialDataManager = SocialDataManager.getInstance() 
+}: ProfileProps = {}) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
@@ -56,9 +64,6 @@ export default function Profile() {
   const [hasNewRequests, setHasNewRequests] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
-
-  const dataManager = GlobalDataManager.getInstance();
-  const socialDataManager = SocialDataManager.getInstance();
 
   // OFFLINE-FIRST: Load all social data from cache/database with automatic sync
   const loadAllSocialData = async (userId: number, forceRefresh: boolean = false) => {
@@ -214,6 +219,11 @@ export default function Profile() {
         }).catch(error => {
           console.error('🚨 Profile: Error loading updated profile:', error);
         });
+
+        // OFFLINE-FIRST: Also refresh social data when screen is focused 
+        // This catches follow/unfollow actions from other screens
+        console.log('🔄 OFFLINE-FIRST: Refreshing social data on screen focus...');
+        loadAllSocialData(profile.id, true); // Force refresh to catch changes from other screens
       }
     }, [profile?.id, loading, dataManager])
   );
@@ -245,8 +255,6 @@ export default function Profile() {
       ])
     ).start();
   }, []);
-
-
 
   const handleSignOut = async () => {
     Alert.alert(
@@ -878,7 +886,7 @@ export default function Profile() {
       />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

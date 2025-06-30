@@ -6,6 +6,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import GlobalDataManager from '@/lib/GlobalDataManager';
+import SocialDataManager from '@/lib/SocialDataManager';
 
 interface UserProfile {
   id: number;
@@ -189,7 +190,7 @@ export default function UserProfileModal({
     if (!currentUserProfile?.email || !currentUserProfile?.id) return;
     
     try {
-      console.log(`🔍 UserProfile: Following user ${userEmail} by ${currentUserProfile.email}`);
+      console.log(`🚀 OFFLINE-FIRST: Following user ${userEmail} by ${currentUserProfile.email}`);
       
       // Get target user ID first
       const { data: targetUser, error: targetError } = await supabase
@@ -204,46 +205,20 @@ export default function UserProfileModal({
         return;
       }
 
-      // Check if already following to avoid duplicates
-      const { data: existingFollow, error: checkError } = await supabase
-        .from('follows')
-        .select('id')
-        .eq('follower_id', currentUserProfile.id)
-        .eq('followed_id', targetUser.id)
-        .maybeSingle();
+      // Use SocialDataManager to follow user (auto-updates cache)
+      const socialDataManager = SocialDataManager.getInstance();
+      const success = await socialDataManager.followUser(currentUserProfile.id, targetUser.id);
 
-      if (checkError) {
-        console.error('🚨 Error checking existing follow:', checkError);
-        throw checkError;
-      }
-
-      if (existingFollow) {
-        console.log('⚠️ Already following this user');
-        Alert.alert('Info', 'You are already following this user');
+      if (success) {
+        console.log('✅ OFFLINE-FIRST: Successfully followed user');
         setIsFollowing(true);
-        return;
+        Alert.alert('Success', 'Successfully followed user');
+      } else {
+        Alert.alert('Error', 'Failed to follow user');
       }
-
-      // Use direct database operations instead of broken RPC function
-      const { error: followError } = await supabase
-        .from('follows')
-        .insert({
-          follower_id: currentUserProfile.id,
-          followed_id: targetUser.id,
-          created_at: new Date().toISOString()
-        });
-
-      if (followError) {
-        console.error('🚨 UserProfile: Error following user:', followError);
-        throw followError;
-      }
-
-      console.log('✅ UserProfile: Successfully followed user');
-      setIsFollowing(true);
-      Alert.alert('Success', 'Successfully followed user');
       
     } catch (error) {
-      console.error('🚨 UserProfile: Error following user:', error);
+      console.error('🚨 OFFLINE-FIRST: Error following user:', error);
       Alert.alert('Error', 'Failed to follow user');
     }
   };
@@ -252,7 +227,7 @@ export default function UserProfileModal({
     if (!currentUserProfile?.email || !currentUserProfile?.id) return;
     
     try {
-      console.log(`🔍 UserProfile: Unfollowing user ${userEmail} by ${currentUserProfile.email}`);
+      console.log(`🚀 OFFLINE-FIRST: Unfollowing user ${userEmail} by ${currentUserProfile.email}`);
       
       // Get target user ID first
       const { data: targetUser, error: targetError } = await supabase
@@ -267,24 +242,20 @@ export default function UserProfileModal({
         return;
       }
 
-      // Use direct database operations instead of broken RPC function
-      const { error: unfollowError } = await supabase
-        .from('follows')
-        .delete()
-        .eq('follower_id', currentUserProfile.id)
-        .eq('followed_id', targetUser.id);
+      // Use SocialDataManager to unfollow user (auto-updates cache)
+      const socialDataManager = SocialDataManager.getInstance();
+      const success = await socialDataManager.unfollowUser(currentUserProfile.id, targetUser.id);
 
-      if (unfollowError) {
-        console.error('🚨 UserProfile: Error unfollowing user:', unfollowError);
-        throw unfollowError;
+      if (success) {
+        console.log('✅ OFFLINE-FIRST: Successfully unfollowed user');
+        setIsFollowing(false);
+        Alert.alert('Success', 'Successfully unfollowed user');
+      } else {
+        Alert.alert('Error', 'Failed to unfollow user');
       }
-
-      console.log('✅ UserProfile: Successfully unfollowed user');
-      setIsFollowing(false);
-      Alert.alert('Success', 'Successfully unfollowed user');
       
     } catch (error) {
-      console.error('🚨 UserProfile: Error unfollowing user:', error);
+      console.error('🚨 OFFLINE-FIRST: Error unfollowing user:', error);
       Alert.alert('Error', 'Failed to unfollow user');
     }
   };
@@ -368,36 +339,17 @@ export default function UserProfileModal({
 
       // Also automatically follow the user when sending friend request
       try {
-        console.log('🔍 Auto-following user when sending friend request...');
+        console.log('🚀 OFFLINE-FIRST: Auto-following user when sending friend request...');
         
-        // Check if already following to avoid duplicates
-        const { data: existingFollow, error: checkFollowError } = await supabase
-          .from('follows')
-          .select('id')
-          .eq('follower_id', currentUserProfile.id)
-          .eq('followed_id', userId)
-          .maybeSingle();
+        // Use SocialDataManager to follow user (auto-updates cache)
+        const socialDataManager = SocialDataManager.getInstance();
+        const followSuccess = await socialDataManager.followUser(currentUserProfile.id, userId);
 
-        if (checkFollowError) {
-          console.log('⚠️ Error checking existing follow, but friend request was sent:', checkFollowError);
-        } else if (existingFollow) {
-          console.log('⚠️ Already following this user');
+        if (followSuccess) {
+          console.log('✅ OFFLINE-FIRST: Auto-follow successful');
+          setIsFollowing(true);
         } else {
-          // Create follow relationship using direct database operations
-          const { error: followError } = await supabase
-            .from('follows')
-            .insert({
-              follower_id: currentUserProfile.id,
-              followed_id: userId,
-              created_at: new Date().toISOString()
-            });
-
-          if (followError) {
-            console.log('⚠️ Auto-follow failed, but friend request was sent:', followError);
-          } else {
-            console.log('✅ Auto-follow successful');
-            setIsFollowing(true);
-          }
+          console.log('⚠️ Auto-follow failed, but friend request was sent');
         }
       } catch (followError) {
         console.log('⚠️ Auto-follow error, but friend request was sent:', followError);

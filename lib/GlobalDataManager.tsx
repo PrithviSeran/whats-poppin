@@ -1190,68 +1190,209 @@ class GlobalDataManager extends EventEmitter {
 
   // Get friends who have saved a specific event
   async getFriendsWhoSavedEvent(eventId: number): Promise<{ id: number; name: string; email: string }[]> {
+    const cacheKey = `friends_saved_event_${eventId}`;
+    
+    return this.makeApiCall(cacheKey, async () => {
+      if (!this.currentUser?.email) {
+        return [];
+      }
+
+      try {
+        // Get all users who have saved this event
+        const { data: usersData, error } = await supabase
+          .from('all_users')
+          .select('id, name, email, saved_events')
+          .not('saved_events', 'is', null);
+
+        if (error) throw error;
+
+        // Filter users who have this event in their saved_events and are friends with current user
+        const userProfile = await this.getUserProfile();
+        if (!userProfile?.id) return [];
+
+        // Get current user's friends
+        const { data: friendsData, error: friendsError } = await supabase
+          .from('friends')
+          .select('friend_id')
+          .eq('user_id', userProfile.id)
+          .eq('status', 'accepted');
+
+        if (friendsError) throw friendsError;
+
+        const friendIds = new Set(friendsData?.map(f => f.friend_id) || []);
+
+        // Find friends who have saved this event
+        const friendsWhoSaved: { id: number; name: string; email: string }[] = [];
+        
+        for (const user of usersData || []) {
+          if (!friendIds.has(user.id)) continue;
+          
+          let savedEvents: number[] = [];
+          if (user.saved_events) {
+            if (Array.isArray(user.saved_events)) {
+              savedEvents = user.saved_events;
+            } else if (typeof user.saved_events === 'string') {
+              savedEvents = user.saved_events
+                .replace(/[{}"']+/g, '')
+                .split(',')
+                .map((s: string) => parseInt(s.trim(), 10))
+                .filter(Boolean);
+            }
+          }
+          
+          if (savedEvents.includes(eventId)) {
+            friendsWhoSaved.push({
+              id: user.id,
+              name: user.name,
+              email: user.email
+            });
+          }
+        }
+
+        return friendsWhoSaved;
+      } catch (error) {
+        console.error('Error fetching friends who saved event:', error);
+        return [];
+      }
+    }, 30 * 1000); // Cache for 30 seconds
+  }
+
+  // OPTIMIZED: Batch method to fetch friends data for multiple events at once
+  async getFriendsWhoSavedEventsBatch(eventIds: number[]): Promise<{ [eventId: number]: { id: number; name: string; email: string }[] }> {
+    if (!this.currentUser?.email || eventIds.length === 0) {
+      return {};
+    }
+
     try {
-      const user = await this.getUserProfile();
-      if (!user?.id) {
-        console.log('No user profile found when checking friends who saved event');
-        return [];
-      }
+      console.log(`🚀 Batch fetching friends data for ${eventIds.length} events`);
+      const startTime = Date.now();
 
-      // Create a query to get friends who saved this event
-      // First, get all friends of the current user
-      const { data: friendsData, error: friendsError } = await supabase.rpc('get_user_friends', {
-        target_user_id: user.id
-      });
-
-      if (friendsError) {
-        console.error('Error fetching friends:', friendsError);
-        return [];
-      }
-
-      if (!friendsData || friendsData.length === 0) {
-        return [];
-      }
-
-      // Get all friend IDs
-      const friendIds = friendsData.map((friend: any) => friend.friend_id);
-
-      // Query all_users to find which friends have saved this event
-      const { data: friendsWithSavedEvent, error: savedEventError } = await supabase
+      // Get all users who have saved events
+      const { data: usersData, error } = await supabase
         .from('all_users')
         .select('id, name, email, saved_events')
-        .in('id', friendIds);
+        .not('saved_events', 'is', null);
 
-      if (savedEventError) {
-        console.error('Error checking friends saved events:', savedEventError);
-        return [];
-      }
+      if (error) throw error;
 
-      // Filter friends who have saved this specific event
-      const friendsWhoSaved = (friendsWithSavedEvent || []).filter((friend: any) => {
-        if (!friend.saved_events) return false;
+      // Get current user's friends
+      const userProfile = await this.getUserProfile();
+      if (!userProfile?.id) return {};
+
+      const { data: friendsData, error: friendsError } = await supabase
+        .from('friends')
+        .select('friend_id')
+        .eq('user_id', userProfile.id)
+        .eq('status', 'accepted');
+
+      if (friendsError) throw friendsError;
+
+      const friendIds = new Set(friendsData?.map(f => f.friend_id) || []);
+
+      // Build result map for all requested events
+      const result: { [eventId: number]: { id: number; name: string; email: string }[] } = {};
+      eventIds.forEach(id => result[id] = []);
+
+      // Process each user once and check against all events
+      for (const user of usersData || []) {
+        if (!friendIds.has(user.id)) continue;
         
         let savedEvents: number[] = [];
-        if (Array.isArray(friend.saved_events)) {
-          savedEvents = friend.saved_events;
-        } else if (typeof friend.saved_events === 'string' && friend.saved_events) {
-          savedEvents = friend.saved_events
-            .replace(/[{}"']+/g, '')
-            .split(',')
-            .map((s: string) => parseInt(s.trim(), 10))
-            .filter(Boolean);
+        if (user.saved_events) {
+          if (Array.isArray(user.saved_events)) {
+            savedEvents = user.saved_events;
+          } else if (typeof user.saved_events === 'string') {
+            savedEvents = user.saved_events
+              .replace(/[{}"']+/g, '')
+              .split(',')
+              .map((s: string) => parseInt(s.trim(), 10))
+              .filter(Boolean);
+          }
         }
         
-        return savedEvents.includes(eventId);
-      }).map((friend: any) => ({
-        id: friend.id,
-        name: friend.name,
-        email: friend.email
-      }));
+        // Check which of the requested events this user has saved
+        for (const eventId of eventIds) {
+          if (savedEvents.includes(eventId)) {
+            result[eventId].push({
+              id: user.id,
+              name: user.name,
+              email: user.email
+            });
+          }
+        }
+      }
 
-      return friendsWhoSaved;
+      const endTime = Date.now();
+      console.log(`✅ Batch friends fetch completed in ${endTime - startTime}ms for ${eventIds.length} events`);
+
+      return result;
     } catch (error) {
-      console.error('Error in getFriendsWhoSavedEvent:', error);
-      return [];
+      console.error('Error in batch friends fetch:', error);
+      // Return empty result for all events instead of failing
+      const result: { [eventId: number]: { id: number; name: string; email: string }[] } = {};
+      eventIds.forEach(id => result[id] = []);
+      return result;
+    }
+  }
+
+  // OPTIMIZED: Batch AsyncStorage operations to reduce I/O
+  private async setMultipleAsyncStorage(items: { key: string; value: string }[]): Promise<void> {
+    try {
+      const pairs = items.map(item => [item.key, item.value] as [string, string]);
+      await AsyncStorage.multiSet(pairs);
+    } catch (error) {
+      console.error('Error in batch AsyncStorage set:', error);
+      // Fallback to individual sets
+      for (const item of items) {
+        try {
+          await AsyncStorage.setItem(item.key, item.value);
+        } catch (e) {
+          console.error(`Error setting ${item.key}:`, e);
+        }
+      }
+    }
+  }
+
+  // OPTIMIZED: Batch read multiple AsyncStorage items
+  private async getMultipleAsyncStorage(keys: string[]): Promise<{ [key: string]: string | null }> {
+    try {
+      const pairs = await AsyncStorage.multiGet(keys);
+      const result: { [key: string]: string | null } = {};
+      pairs.forEach(([key, value]) => {
+        result[key] = value;
+      });
+      return result;
+    } catch (error) {
+      console.error('Error in batch AsyncStorage get:', error);
+      // Fallback to individual gets
+      const result: { [key: string]: string | null } = {};
+      for (const key of keys) {
+        try {
+          result[key] = await AsyncStorage.getItem(key);
+        } catch (e) {
+          console.error(`Error getting ${key}:`, e);
+          result[key] = null;
+        }
+      }
+      return result;
+    }
+  }
+
+  // OPTIMIZED: Compress large JSON data before storing
+  private compressData(data: any): string {
+    const jsonString = JSON.stringify(data);
+    // For very large data sets, you could implement actual compression here
+    // For now, we'll just return the JSON string
+    return jsonString;
+  }
+
+  // OPTIMIZED: Decompress and parse data
+  private decompressData<T>(compressedData: string): T | null {
+    try {
+      return JSON.parse(compressedData);
+    } catch (error) {
+      console.error('Error decompressing data:', error);
+      return null;
     }
   }
 }

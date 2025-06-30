@@ -1,293 +1,121 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Image, View, ActivityIndicator, StyleSheet, ImageStyle, ViewStyle } from 'react-native';
+import React, { useState, useEffect, memo } from 'react';
+import { Image, View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+// OPTIMIZED: Image cache to prevent re-downloading
+const imageCache = new Map<string, boolean>();
+const preloadQueue = new Set<string>();
+
 interface OptimizedImageProps {
-  eventId?: number;
-  imageUrl?: string | null;
-  style?: ImageStyle;
-  containerStyle?: ViewStyle;
-  placeholder?: React.ReactNode;
-  fallback?: React.ReactNode;
-  lazy?: boolean;
-  priority?: 'high' | 'normal' | 'low';
+  source: { uri: string } | number;
+  style?: any;
+  fallbackImages?: string[];
+  onError?: () => void;
+  placeholder?: boolean;
+  resizeMode?: 'cover' | 'contain' | 'stretch' | 'repeat' | 'center';
 }
 
-// Global image cache to prevent re-downloading
-const IMAGE_CACHE = new Map<string, { 
-  loaded: boolean; 
-  error: boolean; 
-  timestamp: number;
-}>();
-
-const IMAGE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-
-// Lazy loading intersection observer equivalent for React Native
-class ImageLoadQueue {
-  private static instance: ImageLoadQueue;
-  private highPriorityQueue: string[] = [];
-  private normalPriorityQueue: string[] = [];
-  private lowPriorityQueue: string[] = [];
-  private processing = false;
-  private concurrent = 3; // Load max 3 images concurrently
-
-  static getInstance(): ImageLoadQueue {
-    if (!ImageLoadQueue.instance) {
-      ImageLoadQueue.instance = new ImageLoadQueue();
-    }
-    return ImageLoadQueue.instance;
-  }
-
-  addToQueue(url: string, priority: 'high' | 'normal' | 'low' = 'normal') {
-    switch (priority) {
-      case 'high':
-        if (!this.highPriorityQueue.includes(url)) {
-          this.highPriorityQueue.push(url);
-        }
-        break;
-      case 'low':
-        if (!this.lowPriorityQueue.includes(url)) {
-          this.lowPriorityQueue.push(url);
-        }
-        break;
-      default:
-        if (!this.normalPriorityQueue.includes(url)) {
-          this.normalPriorityQueue.push(url);
-        }
-    }
-    this.processQueue();
-  }
-
-  private async processQueue() {
-    if (this.processing) return;
-    this.processing = true;
-
-    const getNextUrl = (): string | null => {
-      return this.highPriorityQueue.shift() || 
-             this.normalPriorityQueue.shift() || 
-             this.lowPriorityQueue.shift() || 
-             null;
-    };
-
-    const promises: Promise<void>[] = [];
-    
-    for (let i = 0; i < this.concurrent; i++) {
-      const url = getNextUrl();
-      if (url) {
-        promises.push(this.preloadImage(url));
-      }
-    }
-
-    await Promise.all(promises);
-    this.processing = false;
-
-    // Continue processing if there are more items
-    if (this.highPriorityQueue.length || this.normalPriorityQueue.length || this.lowPriorityQueue.length) {
-      this.processQueue();
-    }
-  }
-
-  private async preloadImage(url: string): Promise<void> {
-    return new Promise((resolve) => {
-      Image.prefetch(url)
-        .then(() => {
-          IMAGE_CACHE.set(url, {
-            loaded: true,
-            error: false,
-            timestamp: Date.now()
-          });
-        })
-        .catch(() => {
-          IMAGE_CACHE.set(url, {
-            loaded: false,
-            error: true,
-            timestamp: Date.now()
-          });
-        })
-        .finally(() => resolve());
-    });
-  }
-}
-
-const OptimizedImage: React.FC<OptimizedImageProps> = ({
-  eventId,
-  imageUrl,
-  style,
-  containerStyle,
-  placeholder,
-  fallback,
-  lazy = true,
-  priority = 'normal'
+const OptimizedImage = memo<OptimizedImageProps>(({ 
+  source, 
+  style, 
+  fallbackImages = [], 
+  onError,
+  placeholder = true,
+  resizeMode = 'cover'
 }) => {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [inView, setInView] = useState(!lazy);
-  const mountedRef = useRef(true);
-  const imageQueue = useRef(ImageLoadQueue.getInstance()).current;
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
 
-  // Generate optimized image URL
-  const optimizedImageUrl = useMemo(() => {
-    if (imageUrl) return imageUrl;
-    if (!eventId) return null;
-    
-    const randomIndex = Math.floor(Math.random() * 5);
-    return `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${eventId}/${randomIndex}.jpg`;
-  }, [eventId, imageUrl]);
+  const currentSource = typeof source === 'object' && source.uri 
+    ? (currentSourceIndex === 0 ? source.uri : fallbackImages[currentSourceIndex - 1])
+    : source;
 
-  // Check cache status
-  const cacheStatus = useMemo(() => {
-    if (!optimizedImageUrl) return null;
-    
-    const cached = IMAGE_CACHE.get(optimizedImageUrl);
-    if (!cached) return null;
-    
-    // Check if cache is expired
-    if (Date.now() - cached.timestamp > IMAGE_CACHE_TTL) {
-      IMAGE_CACHE.delete(optimizedImageUrl);
-      return null;
-    }
-    
-    return cached;
-  }, [optimizedImageUrl]);
-
-  // Handle image load
-  const handleImageLoad = useCallback(() => {
-    if (!mountedRef.current) return;
-    
-    setLoading(false);
-    setError(false);
-    
-    if (optimizedImageUrl) {
-      IMAGE_CACHE.set(optimizedImageUrl, {
-        loaded: true,
-        error: false,
-        timestamp: Date.now()
-      });
-    }
-  }, [optimizedImageUrl]);
-
-  // Handle image error
-  const handleImageError = useCallback(() => {
-    if (!mountedRef.current) return;
-    
-    setLoading(false);
-    setError(true);
-    
-    if (optimizedImageUrl) {
-      IMAGE_CACHE.set(optimizedImageUrl, {
-        loaded: false,
-        error: true,
-        timestamp: Date.now()
-      });
-    }
-  }, [optimizedImageUrl]);
-
-  // Effect for lazy loading
+  // OPTIMIZED: Check cache first
   useEffect(() => {
-    if (lazy && optimizedImageUrl) {
-      // Simulate intersection observer by immediately setting inView
-      // In a real implementation, you'd use an intersection observer library
-      const timer = setTimeout(() => {
-        if (mountedRef.current) {
-          setInView(true);
+    if (typeof currentSource === 'string' && imageCache.has(currentSource)) {
+      setIsLoading(false);
+      return;
+    }
+  }, [currentSource]);
+
+  // OPTIMIZED: Preload next images in background
+  useEffect(() => {
+    if (fallbackImages.length > 0 && typeof source === 'object') {
+      fallbackImages.forEach(uri => {
+        if (!preloadQueue.has(uri) && !imageCache.has(uri)) {
+          preloadQueue.add(uri);
+          Image.prefetch(uri).then(() => {
+            imageCache.set(uri, true);
+            preloadQueue.delete(uri);
+          }).catch(() => {
+            preloadQueue.delete(uri);
+          });
         }
-      }, 100);
-      
-      return () => clearTimeout(timer);
+      });
     }
-  }, [lazy, optimizedImageUrl]);
+  }, [fallbackImages, source]);
 
-  // Effect for image preloading
-  useEffect(() => {
-    if (inView && optimizedImageUrl && !cacheStatus) {
-      imageQueue.addToQueue(optimizedImageUrl, priority);
+  const handleLoad = () => {
+    setIsLoading(false);
+    if (typeof currentSource === 'string') {
+      imageCache.set(currentSource, true);
     }
-  }, [inView, optimizedImageUrl, cacheStatus, priority, imageQueue]);
+  };
 
-  // Effect for cleanup
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  const handleError = () => {
+    console.log(`Image failed to load: ${currentSource}`);
+    
+    // Try next fallback image
+    if (currentSourceIndex < fallbackImages.length) {
+      setCurrentSourceIndex(prev => prev + 1);
+      setHasError(false);
+      setIsLoading(true);
+    } else {
+      setHasError(true);
+      setIsLoading(false);
+      onError?.();
+    }
+  };
 
-  // Early return for no image
-  if (!optimizedImageUrl) {
+  if (hasError) {
     return (
-      <View style={[styles.container, containerStyle]}>
-        {fallback || (
-          <View style={[styles.placeholder, style]}>
-            <Ionicons name="image-outline" size={40} color="#666" />
-          </View>
-        )}
-      </View>
-    );
-  }
-
-  // If cached as error, show fallback
-  if (cacheStatus?.error) {
-    return (
-      <View style={[styles.container, containerStyle]}>
-        {fallback || (
-          <View style={[styles.placeholder, style]}>
-            <Ionicons name="image-outline" size={40} color="#666" />
-            <Text style={styles.errorText}>No Image Found</Text>
-          </View>
-        )}
+      <View style={[style, styles.errorContainer]}>
+        <Ionicons name="image-outline" size={32} color="#666" />
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, containerStyle]}>
-      {inView ? (
-        <>
-          <Image
-            source={{ uri: optimizedImageUrl }}
-            style={style}
-            onLoad={handleImageLoad}
-            onError={handleImageError}
-            fadeDuration={200}
-          />
-          {loading && (
-            <View style={[styles.loadingOverlay, style]}>
-              {placeholder || <ActivityIndicator size="small" color="#9E95BD" />}
-            </View>
-          )}
-        </>
-      ) : (
-        <View style={[styles.placeholder, style]}>
-          {placeholder || <ActivityIndicator size="small" color="#9E95BD" />}
+    <View style={style}>
+      <Image
+        source={typeof currentSource === 'string' ? { uri: currentSource } : currentSource}
+        style={[style, { opacity: isLoading ? 0 : 1 }]}
+        onLoad={handleLoad}
+        onError={handleError}
+        resizeMode={resizeMode}
+      />
+      {isLoading && placeholder && (
+        <View style={[StyleSheet.absoluteFill, styles.loadingContainer]}>
+          <ActivityIndicator size="small" color="#666" />
         </View>
       )}
     </View>
   );
-};
+});
+
+OptimizedImage.displayName = 'OptimizedImage';
 
 const styles = StyleSheet.create({
-  container: {
-    position: 'relative',
-  },
-  placeholder: {
+  errorContainer: {
     backgroundColor: '#f0f0f0',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(240, 240, 240, 0.8)',
+  loadingContainer: {
+    backgroundColor: '#f8f8f8',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  errorText: {
-    color: '#666',
-    marginTop: 8,
-    fontSize: 12,
-    textAlign: 'center',
   },
 });
 

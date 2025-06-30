@@ -343,6 +343,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
           <Text
             style={[
               styles.calendarDayText,
+              { color: Colors[colorScheme ?? 'light'].text },
               isSelected && styles.calendarDayTextSelected,
               isToday && styles.calendarDayTextToday,
               isPast && styles.calendarDayTextPast
@@ -1271,7 +1272,6 @@ const styles = StyleSheet.create({
   },
   calendarWeekHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     marginBottom: 10,
     paddingBottom: 10,
     borderBottomWidth: 1,
@@ -1281,16 +1281,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     opacity: 0.7,
-    width: 40,
+    flex: 1,
     textAlign: 'center',
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-around',
   },
   calendarDay: {
-    width: 40,
+    width: '14.28%', // 100% / 7 days = 14.28%
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',

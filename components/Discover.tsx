@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import GlobalDataManager, { EventCard, UserProfile } from '@/lib/GlobalDataManager';
+import SocialDataManager from '@/lib/SocialDataManager';
 import EventDetailModal from './EventDetailModal';
 import * as Location from 'expo-location';
 import EventCardComponent from './EventCard';
@@ -301,35 +302,16 @@ export default function Discover() {
 
       // Auto-follow the user when sending friend request
       try {
-        console.log('🔍 Discover: Auto-following user when sending friend request...');
+        console.log('🚀 OFFLINE-FIRST: Auto-following user when sending friend request...');
         
-        // Check if already following to avoid duplicates
-        const { data: existingFollow, error: checkFollowError } = await supabase
-          .from('follows')
-          .select('id')
-          .eq('follower_id', userProfile.id)
-          .eq('followed_id', receiverId)
-          .maybeSingle();
+        // Use SocialDataManager to follow user (auto-updates cache)
+        const socialDataManager = SocialDataManager.getInstance();
+        const followSuccess = await socialDataManager.followUser(userProfile.id, receiverId);
 
-        if (checkFollowError) {
-          console.log('⚠️ Error checking existing follow, but friend request was sent:', checkFollowError);
-        } else if (existingFollow) {
-          console.log('⚠️ Already following this user');
+        if (followSuccess) {
+          console.log('✅ OFFLINE-FIRST: Auto-follow successful');
         } else {
-          // Create follow relationship
-          const { error: followError } = await supabase
-            .from('follows')
-            .insert({
-              follower_id: userProfile.id,
-              followed_id: receiverId,
-              created_at: new Date().toISOString()
-            });
-
-          if (followError) {
-            console.log('⚠️ Auto-follow failed, but friend request was sent:', followError);
-          } else {
-            console.log('✅ Auto-follow successful');
-          }
+          console.log('⚠️ Auto-follow failed, but friend request was sent');
         }
       } catch (followError) {
         console.log('⚠️ Auto-follow error, but friend request was sent:', followError);
@@ -356,67 +338,30 @@ export default function Discover() {
     }
     
     try {
-      if (currentlyFollowing) {
-        // Unfollow user
-        console.log(`🔍 Discover: Unfollowing user ${userId}`);
-        const { error: unfollowError } = await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', userProfile.id)
-          .eq('followed_id', userId);
-
-        if (unfollowError) {
-          console.error('🚨 Error unfollowing user:', unfollowError);
-          throw unfollowError;
-        }
-
-        console.log('✅ Successfully unfollowed user');
-      } else {
-        // Follow user
-        console.log(`🔍 Discover: Following user ${userId}`);
-        
-        // Check if already following to avoid duplicates
-        const { data: existingFollow, error: checkError } = await supabase
-          .from('follows')
-          .select('id')
-          .eq('follower_id', userProfile.id)
-          .eq('followed_id', userId)
-          .maybeSingle();
-
-        if (checkError) {
-          console.error('🚨 Error checking existing follow:', checkError);
-          throw checkError;
-        }
-
-        if (existingFollow) {
-          console.log('⚠️ Already following this user');
-          Alert.alert('Info', 'You are already following this user');
-          return;
-        }
-
-        const { error: followError } = await supabase
-          .from('follows')
-          .insert({
-            follower_id: userProfile.id,
-            followed_id: userId,
-            created_at: new Date().toISOString()
-          });
-
-        if (followError) {
-          console.error('🚨 Error following user:', followError);
-          throw followError;
-        }
-
-        console.log('✅ Successfully followed user');
-      }
+      console.log(`🚀 OFFLINE-FIRST: ${currentlyFollowing ? 'Unfollowing' : 'Following'} user ${userId}`);
       
-      // Refresh search results to update button states
-      if (searchQuery.trim().length >= 2) {
-        searchUsers(searchQuery);
+      // Use SocialDataManager for all follow operations (auto-updates cache)
+      const socialDataManager = SocialDataManager.getInstance();
+      let success: boolean;
+
+      if (currentlyFollowing) {
+        success = await socialDataManager.unfollowUser(userProfile.id, userId);
+      } else {
+        success = await socialDataManager.followUser(userProfile.id, userId);
+      }
+
+      if (success) {
+        console.log(`✅ OFFLINE-FIRST: Successfully ${currentlyFollowing ? 'unfollowed' : 'followed'} user`);
+        // Refresh search results to update button states
+        if (searchQuery.trim().length >= 2) {
+          searchUsers(searchQuery);
+        }
+      } else {
+        Alert.alert('Error', `Failed to ${currentlyFollowing ? 'unfollow' : 'follow'} user`);
       }
       
     } catch (error) {
-      console.error('🚨 Error toggling follow status:', error);
+      console.error('🚨 OFFLINE-FIRST: Error toggling follow status:', error);
       Alert.alert('Error', 'Failed to update follow status');
     }
   };
@@ -732,35 +677,41 @@ export default function Discover() {
       // Filter out already loaded events and saved events, then map the remaining ones
       const filteredEvents = eventsData.filter(event => !loadedEventIds.has(event.id) && !savedEventIds.has(event.id));
       
-      // Process events with friends data
-      const newEvents = await Promise.all(
-        filteredEvents.map(async (event) => {
-          // Randomly select one of the 5 images (0-4) or leave null if no ID
-          const randomImageIndex = Math.floor(Math.random() * 5);
-          const imageUrl = event.id ? 
-            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
-            null;
+      // OPTIMIZED: Batch fetch friends data for all events at once (eliminates N+1 queries)
+      const eventIds = filteredEvents.map(event => event.id);
+      let friendsDataBatch: { [eventId: number]: { id: number; name: string; email: string }[] } = {};
+      
+      if (eventIds.length > 0) {
+        try {
+          friendsDataBatch = await dataManager.getFriendsWhoSavedEventsBatch(eventIds);
+        } catch (error) {
+          console.error(`Error fetching friends data in batch:`, error);
+          // Continue with empty friends data instead of failing
+        }
+      }
 
-          // Fetch friends who saved this event
-          let friendsWhoSaved: { id: number; name: string; email: string }[] = [];
-          try {
-            friendsWhoSaved = await dataManager.getFriendsWhoSavedEvent(event.id);
-          } catch (error) {
-            console.error(`Error fetching friends for event ${event.id} in Discover:`, error);
-          }
+      // OPTIMIZED: Process events synchronously without Promise.all
+      const newEvents = filteredEvents.map((event) => {
+        // Randomly select one of the 5 images (0-4) or leave null if no ID
+        const randomImageIndex = Math.floor(Math.random() * 5);
+        const imageUrl = event.id ? 
+          `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
+          null;
 
-          return {
-            ...event,
-            image: imageUrl,
-            isLiked: false, // These are unsaved events
-            occurrence: event.occurrence || 'one-time',
-            allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
-              `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
-            ) : [],
-            friendsWhoSaved
-          };
-        })
-      );
+        // Use batched friends data
+        const friendsWhoSaved = friendsDataBatch[event.id] || [];
+
+        return {
+          ...event,
+          image: imageUrl,
+          isLiked: false, // These are unsaved events
+          occurrence: event.occurrence || 'one-time',
+          allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
+            `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
+          ) : [],
+          friendsWhoSaved
+        };
+      });
 
       if (newEvents.length === 0) {
         setHasMore(false);
@@ -1289,126 +1240,18 @@ export default function Discover() {
                   }
                 }}
               >
-                {event.image ? (
-                  <Image 
-                    source={{ uri: event.image }}
-                    style={styles.cardImage}
-                    onError={(e) => {
-                      console.log('Image failed to load, trying next image for event:', event.id);
-                      // Try to find a working image systematically
-                      if (event.allImages && event.allImages.length > 0) {
-                        // Get current failed image and find its index
-                        const currentImageUrl = event.image;
-                        let currentIndex = -1;
-                        
-                        // Find current index, handling the case where it might not be found
-                        if (currentImageUrl) {
-                          currentIndex = event.allImages.findIndex(url => url === currentImageUrl);
-                        }
-                        
-                        // Determine next image to try
-                        const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
-                        let foundWorkingImage = false;
-                        
-                        // Try up to 3 different images
-                        for (let i = 0; i < Math.min(3, event.allImages.length); i++) {
-                          const tryIndex = (startIndex + i) % event.allImages.length;
-                          const tryImageUrl = event.allImages[tryIndex];
-                          
-                          // Skip if this is the same image that just failed
-                          if (tryImageUrl !== currentImageUrl) {
-                                                         console.log(`Trying image ${tryIndex} for event ${event.id}`);
-                             setEvents(prevEvents => 
-                               prevEvents.map(evt => 
-                                 evt.id === event.id ? { ...evt, image: tryImageUrl } : evt
-                               )
-                             );
-                            foundWorkingImage = true;
-                            break;
-                          }
-                        }
-                        
-                        if (!foundWorkingImage) {
-                          console.log('No more images to try for event:', event.id);
-                      setEvents(prevEvents => 
-                        prevEvents.map(evt => 
-                          evt.id === event.id ? { ...evt, image: null } : evt
-                        )
-                      );
-                        }
-                      } else {
-                        // No allImages array, just show placeholder
-                        console.log('No allImages array for event:', event.id);
-                        setEvents(prevEvents => 
-                          prevEvents.map(evt => 
-                            evt.id === event.id ? { ...evt, image: null } : evt
-                          )
-                        );
-                      }
-                    }}
-                  />
-                ) : (
-                  <View style={[styles.cardImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-                    <Ionicons name="image-outline" size={32} color="#666" />
-                    <Text style={{ color: '#666', marginTop: 8, fontSize: 12, textAlign: 'center' }}>
-                      No Image Found
-                    </Text>
-                  </View>
-                )}
-                
-                {/* Featured Badge */}
-                {event.featured && (
-                  <View style={styles.featuredBadge}>
-                    <LinearGradient
-                      colors={['#FFD700', '#FFA500']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.featuredBadgeContainer}
-                    >
-                      <Ionicons name="star" size={14} color="white" />
-                      <Text style={styles.featuredText}>Featured</Text>
-                    </LinearGradient>
-                  </View>
-                )}
-
-                {/* Expiring Soon Badge */}
-                {isEventExpiringSoon(event) && (
-                  <View style={[styles.featuredBadge, { top: event.featured ? 50 : 10 }]}>
-                    <LinearGradient
-                      colors={['#ff4444', '#ff6666']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.featuredBadgeContainer}
-                    >
-                      <Ionicons name="time" size={14} color="white" />
-                      <Text style={styles.featuredText}>Expiring Soon</Text>
-                    </LinearGradient>
-                  </View>
-                )}
-                <TouchableOpacity 
-                  style={styles.likeButton}
-                  onPress={() => toggleLike(event)}
-                >
-                  <Ionicons 
-                    name={event.isLiked ? "heart" : "heart-outline"} 
-                    size={24} 
-                    color={event.isLiked ? "#F45B5B" : "#fff"} 
-                  />
-                </TouchableOpacity>
-                <View style={styles.cardContent}>
-                  <Text style={[styles.cardTitle, { color: Colors[colorScheme ?? 'light'].text }]}>{event.name}</Text>
-                  {/* Only show calendar icon and date if date information is available */}
-                  {event.start_date && (
-                  <View style={styles.infoRow}>
-                    <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.start_date}</Text>
-                  </View>
-                  )}
-                  <View style={styles.infoRow}>
-                    <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-                    <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>{event.location}</Text>
-                  </View>
-                </View>
+                <EventCardComponent
+                  event={event}
+                  onPress={() => handleEventPress(event, cardLayout!)}
+                  onLike={() => toggleLike(event)}
+                  isLiked={!!event.isLiked}
+                  userLocation={userLocation}
+                  cardRef={(ref) => {
+                    if (ref) {
+                      cardRefs.current[index] = ref;
+                    }
+                  }}
+                />
               </TouchableOpacity>
             </Animated.View>
           ))}
