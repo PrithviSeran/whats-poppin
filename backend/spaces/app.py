@@ -110,7 +110,7 @@ class EventRecommendationSystem:
             ).eq("email", email).maybe_single().execute()
             return result.data
         except Exception as e:
-            print(f"Error fetching user data: {e}")
+    
             return None
     
 
@@ -135,21 +135,21 @@ class EventRecommendationSystem:
                 if event_id not in featured_lookup:
                     featured_lookup[event_id] = False
                     
-            print(f"📊 Batch featured lookup: {len(featured_lookup)} events, {sum(featured_lookup.values())} featured")
+    
             return featured_lookup
             
         except Exception as e:
-            print(f"Error in batch featured lookup: {e}")
+    
             return {event_id: False for event_id in event_ids}
     
     def is_featured_event(self, event_id):
         """Individual featured check - DEPRECATED: Use get_featured_events_batch() for efficiency"""
-        print(f"⚠️ WARNING: Using individual featured lookup for event {event_id}. Consider batch lookup for better performance.")
+
         try:
             result = self.Client.table("all_events").select("featured").eq("id", event_id).maybe_single().execute()
             return result.data.get("featured", False) if result.data else False
         except Exception as e:
-            print(f"Error checking featured status for event {event_id}: {e}")
+    
             return False
 
     def get_age_group(self, age):
@@ -200,7 +200,7 @@ class EventRecommendationSystem:
             return True
         
     def get_time_tag(self, start_time_str, end_time_str):
-        print(start_time_str, end_time_str)
+
         start_time = self.parse_time(start_time_str)
         end_time = self.parse_time(end_time_str)
         if start_time is None or end_time is None:

@@ -573,25 +573,15 @@ export default function SuggestedEvents() {
   });
 
   const handleCardPress = (card: EventCard) => {
-    console.log('🎯 Card press attempted:', {
-      isSwipeInProgress,
-      expandedCard: !!expandedCard,
-      cardName: card.name
-    });
-    
     // Block all interactions if a swipe is in progress
     if (isSwipeInProgress) {
-      console.log('❌ Ignoring card press - swipe in progress');
       return;
     }
     
     // Block multiple modal opens
     if (expandedCard) {
-      console.log('❌ Ignoring card press - modal already open');
       return;
     }
-    
-    console.log('✅ Processing card press for:', card.name);
     
     // Keep swiper visible - don't hide it when modal opens
     // This prevents race conditions and provides smoother UX
@@ -617,14 +607,11 @@ export default function SuggestedEvents() {
   };
 
   const handleSwipeRight = async (cardIndex: number) => {
-    console.log('🚀 Starting swipe right for card:', cardIndex);
-    
     // Mark swipe as in progress to block interactions
     setIsSwipeInProgress(true);
     
     // Shorter failsafe timer since we're unblocking UI immediately
     const failsafeTimer = setTimeout(() => {
-      console.log('⚠️ Failsafe timer triggered - resetting isSwipeInProgress (backup)');
       setIsSwipeInProgress(false);
     }, 1000); // Much shorter since we unblock immediately anyway
     
@@ -633,7 +620,6 @@ export default function SuggestedEvents() {
     // Clear swipe in progress IMMEDIATELY to unblock UI
     setIsSwipeInProgress(false);
     clearTimeout(failsafeTimer);
-    console.log('✅ Swipe right UI unblocked immediately');
     
     // Reset any expanded card state to prevent interference
     setExpandedCard(null);
@@ -657,22 +643,16 @@ export default function SuggestedEvents() {
     // Do heavy backend operations in background (non-blocking)
     (async () => {
       try {
-        console.log('🔄 Starting background save operation for:', likedEvent.name);
-        
         // Save the event (this can take time but won't block UI)
         await dataManager.addEventToSavedEvents(likedEvent.id);
-        console.log('✅ Event saved successfully in background');
         
         // Refresh data in background (don't await this - let it happen async)
-        GlobalDataManager.getInstance().refreshAllData().then(() => {
-          console.log('✅ Global data refreshed in background');
-        }).catch((error) => {
-          console.error('❌ Background data refresh failed:', error);
+        GlobalDataManager.getInstance().refreshAllData().catch((error) => {
+          // Background refresh failed silently
         });
         
       } catch (error) {
-        console.error('❌ Background save operation failed:', error);
-        // Even if save fails, UI remains responsive
+        // Background save failed silently
       }
     })();
   };
@@ -696,14 +676,11 @@ export default function SuggestedEvents() {
   // Add a watchdog effect to reset isSwipeInProgress if it gets stuck
   useEffect(() => {
     if (isSwipeInProgress) {
-      console.log('🔍 isSwipeInProgress is true, starting watchdog timer');
       const watchdogTimer = setTimeout(() => {
-        console.log('🚨 Watchdog triggered: isSwipeInProgress has been stuck for 10 seconds, forcing reset');
         setIsSwipeInProgress(false);
       }, 10000); // Force reset after 10 seconds if still stuck
 
       return () => {
-        console.log('🔍 Clearing watchdog timer');
         clearTimeout(watchdogTimer);
       };
     }
@@ -711,15 +688,12 @@ export default function SuggestedEvents() {
 
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
-    console.log('All cards have been swiped');
     
     try {
       // First, update all rejected events in Supabase to ensure we have the latest data
       const rejectedEvents = await dataManager.getRejectedEvents();
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString()); // Convert to strings
-      console.log('About to update rejected events in Supabase:', rejectedEventIds);
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
-      console.log('Rejected events updated in Supabase, now calling backend');
       
       // Set loading states
       setLoading(true);
@@ -886,14 +860,11 @@ export default function SuggestedEvents() {
   }, [loading, isFetchingActivities]);
 
   const handleSwipedLeft = async (cardIndex: number) => {
-    console.log('🚀 Starting swipe left for card:', cardIndex);
-    
     // Mark swipe as in progress to block interactions
     setIsSwipeInProgress(true);
     
     // Failsafe timer to reset isSwipeInProgress if it gets stuck
     const failsafeTimer = setTimeout(() => {
-      console.log('⚠️ Failsafe timer triggered - resetting isSwipeInProgress');
       setIsSwipeInProgress(false);
     }, 5000); // Reset after 5 seconds maximum
     
@@ -908,19 +879,15 @@ export default function SuggestedEvents() {
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString());
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
       
-      console.log('Rejected event saved to both AsyncStorage and Supabase:', rejectedEvent.id);
-      
       // Clear the failsafe timer since we completed successfully
       clearTimeout(failsafeTimer);
     } catch (error) {
-      console.error('❌ Error saving rejected event:', error);
       // Clear the failsafe timer
       clearTimeout(failsafeTimer);
     }
 
     // Clear swipe in progress immediately after backend operations complete
     setIsSwipeInProgress(false);
-    console.log('✅ Swipe left completed, isSwipeInProgress reset');
     
     // Reset any expanded card state to prevent interference
     setExpandedCard(null);
@@ -1128,8 +1095,7 @@ export default function SuggestedEvents() {
                           console.log('🎯 TouchableOpacity onPress triggered for:', card.name);
                           handleCardPress(card);
                         }}
-                        onPressIn={() => console.log('👆 TouchableOpacity onPressIn for:', card.name)}
-                        onPressOut={() => console.log('👆 TouchableOpacity onPressOut for:', card.name)}
+                        
                         activeOpacity={1}
                         disabled={isSwipeInProgress}
                         style={{ flex: 1 }}
@@ -1225,6 +1191,8 @@ export default function SuggestedEvents() {
                                 style={styles.imageOverlay}
                               />
                               
+
+                              
                               {/* Featured Badge */}
                               {card.featured && (
                                 <View style={styles.modernFeaturedBadge}>
@@ -1262,14 +1230,30 @@ export default function SuggestedEvents() {
                             <View style={styles.cardContent}>
                               {/* Title and Organization */}
                               <View style={styles.titleSection}>
-                                <Text style={[styles.modernTitle, { color: colorScheme === 'dark' ? '#FFFFFF' : '#1A1A1A' }]} numberOfLines={2}>
-                                  {card.name}
-                                </Text>
-                                {card.organization && (
-                                  <Text style={[styles.organizationLabel, { color: colorScheme === 'dark' ? '#B0B0B0' : '#666666' }]} numberOfLines={1}>
-                                    by {card.organization}
+                                <View style={styles.titleRow}>
+                                  <Text style={[styles.modernTitle, { color: colorScheme === 'dark' ? '#FFFFFF' : '#1A1A1A' }]} numberOfLines={2}>
+                                    {card.name}
                                   </Text>
-                                )}
+                                  {(card.organization || card.posted_by) && (
+                                    <View style={styles.organizationContainer}>
+                                      <View style={styles.organizationAvatar}>
+                                        <Image 
+                                          source={{ 
+                                            uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${(card.posted_by || card.organization).replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+                                          }}
+                                          style={styles.organizationAvatarImage}
+                                          defaultSource={require('../assets/images/icon.png')}
+                                          onError={() => {
+                                            console.log(`Failed to load profile image for ${card.posted_by || card.organization}`);
+                                          }}
+                                        />
+                                      </View>
+                                      <Text style={[styles.organizationLabel, { color: colorScheme === 'dark' ? '#B0B0B0' : '#666666' }]} numberOfLines={1}>
+                                        by {card.posted_by ? card.posted_by.split('@')[0] : card.organization}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
                               </View>
 
                               {/* Tags Row */}
@@ -2665,5 +2649,77 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(158, 149, 189, 0.8)',
     borderRadius: 12,
+  },
+  // Creator Badge Styles
+  creatorBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    zIndex: 10,
+    borderRadius: 20,
+    overflow: 'hidden',
+    maxWidth: 140,
+  },
+  creatorBadgeGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  creatorAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    overflow: 'hidden',
+  },
+  creatorAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  creatorInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  creatorLabel: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '500',
+    marginBottom: 1,
+  },
+  creatorName: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  // Title Row Styles
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  // Organization Avatar Styles
+  organizationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 12,
+    flexShrink: 0,
+  },
+  organizationAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.2)',
+    overflow: 'hidden',
+  },
+  organizationAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
   },
 });

@@ -602,14 +602,7 @@ export default function UserProfileModal({
                   {userProfile?.email || userEmail}
                 </Text>
                 
-                {/* Debug Info - Remove in production */}
-                {__DEV__ && (
-                  <View style={styles.debugInfo}>
-                    <Text style={styles.debugText}>
-                      Debug: Status={friendshipStatus}, Following={isFollowing ? 'Yes' : 'No'}, Loading={relationshipLoading ? 'Yes' : 'No'}, Initial={initialFriendshipStatus || 'undefined'}
-                    </Text>
-                  </View>
-                )}
+                
               </View>
 
 
@@ -915,20 +908,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  debugInfo: {
-    marginTop: 10,
-    padding: 8,
-    backgroundColor: 'rgba(255, 255, 0, 0.1)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 0, 0.3)',
-  },
-  debugText: {
-    fontSize: 12,
-    fontFamily: 'monospace',
-    color: '#666',
-    textAlign: 'center',
-  },
+
   friendsContainer: {
     alignItems: 'center',
     width: '100%',

@@ -7,7 +7,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors, gradients } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import FriendsModal from './FriendsModal';
-import NotificationSettings from './NotificationSettings';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -69,9 +68,6 @@ export default memo(function Profile({
   // State for follow counts
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
-  
-  // Notification settings state
-  const [notificationSettingsVisible, setNotificationSettingsVisible] = useState(false);
 
   // OFFLINE-FIRST: Load all social data from cache/database with automatic sync
   const loadAllSocialData = async (userId: number, forceRefresh: boolean = false) => {
@@ -845,21 +841,6 @@ export default memo(function Profile({
 
           {/* Settings & Actions */}
           <View style={[styles.settingsSection, { backgroundColor: Colors[colorScheme ?? 'light'].card, marginTop: 16 }]}>
-            <TouchableOpacity style={styles.settingsItem} onPress={() => setNotificationSettingsVisible(true)}>
-              <View style={styles.settingsItemContent}>
-                <View style={styles.settingsIconContainer}>
-                  <Ionicons name="notifications-outline" size={24} color={Colors[colorScheme ?? 'light'].primary} />
-                </View>
-                <View style={styles.settingsItemDetails}>
-                  <Text style={[styles.settingsItemTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Notification Settings</Text>
-                  <Text style={[styles.settingsItemSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>Manage your notification preferences</Text>
-                </View>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ opacity: 0.5 }} />
-            </TouchableOpacity>
-
-            <View style={[styles.settingsDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
-
             <TouchableOpacity style={styles.settingsItem} onPress={handleSignOut}>
               <View style={styles.settingsItemContent}>
                 <View style={styles.settingsIconContainer}>
@@ -906,11 +887,6 @@ export default memo(function Profile({
         documentType="privacy"
       />
 
-      {/* Notification Settings */}
-      <NotificationSettings 
-        visible={notificationSettingsVisible}
-        onClose={() => setNotificationSettingsVisible(false)}
-      />
     </View>
   );
 });

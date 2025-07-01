@@ -109,88 +109,7 @@ export default function FriendsModal({
 
   // REMOVED: fetchFriends - now handled by SocialDataManager in parent component
 
-  // Debug function to check friend requests manually
-  const debugFriendRequests = async () => {
-    if (!profile?.id) {
-      console.log('🚨 DEBUG: No profile ID available');
-      return;
-    }
 
-    console.log(`🔍 DEBUG: Checking friend requests for user ID ${profile.id}`);
-    console.log(`👤 DEBUG: Profile info:`, { id: profile.id, email: profile.email, name: profile.name });
-
-    try {
-      // Check all friend requests in the database for this user
-      const { data: allRequests, error: allError } = await supabase
-        .from('friend_requests')
-        .select('*')
-        .eq('receiver_id', profile.id);
-
-      console.log(`📋 DEBUG: All friend requests for user ${profile.id}:`, allRequests);
-
-      // Check pending requests specifically
-      const { data: pendingRequests, error: pendingError } = await supabase
-        .from('friend_requests')
-        .select('*')
-        .eq('receiver_id', profile.id)
-        .eq('status', 'pending');
-
-      console.log(`⏳ DEBUG: Pending friend requests:`, pendingRequests);
-
-      // Also check what the RPC function returns
-      const { data: rpcRequests, error: rpcError } = await supabase.rpc('get_pending_friend_requests', {
-        target_user_id: profile.id
-      });
-
-      console.log(`🔧 DEBUG: RPC function result:`, { data: rpcRequests, error: rpcError });
-
-    } catch (error) {
-      console.error('🚨 DEBUG: Error in debug function:', error);
-    }
-  };
-
-  // Debug function to check relationship between two users
-  const debugRelationship = async (userId1: number, userId2: number) => {
-    console.log(`🔍 DEBUG: Checking relationship between users ${userId1} and ${userId2}`);
-    
-    try {
-      // Check friend requests in both directions
-      const { data: requests1to2 } = await supabase
-        .from('friend_requests')
-        .select('*')
-        .eq('sender_id', userId1)
-        .eq('receiver_id', userId2);
-      
-      const { data: requests2to1 } = await supabase
-        .from('friend_requests')
-        .select('*')
-        .eq('sender_id', userId2)
-        .eq('receiver_id', userId1);
-
-      // Check friendships in both directions
-      const { data: friendships } = await supabase
-        .from('friends')
-        .select('*')
-        .or(`and(user_id.eq.${userId1},friend_id.eq.${userId2}),and(user_id.eq.${userId2},friend_id.eq.${userId1})`);
-
-      // Check follows in both directions
-      const { data: follows } = await supabase
-        .from('follows')
-        .select('*')
-        .or(`and(follower_id.eq.${userId1},followed_id.eq.${userId2}),and(follower_id.eq.${userId2},followed_id.eq.${userId1})`);
-
-      console.log('📋 DEBUG: Friend requests 1→2:', requests1to2);
-      console.log('📋 DEBUG: Friend requests 2→1:', requests2to1);
-      console.log('👥 DEBUG: Friendships:', friendships);
-      console.log('🔗 DEBUG: Follows:', follows);
-
-    } catch (error) {
-      console.error('🚨 DEBUG: Error checking relationship:', error);
-    }
-  };
-
-  // Add debug button to modal when in development
-  const isDev = __DEV__ || process.env.NODE_ENV === 'development';
 
   // REMOVED: fetchFriendRequests, fetchFollowers, fetchFollowing - now handled by SocialDataManager
 
@@ -547,33 +466,7 @@ export default function FriendsModal({
         <View style={styles.modalHeader}>
           <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Social</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            {isDev && (
-              <>
-                <TouchableOpacity onPress={debugFriendRequests} style={{ padding: 5 }}>
-                  <Text style={{ color: '#FF6B9D', fontSize: 12, fontWeight: 'bold' }}>DEBUG</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  onPress={() => {
-                    console.log('🔄 OFFLINE-FIRST: Manual refresh triggered...');
-                    if (onRefreshRequests) onRefreshRequests();
-                  }} 
-                  style={{ padding: 5 }}
-                >
-                  <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold' }}>REFRESH</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  onPress={() => {
-                    // Example usage - you can change these IDs to test specific relationships
-                    if (profile?.id) {
-                      debugRelationship(profile.id, profile.id + 1); // Debug with next user ID
-                    }
-                  }} 
-                  style={{ padding: 5 }}
-                >
-                  <Text style={{ color: '#9C27B0', fontSize: 12, fontWeight: 'bold' }}>REL</Text>
-                </TouchableOpacity>
-              </>
-            )}
+
             <TouchableOpacity onPress={onClose}>
               <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
             </TouchableOpacity>

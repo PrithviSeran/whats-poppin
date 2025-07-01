@@ -202,6 +202,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   useEffect(() => {
     if (event) {
       setCurrentImageIndex(0);
+      // Determine actual image count
+      determineActualImageCount();
       // Fetch creator info if posted_by exists
       if (event.posted_by) {
         fetchCreatorInfo(event.posted_by);
@@ -242,34 +244,97 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
     }
   };
 
-  // Get current image URL
+  // Function to check if an image exists at a given index
+  const checkImageExists = async (index: number): Promise<boolean> => {
+    if (!event?.id) return false;
+    
+    try {
+      const imageUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${index}.jpg`;
+      const response = await fetch(imageUrl, { method: 'HEAD' });
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // State to track the actual number of images
+  const [actualImageCount, setActualImageCount] = useState(1);
+
+  // Function to determine how many images actually exist
+  const determineActualImageCount = async () => {
+    if (!event || !event.id) {
+      setActualImageCount(0);
+      return;
+    }
+    
+    // If allImages array is available, check which ones actually exist
+    if (event.allImages && event.allImages.length > 0) {
+      let actualCount = 0;
+      
+      // Check each image in the allImages array to see if it actually exists
+      for (let i = 0; i < event.allImages.length; i++) {
+        try {
+          const response = await fetch(event.allImages[i], { method: 'HEAD' });
+          if (response.ok) {
+            actualCount = i + 1; // Count is 1-based
+          } else {
+            break; // Stop at first missing image
+          }
+        } catch (error) {
+          break; // Stop at first error
+        }
+      }
+      
+      setActualImageCount(actualCount);
+      return;
+    }
+    
+    // If there's a main image, start with 1 and check for additional images
+    if (event.image) {
+      let count = 1;
+      
+      // Check for additional images (up to 5 to be reasonable)
+      for (let i = 1; i <= 5; i++) {
+        const exists = await checkImageExists(i);
+        if (exists) {
+          count = i + 1;
+        } else {
+          break; // Stop when we find the first missing image
+        }
+      }
+      
+      setActualImageCount(count);
+    } else {
+      setActualImageCount(0);
+    }
+  };
+
+  // Get current image URL (synchronous version for immediate use)
   const getCurrentImageUrl = () => {
     if (!event?.id || currentImageIndex === -1) return event?.image || null;
+    
+    // If currentImageIndex is beyond the actual count, fall back to main image
+    if (currentImageIndex >= actualImageCount) {
+      return event.image || null;
+    }
     
     // If event has allImages array, use it
     if (event.allImages && event.allImages.length > 0) {
       return event.allImages[currentImageIndex] || event.allImages[0];
     }
     
-    // Fallback: construct URL using current index
+    // For index 0, return the main image
+    if (currentImageIndex === 0) {
+      return event.image || null;
+    }
+    
+    // Fallback: construct URL using current index (only if it's within actual count)
     return `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${currentImageIndex}.jpg`;
   };
 
   // Helper function to get the actual number of available images
   const getActualImageCount = () => {
-    if (!event || !event.id) return 1; // No event or no ID, assume 1 image
-    
-    // If allImages array is available, use its length
-    if (event.allImages && event.allImages.length > 0) {
-      return event.allImages.length;
-    }
-    
-    // If no allImages array but there's an image, assume at least 1
-    if (event.image) {
-      return 1;
-    }
-    
-    return 1; // Default to 1 image
+    return actualImageCount;
   };
 
   const navigateImage = (direction: 'prev' | 'next') => {
@@ -638,7 +703,20 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     >
                       <View style={styles.creatorHeader}>
                         <View style={styles.creatorIconBadge}>
-                          <Ionicons name="person-add" size={16} color="#9E95BD" />
+                          {creatorInfo ? (
+                            <Image 
+                              source={{ 
+                                uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${creatorInfo.email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+                              }}
+                              style={styles.creatorProfileImage}
+                              defaultSource={require('../assets/images/icon.png')}
+                              onError={() => {
+                                console.log(`Failed to load creator profile image for ${creatorInfo.email}`);
+                              }}
+                            />
+                          ) : (
+                            <Ionicons name="person-add" size={16} color="#9E95BD" />
+                          )}
                         </View>
                         <View style={styles.creatorInfo}>
                           {creatorLoading ? (
@@ -781,8 +859,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               )}
 
               <View style={styles.buttonContainer}>
-                {/* Link Button */}
-                {event.link && (
+                {/* Link Button or No Link Label */}
+                {event.link ? (
                   <TouchableOpacity
                     style={[styles.linkButton, { flex: 1, marginRight: 10 }]}
                     onPress={() => {
@@ -810,6 +888,13 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                       <Ionicons name="open-outline" size={16} color="white" style={styles.externalIcon} />
                     </LinearGradient>
                   </TouchableOpacity>
+                ) : (
+                  <View style={[styles.noLinkLabel, { flex: 1, marginRight: 10 }]}>
+                    <Ionicons name="link-outline" size={18} color={Colors[colorScheme ?? 'light'].text} style={styles.linkIcon} />
+                    <Text style={[styles.noLinkText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      No Website Link
+                    </Text>
+                  </View>
                 )}
 
                 {/* Share Button */}
@@ -1402,6 +1487,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
     textAlign: 'center',
+  },
+  noLinkLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.2)',
+  },
+  noLinkText: {
+    fontSize: 16,
+    fontWeight: '500',
+    opacity: 0.7,
   },
   externalIcon: {
     marginLeft: 8,
@@ -1996,6 +2097,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  creatorProfileImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
   },
   creatorInfo: {
     flex: 1,
