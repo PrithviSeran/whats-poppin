@@ -16,7 +16,7 @@ import GlobalDataManager from '@/lib/GlobalDataManager';
 import SavedActivities from './SavedActivities';
 import EventDetailModal from './EventDetailModal';
 import { EventCard } from '../lib/GlobalDataManager';
-import NotificationService from '@/lib/NotificationService';
+
 
 const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
@@ -117,60 +117,7 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return distance;
 };
 
-// NEW EVENTS NOTIFICATION: Function to check for new events and trigger notifications
-const checkForNewEvents = async (
-  currentEvents: EventCard[],
-  previousEvents: EventCard[],
-  notificationService: NotificationService
-): Promise<void> => {
-  try {
-    // Get notification settings
-    const settings = await notificationService.getNotificationSettings();
-    
-    // Check if new events notifications are enabled
-    if (!settings.enabled || !settings.newEvents) {
-      console.log('🔕 New events notifications disabled');
-      return;
-    }
 
-    // If this is the first time loading events, don't trigger notification
-    if (previousEvents.length === 0) {
-      console.log('🔄 First time loading events, skipping notification check');
-      return;
-    }
-
-    // Create sets of event IDs for efficient comparison
-    const previousEventIds = new Set(previousEvents.map(event => event.id));
-    const currentEventIds = new Set(currentEvents.map(event => event.id));
-
-    // Find new events (events in current but not in previous)
-    const newEventIds = currentEvents
-      .filter(event => !previousEventIds.has(event.id))
-      .map(event => event.id);
-
-    console.log('🔍 New events check:', {
-      previousCount: previousEvents.length,
-      currentCount: currentEvents.length,
-      newEventsCount: newEventIds.length,
-      newEventIds: newEventIds.slice(0, 5) // Log first 5 for debugging
-    });
-
-    // If there are new events, trigger notification
-    if (newEventIds.length > 0) {
-      console.log('🎉 New events detected! Triggering notification...');
-      
-      // Schedule notification
-      await notificationService.scheduleNewEventsNotification(newEventIds.length);
-      
-      console.log(`✅ Notification scheduled for ${newEventIds.length} new events`);
-    } else {
-      console.log('📭 No new events detected');
-    }
-
-  } catch (error) {
-    console.error('❌ Error checking for new events:', error);
-  }
-};
 
 export default function SuggestedEvents() {
   const [cardIndex, setCardIndex] = useState(0);
@@ -209,11 +156,6 @@ export default function SuggestedEvents() {
   const loadingFadeAnim = useRef(new Animated.Value(0)).current;
 
   const dataManager = GlobalDataManager.getInstance();
-
-  // NEW EVENTS NOTIFICATION: State for tracking previous events
-  const [previousEvents, setPreviousEvents] = useState<EventCard[]>([]);
-  const [hasCheckedForNewEvents, setHasCheckedForNewEvents] = useState(false);
-  const notificationService = NotificationService.getInstance();
 
   // Memoized expensive calculations
   const processedEventsRef = useRef<EventCard[]>([]);
@@ -342,12 +284,7 @@ export default function SuggestedEvents() {
     }
   }, [userLocation, dataManager]);
 
-  // NEW EVENTS NOTIFICATION: Function to manually refresh events and reset new events check
-  const refreshEvents = useCallback(() => {
-    console.log('🔄 Manual refresh triggered - resetting new events check');
-    setHasCheckedForNewEvents(false);
-    fetchTokenAndCallBackend();
-  }, [fetchTokenAndCallBackend]);
+
 
   // Optimized fetchTokenAndCallBackend with better error handling and caching
   const fetchTokenAndCallBackend = useCallback(async () => {
@@ -534,13 +471,6 @@ export default function SuggestedEvents() {
       setEVENTS(processedEvents);
       processedEventsRef.current = processedEvents;
       
-      // NEW EVENTS NOTIFICATION: Check for new events and trigger notification
-      if (!hasCheckedForNewEvents && processedEvents.length > 0) {
-        console.log('🔍 Checking for new events...');
-        await checkForNewEvents(processedEvents, previousEvents, notificationService);
-        setHasCheckedForNewEvents(true);
-      }
-      
     } catch (error) {
       console.error('Error fetching recommendations:', error);
     } finally {
@@ -555,39 +485,7 @@ export default function SuggestedEvents() {
     requestLocationPermission(); // Request and get user location
   }, []);
 
-  // NEW EVENTS NOTIFICATION: Load previous events from AsyncStorage on mount
-  useEffect(() => {
-    const loadPreviousEvents = async () => {
-      try {
-        const savedEvents = await AsyncStorage.getItem('previousEvents');
-        if (savedEvents) {
-          const parsedEvents = JSON.parse(savedEvents);
-          setPreviousEvents(parsedEvents);
-          console.log('📚 Loaded previous events from storage:', parsedEvents.length);
-        }
-      } catch (error) {
-        console.error('❌ Error loading previous events:', error);
-      }
-    };
 
-    loadPreviousEvents();
-  }, []);
-
-  // NEW EVENTS NOTIFICATION: Save current events to AsyncStorage when they change
-  useEffect(() => {
-    const saveCurrentEvents = async () => {
-      if (EVENTS.length > 0) {
-        try {
-          await AsyncStorage.setItem('previousEvents', JSON.stringify(EVENTS));
-          console.log('💾 Saved current events to storage:', EVENTS.length);
-        } catch (error) {
-          console.error('❌ Error saving current events:', error);
-        }
-      }
-    };
-
-    saveCurrentEvents();
-  }, [EVENTS]);
 
   useEffect(() => {
     if (loading || isFetchingActivities) {
@@ -1714,34 +1612,10 @@ export default function SuggestedEvents() {
         setLoading={setLoading}
         fetchTokenAndCallBackend={fetchTokenAndCallBackend}
         onStartLoading={() => setLoading(true)}
-        onResetNewEventsCheck={() => setHasCheckedForNewEvents(false)}
+
       />
 
-      {/* Debug Info - Remove in production */}
-      {__DEV__ && (
-        <TouchableOpacity
-          style={{
-            position: 'absolute',
-            top: 100,
-            right: 20,
-            backgroundColor: '#FF6B9D',
-            padding: 10,
-            borderRadius: 20,
-            zIndex: 1000,
-          }}
-          onPress={async () => {
-            console.log('🧪 Testing new events notification...');
-            console.log('📊 Current state:', {
-              currentEvents: EVENTS.length,
-              previousEvents: previousEvents.length,
-              hasCheckedForNewEvents
-            });
-            await checkForNewEvents(EVENTS, previousEvents, notificationService);
-          }}
-        >
-          <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>Test New Events</Text>
-        </TouchableOpacity>
-      )}
+
 
       {/* Expanded Card Overlay */}
       <EventDetailModal

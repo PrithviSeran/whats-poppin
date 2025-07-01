@@ -26,7 +26,6 @@ export interface NotificationSettings {
   enabled: boolean;
   friendRequests: boolean;
   eventReminders: boolean;
-  newEvents: boolean;
   marketing: boolean;
 }
 
@@ -284,7 +283,6 @@ class NotificationService {
         enabled: true,
         friendRequests: true,
         eventReminders: true,
-        newEvents: true,
         marketing: false,
       };
 
@@ -296,7 +294,6 @@ class NotificationService {
         enabled: true,
         friendRequests: true,
         eventReminders: true,
-        newEvents: true,
         marketing: false,
       };
     }
@@ -423,21 +420,7 @@ class NotificationService {
     });
   }
 
-  /**
-   * Schedule new events notification
-   */
-  async scheduleNewEventsNotification(eventCount: number): Promise<string> {
-    return await this.scheduleNotification({
-      id: `new_events_${Date.now()}`,
-      title: 'New Events Available',
-      body: `${eventCount} new events match your preferences!`,
-      data: {
-        type: 'new_events',
-        eventCount: eventCount,
-      },
-      trigger: null, // Show immediately
-    });
-  }
+
 
   /**
    * Get badge count
@@ -524,8 +507,7 @@ class NotificationService {
         trigger: null,
       });
       
-      // Test new events notification
-      await this.scheduleNewEventsNotification(5);
+
       
       // Test friend request notification
       await this.scheduleFriendRequestNotification('Test Friend');

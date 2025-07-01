@@ -100,18 +100,7 @@ export default function NotificationSettings({ visible, onClose }: NotificationS
     }
   };
 
-  const testNewEventsNotification = async () => {
-    try {
-      setLoading(true);
-      await notificationService.scheduleNewEventsNotification(3); // Test with 3 new events
-      Alert.alert('Success', 'New events notification sent!');
-    } catch (error) {
-      console.error('Error sending new events notification:', error);
-      Alert.alert('Error', 'Failed to send new events notification.');
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   const testFriendRequestNotification = async () => {
     try {
@@ -504,23 +493,7 @@ export default function NotificationSettings({ visible, onClose }: NotificationS
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
-            onPress={testNewEventsNotification}
-            disabled={loading || !settings.enabled || !settings.newEvents}
-          >
-            <Ionicons 
-              name="sparkles" 
-              size={20} 
-              color={loading || !settings.enabled || !settings.newEvents ? Colors[colorScheme ?? 'light'].text + '60' : Colors[colorScheme ?? 'light'].primary} 
-            />
-            <Text style={[
-              styles.actionButtonText, 
-              { color: loading || !settings.enabled || !settings.newEvents ? Colors[colorScheme ?? 'light'].text + '60' : Colors[colorScheme ?? 'light'].primary }
-            ]}>
-              {loading ? 'Sending...' : 'Test New Events Notification'}
-            </Text>
-          </TouchableOpacity>
+
 
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}

@@ -9,10 +9,9 @@ import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import NotificationService from '@/lib/NotificationService';
+
 
 const EVENT_TYPES = [
-  'Featured Events',
   'Food & Drink',
   'Outdoor / Nature',
   'Leisure & Social',
@@ -111,6 +110,17 @@ export default function CreateEventScreen() {
     type: 'start' | 'end';
   }>({ visible: false, day: '', type: 'start' });
 
+  const [showDatePicker, setShowDatePicker] = useState<{
+    visible: boolean;
+    type: 'start' | 'end';
+  }>({ visible: false, type: 'start' });
+
+  // Animation refs for date picker
+  const dateFadeAnim = useRef(new Animated.Value(0)).current;
+  const dateSlideAnim = useRef(new Animated.Value(300)).current;
+  const dateScaleAnim = useRef(new Animated.Value(0.8)).current;
+  const [isDateClosing, setIsDateClosing] = useState(false);
+
   // Animation refs for time picker
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(300)).current;
@@ -147,6 +157,36 @@ export default function CreateEventScreen() {
     }
   }, [showTimePicker.visible, isClosing]);
 
+  // Animate date picker modal when it opens
+  useEffect(() => {
+    if (showDatePicker.visible && !isDateClosing) {
+      // Reset initial values and start opening animation
+      dateFadeAnim.setValue(0);
+      dateSlideAnim.setValue(300);
+      dateScaleAnim.setValue(0.8);
+      
+      Animated.parallel([
+        Animated.timing(dateFadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(dateSlideAnim, {
+          toValue: 0,
+          friction: 8,
+          tension: 40,
+          useNativeDriver: true,
+        }),
+        Animated.spring(dateScaleAnim, {
+          toValue: 1,
+          friction: 8,
+          tension: 40,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [showDatePicker.visible, isDateClosing]);
+
   // Function to handle closing animation
   const closeTimePicker = () => {
     setIsClosing(true);
@@ -171,6 +211,33 @@ export default function CreateEventScreen() {
       // Animation completed, now hide the modal
       setShowTimePicker({ visible: false, day: '', type: 'start' });
       setIsClosing(false);
+    });
+  };
+
+  // Function to handle closing animation for date picker
+  const closeDatePicker = () => {
+    setIsDateClosing(true);
+    
+    Animated.parallel([
+      Animated.timing(dateFadeAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(dateSlideAnim, {
+        toValue: 300,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(dateScaleAnim, {
+        toValue: 0.8,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Animation completed, now hide the modal
+      setShowDatePicker({ visible: false, type: 'start' });
+      setIsDateClosing(false);
     });
   };
 
@@ -254,12 +321,25 @@ export default function CreateEventScreen() {
     return `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
   };
 
-  // Handle time picker change
-  const handleTimeChange = (event: any, selectedDate?: Date) => {
+  // Handle date picker change
+  const handleDateChange = (event: any, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
-      closeTimePicker();
+      setShowDatePicker({ visible: false, type: 'start' });
     }
     
+    if (selectedDate && showDatePicker.visible) {
+      const dateString = selectedDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+      
+      if (showDatePicker.type === 'start') {
+        setEventForm({ ...eventForm, start_date: dateString });
+      } else {
+        setEventForm({ ...eventForm, end_date: dateString });
+      }
+    }
+  };
+
+  // Handle time picker change
+  const handleTimeChange = (event: any, selectedDate?: Date) => {
     if (selectedDate && showTimePicker.visible) {
       const timeString = dateToTimeString(selectedDate);
       
@@ -281,20 +361,13 @@ export default function CreateEventScreen() {
       }
     }
     
-    if (Platform.OS === 'ios') {
-      // iOS will handle closing via the done button
+    // Close picker on Android when a time is selected
+    if (Platform.OS === 'android') {
+      closeTimePicker();
     }
   };
 
-  // Add notification service
-  const notificationService = NotificationService.getInstance();
 
-  // Add reminder state
-  const [enableReminders, setEnableReminders] = useState(true);
-  const [reminderOptions, setReminderOptions] = useState({
-    oneDay: true,
-    oneHour: true,
-  });
 
   const handleCreateEvent = async () => {
     if (isCreating) return;
@@ -552,42 +625,7 @@ export default function CreateEventScreen() {
         }
       }
 
-      // Schedule event reminders if enabled
-      if (enableReminders && data) {
-        try {
-          const eventDateTime = new Date(data[0].start_date);
-          eventDateTime.setHours(data[0].start_time.split(':')[0], data[0].start_time.split(':')[1], 0, 0);
 
-          if (reminderOptions.oneDay && reminderOptions.oneHour) {
-            // Schedule both reminders
-            await notificationService.scheduleEventReminders(
-              data[0].id.toString(),
-              data[0].name,
-              eventDateTime
-            );
-            console.log('✅ Both event reminders scheduled');
-          } else if (reminderOptions.oneDay) {
-            // Schedule only 1-day reminder
-            await notificationService.scheduleEventReminderOneDayBefore(
-              data[0].id.toString(),
-              data[0].name,
-              eventDateTime
-            );
-            console.log('✅ 1-day event reminder scheduled');
-          } else if (reminderOptions.oneHour) {
-            // Schedule only 1-hour reminder
-            await notificationService.scheduleEventReminder(
-              data[0].id.toString(),
-              data[0].name,
-              eventDateTime
-            );
-            console.log('✅ 1-hour event reminder scheduled');
-          }
-        } catch (reminderError) {
-          console.error('⚠️ Error scheduling reminders:', reminderError);
-          // Don't fail the event creation if reminders fail
-        }
-      }
 
       Alert.alert('Success', successMessage, [
         {
@@ -656,45 +694,6 @@ export default function CreateEventScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-      {/* Header extending to status bar */}
-      <LinearGradient
-        colors={['#9E95BD', '#B97AFF', '#9E95BD']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        locations={[0, 0.5, 1]}
-        style={styles.headerGradient}
-      >
-        <View style={styles.headerContent}>
-          <TouchableOpacity 
-            style={styles.modernBackButton}
-            onPress={() => navigation.goBack()}
-            activeOpacity={0.8}
-          >
-            <View style={styles.backButtonInner}>
-              <Ionicons name="arrow-back" size={24} color="#FF0005" />
-            </View>
-          </TouchableOpacity>
-          
-          <View style={styles.headerTitleContainer}>
-            <View style={styles.titleWithIcon}>
-              <View style={styles.titleTextContainer}>
-                <Text style={styles.headerTitle}>Create Event</Text>
-                <Text style={styles.headerSubtitle}>Share your amazing event</Text>
-              </View>
-            </View>
-          </View>
-          
-          <View style={styles.headerRightSpace} />
-        </View>
-        
-        {/* Decorative elements */}
-        <View style={styles.headerDecorations}>
-          <View style={[styles.decorativeCircle, styles.decorativeCircle1]} />
-          <View style={[styles.decorativeCircle, styles.decorativeCircle2]} />
-          <View style={[styles.decorativeCircle, styles.decorativeCircle3]} />
-        </View>
-      </LinearGradient>
-
       <SafeAreaView style={styles.contentSafeArea}>
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -706,6 +705,19 @@ export default function CreateEventScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Simple header that scrolls with content */}
+          <View style={styles.simpleHeader}>
+            <TouchableOpacity 
+              style={styles.modernBackButton}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.8}
+            >
+              <View style={styles.backButtonInner}>
+                <Ionicons name="arrow-back" size={24} color="#FF0005" />
+              </View>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.form}>
             {/* Event Name */}
             <View style={styles.formGroup}>
@@ -858,16 +870,20 @@ export default function CreateEventScreen() {
             {eventForm.occurrence === 'one-time' && (
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Start Date *</Text>
-                <TextInput
-                  style={[styles.formInput, { 
-                    color: Colors[colorScheme ?? 'light'].text,
-                    backgroundColor: Colors[colorScheme ?? 'light'].card
+                <TouchableOpacity
+                  style={[styles.datePickerButton, { 
+                    backgroundColor: Colors[colorScheme ?? 'light'].card,
+                    borderColor: colorScheme === 'dark' ? '#333' : '#eee'
                   }]}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
-                  value={eventForm.start_date}
-                  onChangeText={(text) => setEventForm({ ...eventForm, start_date: text })}
-                />
+                  onPress={() => setShowDatePicker({ visible: true, type: 'start' })}
+                >
+                  <Ionicons name="calendar-outline" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ marginRight: 10 }} />
+                  <Text style={[styles.datePickerText, { 
+                    color: eventForm.start_date ? Colors[colorScheme ?? 'light'].text : Colors[colorScheme ?? 'light'].text + '60'
+                  }]}>
+                    {eventForm.start_date || 'Select start date'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             )}
 
@@ -875,16 +891,20 @@ export default function CreateEventScreen() {
             {eventForm.occurrence === 'one-time' && (
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>End Date (Optional)</Text>
-                <TextInput
-                  style={[styles.formInput, { 
-                    color: Colors[colorScheme ?? 'light'].text,
-                    backgroundColor: Colors[colorScheme ?? 'light'].card
+                <TouchableOpacity
+                  style={[styles.datePickerButton, { 
+                    backgroundColor: Colors[colorScheme ?? 'light'].card,
+                    borderColor: colorScheme === 'dark' ? '#333' : '#eee'
                   }]}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
-                  value={eventForm.end_date}
-                  onChangeText={(text) => setEventForm({ ...eventForm, end_date: text })}
-                />
+                  onPress={() => setShowDatePicker({ visible: true, type: 'end' })}
+                >
+                  <Ionicons name="calendar-outline" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ marginRight: 10 }} />
+                  <Text style={[styles.datePickerText, { 
+                    color: eventForm.end_date ? Colors[colorScheme ?? 'light'].text : Colors[colorScheme ?? 'light'].text + '60'
+                  }]}>
+                    {eventForm.end_date || 'Select end date'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             )}
 
@@ -1041,106 +1061,7 @@ export default function CreateEventScreen() {
               />
             </View>
 
-            {/* Reminder Settings */}
-            <View style={[styles.section, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                🔔 Event Reminders
-              </Text>
-              <Text style={[styles.sectionSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                Get notified before your event starts
-              </Text>
 
-              <TouchableOpacity
-                style={styles.reminderToggle}
-                onPress={() => setEnableReminders(!enableReminders)}
-              >
-                <View style={styles.reminderToggleContent}>
-                  <Ionicons 
-                    name="notifications" 
-                    size={24} 
-                    color={enableReminders ? Colors[colorScheme ?? 'light'].primary : Colors[colorScheme ?? 'light'].text + '60'} 
-                  />
-                  <View style={styles.reminderToggleText}>
-                    <Text style={[styles.reminderToggleTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      Enable Event Reminders
-                    </Text>
-                    <Text style={[styles.reminderToggleSubtitle, { color: Colors[colorScheme ?? 'light'].text + '80' }]}>
-                      Get notified before your event starts
-                    </Text>
-                  </View>
-                </View>
-                <View style={[
-                  styles.reminderToggleSwitch,
-                  { backgroundColor: enableReminders ? Colors[colorScheme ?? 'light'].primary : Colors[colorScheme ?? 'light'].text + '30' }
-                ]}>
-                  <View style={[
-                    styles.reminderToggleSwitchThumb,
-                    { 
-                      backgroundColor: '#fff',
-                      transform: [{ translateX: enableReminders ? 20 : 0 }]
-                    }
-                  ]} />
-                </View>
-              </TouchableOpacity>
-
-              {enableReminders && (
-                <View style={styles.reminderOptions}>
-                  <TouchableOpacity
-                    style={styles.reminderOption}
-                    onPress={() => setReminderOptions(prev => ({ ...prev, oneDay: !prev.oneDay }))}
-                  >
-                    <View style={styles.reminderOptionContent}>
-                      <Ionicons 
-                        name="calendar" 
-                        size={20} 
-                        color={reminderOptions.oneDay ? Colors[colorScheme ?? 'light'].primary : Colors[colorScheme ?? 'light'].text + '60'} 
-                      />
-                      <Text style={[
-                        styles.reminderOptionText,
-                        { color: reminderOptions.oneDay ? Colors[colorScheme ?? 'light'].text : Colors[colorScheme ?? 'light'].text + '60' }
-                      ]}>
-                        1 day before
-                      </Text>
-                    </View>
-                    <View style={[
-                      styles.reminderOptionCheckbox,
-                      { backgroundColor: reminderOptions.oneDay ? Colors[colorScheme ?? 'light'].primary : 'transparent' }
-                    ]}>
-                      {reminderOptions.oneDay && (
-                        <Ionicons name="checkmark" size={16} color="#fff" />
-                      )}
-                    </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.reminderOption}
-                    onPress={() => setReminderOptions(prev => ({ ...prev, oneHour: !prev.oneHour }))}
-                  >
-                    <View style={styles.reminderOptionContent}>
-                      <Ionicons 
-                        name="time" 
-                        size={20} 
-                        color={reminderOptions.oneHour ? Colors[colorScheme ?? 'light'].primary : Colors[colorScheme ?? 'light'].text + '60'} 
-                      />
-                      <Text style={[
-                        styles.reminderOptionText,
-                        { color: reminderOptions.oneHour ? Colors[colorScheme ?? 'light'].text : Colors[colorScheme ?? 'light'].text + '60' }
-                      ]}>
-                        1 hour before
-                      </Text>
-                    </View>
-                    <View style={[
-                      styles.reminderOptionCheckbox,
-                      { backgroundColor: reminderOptions.oneHour ? Colors[colorScheme ?? 'light'].primary : 'transparent' }
-                    ]}>
-                      {reminderOptions.oneHour && (
-                        <Ionicons name="checkmark" size={16} color="#fff" />
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
 
             {/* Create Button */}
             <TouchableOpacity 
@@ -1285,6 +1206,108 @@ export default function CreateEventScreen() {
           )}
         </>
       )}
+
+      {/* Date Picker */}
+      {(showDatePicker.visible || isDateClosing) && (
+        <>
+          {Platform.OS === 'ios' ? (
+            <Animated.View 
+              style={[
+                styles.timePickerOverlay,
+                {
+                  opacity: dateFadeAnim,
+                }
+              ]}
+            >
+              <TouchableOpacity 
+                style={styles.timePickerBackdrop}
+                activeOpacity={1}
+                onPress={closeDatePicker}
+              />
+              <Animated.View 
+                style={[
+                  styles.timePickerContainer,
+                  {
+                    transform: [
+                      { translateY: dateSlideAnim },
+                      { scale: dateScaleAnim }
+                    ]
+                  }
+                ]}
+              >
+                <LinearGradient
+                  colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  locations={[0, 0.25, 0.5, 0.75, 1]}
+                  style={styles.timePickerHeaderGradient}
+                >
+                  <View style={styles.timePickerHeaderContent}>
+                    <View style={styles.timePickerTitleContainer}>
+                      <Text style={styles.timePickerMainTitle}>
+                        {showDatePicker.type === 'start' ? 'Start Date' : 'End Date'}
+                      </Text>
+                      <Text style={styles.timePickerSubtitle}>
+                        {showDatePicker.type === 'start' ? 'When does your event start?' : 'When does your event end?'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity 
+                      style={styles.timePickerCloseButton}
+                      onPress={closeDatePicker}
+                    >
+                      <View style={styles.timePickerCloseButtonInner}>
+                        <Ionicons name="close" size={20} color="#FF0005" />
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </LinearGradient>
+                
+                <View style={[styles.timePickerContent, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+                  <View style={styles.timePickerSection}>
+                    <DateTimePicker
+                      value={showDatePicker.type === 'start' 
+                        ? (eventForm.start_date ? new Date(eventForm.start_date) : new Date())
+                        : (eventForm.end_date ? new Date(eventForm.end_date) : new Date())
+                      }
+                      mode="date"
+                      onChange={handleDateChange}
+                      style={styles.timePicker}
+                      textColor={Colors[colorScheme ?? 'light'].text}
+                    />
+                  </View>
+                  
+                  <View style={styles.timePickerActions}>
+                    <TouchableOpacity 
+                      style={styles.timePickerConfirmButton}
+                      onPress={closeDatePicker}
+                    >
+                      <LinearGradient
+                        colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        locations={[0, 0.25, 0.5, 0.75, 1]}
+                        style={styles.timePickerConfirmGradient}
+                      >
+                        <Ionicons name="checkmark" size={20} color="white" style={{ marginRight: 8 }} />
+                        <Text style={styles.timePickerConfirmText}>Confirm</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Animated.View>
+            </Animated.View>
+          ) : (
+            <DateTimePicker
+              value={showDatePicker.type === 'start' 
+                ? (eventForm.start_date ? new Date(eventForm.start_date) : new Date())
+                : (eventForm.end_date ? new Date(eventForm.end_date) : new Date())
+              }
+              mode="date"
+              onChange={handleDateChange}
+            />
+          )}
+        </>
+      )}
     </View>
   );
 }
@@ -1295,6 +1318,13 @@ const styles = StyleSheet.create({
   },
   keyboardContainer: {
     flex: 1,
+  },
+  simpleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    marginBottom: 10,
   },
   // New Header Styles
   headerGradient: {
@@ -1317,10 +1347,10 @@ const styles = StyleSheet.create({
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 0,
+    paddingTop: 10,
+    paddingBottom: 10,
     zIndex: 10,
   },
   modernBackButton: {
@@ -1586,6 +1616,20 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   timePickerText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  datePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderRadius: 12,
+    minHeight: 44,
+  },
+  datePickerText: {
     fontSize: 15,
     fontWeight: '500',
   },

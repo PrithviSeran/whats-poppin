@@ -35,7 +35,6 @@ interface EventFilterOverlayProps {
   setLoading: (loading: boolean) => void;
   fetchTokenAndCallBackend: () => void;
   onStartLoading: () => void;
-  onResetNewEventsCheck?: () => void;
 }
 
 const EVENT_TYPES = [
@@ -68,7 +67,7 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-export default function EventFilterOverlay({ visible, onClose, setLoading, fetchTokenAndCallBackend, onStartLoading, onResetNewEventsCheck }: EventFilterOverlayProps) {
+export default function EventFilterOverlay({ visible, onClose, setLoading, fetchTokenAndCallBackend, onStartLoading }: EventFilterOverlayProps) {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [selectedDayPreferences, setSelectedDayPreferences] = useState<string[]>([]);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
@@ -462,10 +461,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     ]).start(() => {
       setIsAnimating(false);
       onClose();
-      // NEW EVENTS NOTIFICATION: Reset new events check when filters are applied
-      if (onResetNewEventsCheck) {
-        onResetNewEventsCheck();
-      }
+
       // Fetch new events after the modal has closed
       fetchTokenAndCallBackend();
     });
@@ -507,10 +503,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     await dataManager.setIsFilterByDistance(false);
     setFilterByDistance(false);
     
-    // NEW EVENTS NOTIFICATION: Reset new events check when filters are reset
-    if (onResetNewEventsCheck) {
-      onResetNewEventsCheck();
-    }
+
   };
 
   const isDark = colorScheme === 'dark';

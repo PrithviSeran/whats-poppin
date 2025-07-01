@@ -113,6 +113,8 @@ class EventRecommendationSystem:
             print(f"Error fetching user data: {e}")
             return None
     
+
+    
     def get_featured_events_batch(self, event_ids):
         """Batch fetch featured status for multiple events - MUCH faster than individual calls"""
         if not event_ids:
@@ -256,12 +258,23 @@ class EventRecommendationSystem:
 
         return age
     
-    def get_all_events_data(self):
-        """Fetch ALL events data from Supabase without any preference filtering"""
+    def get_all_events_data(self, exclude_user_email=None):
+        """Fetch ALL events data from Supabase without any preference filtering, optionally excluding user-created events"""
         try:
             result = self.Client.table("all_events").select("*").execute()
-            print(f"🎯 Fetched {len(result.data) if result.data else 0} total events from database")
-            return result.data
+            all_events = result.data if result.data else []
+            
+            # Filter out events created by the user if email is provided
+            if exclude_user_email:
+                original_count = len(all_events)
+                all_events = [event for event in all_events if event.get("posted_by") != exclude_user_email]
+                filtered_count = len(all_events)
+                excluded_count = original_count - filtered_count
+                print(f"🎯 Fetched {original_count} total events, excluded {excluded_count} events created by {exclude_user_email}, returning {filtered_count} events")
+            else:
+                print(f"🎯 Fetched {len(all_events)} total events from database")
+            
+            return all_events
         except Exception as e:
             print(f"Error fetching all events data: {e}")
             return []
@@ -851,7 +864,7 @@ class EventRecommendationSystem:
 
             # 2. Fetch ALL events from Supabase (no filtering at database level)
             try:
-                all_events_raw = self.get_all_events_data()
+                all_events_raw = self.get_all_events_data(exclude_user_email=email)
                 print(f"All events fetched: {len(all_events_raw)}")
                 
                 # DEBUG: Check event type distribution in database
@@ -949,7 +962,7 @@ class EventRecommendationSystem:
                     "total_found": 0
                 }
 
-            # Remove saved and rejected events
+            # Remove saved and rejected events (user-created events already filtered out during data fetch)
             try:
                 exclude_ids = set(saved_events) | set(rejected_events)
                 final_events = [e for e in all_events_filtered if e["id"] not in exclude_ids]
