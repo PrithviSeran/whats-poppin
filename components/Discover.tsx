@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, SafeAreaView, ScrollView, Image, TouchableOpacity, Dimensions, Modal, Animated, LayoutRectangle, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Colors } from '@/constants/Colors';
+import { Colors, gradients } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -1164,8 +1164,8 @@ export default function Discover() {
             onRefresh={handleRefresh}
             enabled={pullToRefreshEnabled}
             progressViewOffset={10}
-            tintColor="#9E95BD"
-            colors={["#9E95BD", "#F45B5B"]}
+                              tintColor={Colors[colorScheme ?? 'light'].secondary}
+                  colors={[Colors[colorScheme ?? 'light'].secondary, Colors[colorScheme ?? 'light'].primary]}
             progressBackgroundColor={Colors[colorScheme].background}
           />
         }
@@ -1606,8 +1606,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   toggleButtonActive: {
-    backgroundColor: '#9E95BD',
-    shadowColor: '#9E95BD',
+    backgroundColor: Colors.light.accent,
+    shadowColor: Colors.light.accent,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Modal, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Colors } from '@/constants/Colors';
+import { Colors, gradients } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserProfile } from '@/lib/GlobalDataManager';
@@ -434,7 +434,7 @@ export default function FriendsModal({
             style={styles.removeButton}
             onPress={() => removeFriend(userId)}
           >
-            <Ionicons name="person-remove" size={20} color="#ff4444" />
+            <Ionicons name="person-remove" size={20} color={Colors[colorScheme ?? 'light'].error} />
           </TouchableOpacity>
         )}
         
@@ -727,7 +727,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tabActive: {
-    backgroundColor: '#9E95BD',
+    backgroundColor: Colors.light.secondary,
   },
   tabIconContainer: {
     position: 'relative',
@@ -744,13 +744,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -8,
     right: -12,
-    backgroundColor: '#ff4444',
+    backgroundColor: Colors.light.primary,
     borderRadius: 10,
     minWidth: 16,
     height: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#ff4444',
+    shadowColor: Colors.light.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
@@ -771,8 +771,8 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#ff4444',
-    shadowColor: '#ff4444',
+    backgroundColor: Colors.light.primary,
+    shadowColor: Colors.light.primary,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
     shadowRadius: 2,
@@ -882,9 +882,9 @@ const styles = StyleSheet.create({
   unfollowButton: {
     padding: 12,
     borderRadius: 10,
-    backgroundColor: '#FF3B30',
+    backgroundColor: Colors.light.error,
     borderWidth: 1,
-    borderColor: 'rgba(255, 59, 48, 0.2)',
+    borderColor: 'rgba(244, 67, 54, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 44,
@@ -895,21 +895,21 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   acceptButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: Colors.light.success,
     borderRadius: 10,
     padding: 12,
     minWidth: 40,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(52, 199, 89, 0.2)',
+    borderColor: 'rgba(76, 175, 80, 0.2)',
   },
   declineButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: Colors.light.error,
     borderRadius: 10,
     padding: 12,
     minWidth: 40,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 59, 48, 0.2)',
+    borderColor: 'rgba(244, 67, 54, 0.2)',
   },
 }); 

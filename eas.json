@@ -12,7 +12,10 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "teamId": "7KD3NKN7SD"
+      }
     }
   },
   "submit": {

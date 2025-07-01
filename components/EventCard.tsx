@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Colors } from '@/constants/Colors';
+import { Colors, gradients } from '@/constants/Colors';
 import { EventCard } from '@/lib/GlobalDataManager';
 
 const { width } = Dimensions.get('window');
@@ -95,7 +95,7 @@ const EventCardComponent = memo<EventCardComponentProps>(({
       {event.featured && (
         <View style={styles.featuredBadge}>
           <LinearGradient
-            colors={['#FFD700', '#FFA500']}
+            colors={[Colors[colorScheme ?? 'light'].warning, '#FFA500']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.featuredBadgeContainer}
@@ -110,7 +110,7 @@ const EventCardComponent = memo<EventCardComponentProps>(({
       {isEventExpiringSoon(event) && (
         <View style={[styles.featuredBadge, { top: event.featured ? 50 : 10 }]}>
           <LinearGradient
-            colors={['#ff4444', '#ff6666']}
+            colors={[Colors[colorScheme ?? 'light'].primary, Colors[colorScheme ?? 'light'].primaryLight]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.featuredBadgeContainer}
@@ -128,7 +128,7 @@ const EventCardComponent = memo<EventCardComponentProps>(({
         <Ionicons 
           name={isLiked ? "heart" : "heart-outline"} 
           size={24} 
-          color={isLiked ? "#F45B5B" : "#fff"} 
+          color={isLiked ? Colors[colorScheme ?? 'light'].primary : "#fff"} 
         />
       </TouchableOpacity>
 

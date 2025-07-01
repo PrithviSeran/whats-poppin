@@ -610,10 +610,9 @@ export default function SavedActivities({
           accessibilityRole="button"
         >
           <LinearGradient
-            colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
+            colors={[Colors.light.accent, Colors.light.primaryLight]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            locations={[0, 0.3, 0.7, 1]}
             style={styles.clearSavedButtonGradient}
           >
             <Ionicons name="trash" size={28} color={'white'} />

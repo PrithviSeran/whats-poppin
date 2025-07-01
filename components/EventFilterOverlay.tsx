@@ -17,7 +17,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Colors } from '@/constants/Colors';
+import { Colors, gradients } from '@/constants/Colors';
 import * as Location from 'expo-location';
 import Slider from '@react-native-community/slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -35,6 +35,7 @@ interface EventFilterOverlayProps {
   setLoading: (loading: boolean) => void;
   fetchTokenAndCallBackend: () => void;
   onStartLoading: () => void;
+  onResetNewEventsCheck?: () => void;
 }
 
 const EVENT_TYPES = [
@@ -67,7 +68,7 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-export default function EventFilterOverlay({ visible, onClose, setLoading, fetchTokenAndCallBackend, onStartLoading }: EventFilterOverlayProps) {
+export default function EventFilterOverlay({ visible, onClose, setLoading, fetchTokenAndCallBackend, onStartLoading, onResetNewEventsCheck }: EventFilterOverlayProps) {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [selectedDayPreferences, setSelectedDayPreferences] = useState<string[]>([]);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
@@ -461,6 +462,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     ]).start(() => {
       setIsAnimating(false);
       onClose();
+      // NEW EVENTS NOTIFICATION: Reset new events check when filters are applied
+      if (onResetNewEventsCheck) {
+        onResetNewEventsCheck();
+      }
       // Fetch new events after the modal has closed
       fetchTokenAndCallBackend();
     });
@@ -501,6 +506,11 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     // Reset filter by distance preference
     await dataManager.setIsFilterByDistance(false);
     setFilterByDistance(false);
+    
+    // NEW EVENTS NOTIFICATION: Reset new events check when filters are reset
+    if (onResetNewEventsCheck) {
+      onResetNewEventsCheck();
+    }
   };
 
   const isDark = colorScheme === 'dark';
@@ -593,10 +603,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                       selectedEventTypes.includes(type) && (isDark ? styles.pillSelectedDark : styles.pillSelectedLight),
                       {
                         backgroundColor: selectedEventTypes.includes(type)
-                          ? '#FF0005'
+                          ? Colors[colorScheme ?? 'light'].primary
                           : (isDark ? '#222' : '#f5f5f5'),
                         borderColor: selectedEventTypes.includes(type)
-                          ? '#FF0005'
+                          ? Colors[colorScheme ?? 'light'].primary
                           : (isDark ? '#333' : '#eee'),
                       }
                     ]}
@@ -629,8 +639,8 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     styles.featuredEventsCheckbox,
                     featuredEventsOnly && styles.featuredEventsCheckboxSelected,
                     { 
-                      backgroundColor: featuredEventsOnly ? '#FF0005' : 'transparent',
-                      borderColor: featuredEventsOnly ? '#FF0005' : (isDark ? '#333' : '#ccc')
+                      backgroundColor: featuredEventsOnly ? Colors[colorScheme ?? 'light'].primary : 'transparent',
+                      borderColor: featuredEventsOnly ? Colors[colorScheme ?? 'light'].primary : (isDark ? '#333' : '#ccc')
                     }
                   ]}>
                     {featuredEventsOnly && (
@@ -655,7 +665,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     style={[
                       styles.dayToggleButton,
                       !isCalendarMode && styles.dayToggleButtonActive,
-                      { backgroundColor: !isCalendarMode ? '#FF0005' : 'transparent' }
+                      { backgroundColor: !isCalendarMode ? Colors[colorScheme ?? 'light'].primary : 'transparent' }
                     ]}
                     onPress={() => handleCalendarModeToggle(false)}
                   >
@@ -670,7 +680,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                     style={[
                       styles.dayToggleButton,
                       isCalendarMode && styles.dayToggleButtonActive,
-                      { backgroundColor: isCalendarMode ? '#FF0005' : 'transparent' }
+                      { backgroundColor: isCalendarMode ? Colors[colorScheme ?? 'light'].primary : 'transparent' }
                     ]}
                     onPress={() => handleCalendarModeToggle(true)}
                   >
@@ -686,10 +696,15 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
               
               {!isCalendarMode ? (
                 <LinearGradient
-                  colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                  colors={[
+                    Colors[colorScheme ?? 'light'].primary,
+                    Colors[colorScheme ?? 'light'].primaryLight,
+                    Colors[colorScheme ?? 'light'].accent,
+                    Colors[colorScheme ?? 'light'].secondary,
+                    Colors[colorScheme ?? 'light'].secondaryLight
+                  ]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  locations={[0, 0.25, 0.5, 0.75, 1]}
                   style={styles.dayGradientContainer}
                 >
                   <View style={styles.dayButtonContainer}>
@@ -705,7 +720,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                         <Text
                           style={[
                             styles.dayCircleButtonText,
-                            { color: selectedDayPreferences.includes(day) ? '#F45B5B' : 'white' }
+                            { color: selectedDayPreferences.includes(day) ? Colors[colorScheme ?? 'light'].primary : 'white' }
                           ]}
                         >
                           {day.slice(0, 1)}
@@ -760,7 +775,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                 <Switch
                   value={filterByDistance}
                   onValueChange={handleToggleLocation}
-                  trackColor={{ false: '#767577', true: '#FF0005' }}
+                  trackColor={{ false: '#767577', true: Colors[colorScheme ?? 'light'].primary }}
                   thumbColor={'#fff'}
                 />
               </View>
@@ -776,7 +791,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                         { 
                           backgroundColor: Colors[colorScheme ?? 'light'].card,
                           color: Colors[colorScheme ?? 'light'].text,
-                          borderColor: '#9E95BD'
+                          borderColor: Colors[colorScheme ?? 'light'].secondary
                         }
                       ]}
                       placeholder="Enter your city or address (e.g., New York, NY)"
@@ -806,10 +821,15 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                       }}
                     >
                       <LinearGradient
-                        colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                        colors={[
+                          Colors[colorScheme ?? 'light'].primary,
+                          Colors[colorScheme ?? 'light'].primaryLight,
+                          Colors[colorScheme ?? 'light'].accent,
+                          Colors[colorScheme ?? 'light'].secondary,
+                          Colors[colorScheme ?? 'light'].secondaryLight
+                        ]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        locations={[0, 0.25, 0.5, 0.75, 1]}
                         style={styles.locationGradient}
                       >
                         <View style={styles.locationContent}>
@@ -838,9 +858,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                   step={1}
                   value={travelDistance}
                   onValueChange={setTravelDistance}
-                  minimumTrackTintColor="#FF0005"
+                  minimumTrackTintColor={Colors[colorScheme ?? 'light'].primary}
                   maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
-                  thumbTintColor="#FF0005"
+                  thumbTintColor={Colors[colorScheme ?? 'light'].primary}
                 />
                 <View style={styles.distanceMarkers}>
                   <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
@@ -863,10 +883,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
               onPress={handleApply}
             >
               <LinearGradient
-                colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                colors={[Colors.light.accent, Colors.light.primaryLight]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                locations={[0, 0.25, 0.5, 0.75, 1]}
                 style={styles.gradientButton}
               >
                 <Text style={styles.applyButtonText}>Apply Filters</Text>
@@ -1201,7 +1220,7 @@ const styles = StyleSheet.create({
   },
   dayCircleButtonSelected: {
     backgroundColor: 'white',
-    borderColor: '#FF3366',
+    borderColor: Colors.light.primaryLight,
   },
   dayCircleButtonText: {
     fontSize: 14,
@@ -1300,11 +1319,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   calendarDaySelected: {
-    backgroundColor: '#FF0005',
+    backgroundColor: Colors.light.primary,
   },
   calendarDayToday: {
     borderWidth: 2,
-    borderColor: '#FF0005',
+    borderColor: Colors.light.primary,
   },
   calendarDayPast: {
     opacity: 0.3,
@@ -1342,7 +1361,7 @@ const styles = StyleSheet.create({
   selectedDateChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF0005',
+    backgroundColor: Colors.light.primary,
     borderRadius: 15,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -1376,7 +1395,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   featuredEventsCheckboxSelected: {
-    backgroundColor: '#FF0005',
+    backgroundColor: Colors.light.primary,
   },
   featuredEventsText: {
     fontSize: 16,

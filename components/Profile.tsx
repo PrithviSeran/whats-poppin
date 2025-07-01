@@ -4,9 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Colors } from '@/constants/Colors';
+import { Colors, gradients } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import FriendsModal from './FriendsModal';
+import NotificationSettings from './NotificationSettings';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -64,6 +65,13 @@ export default memo(function Profile({
   const [hasNewRequests, setHasNewRequests] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+
+  // State for follow counts
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  
+  // Notification settings state
+  const [notificationSettingsVisible, setNotificationSettingsVisible] = useState(false);
 
   // OFFLINE-FIRST: Load all social data from cache/database with automatic sync
   const loadAllSocialData = async (userId: number, forceRefresh: boolean = false) => {
@@ -313,10 +321,6 @@ export default memo(function Profile({
     setShowPrivacyModal(true);
   };
 
-  // State for follow counts
-  const [followersCount, setFollowersCount] = useState(0);
-  const [followingCount, setFollowingCount] = useState(0);
-
   // OFFLINE-FIRST: Simplified social data functions for Profile component
   const refreshSocialData = async (forceRefresh: boolean = false) => {
     if (!profile?.id) return;
@@ -550,7 +554,7 @@ export default memo(function Profile({
               styles.loadingCircle,
               {
                 transform: [{ scale }, { rotate: spin }],
-                borderColor: '#9E95BD',
+                borderColor: Colors[colorScheme ?? 'light'].accent,
               },
             ]}
           >
@@ -574,7 +578,7 @@ export default memo(function Profile({
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header moved inside ScrollView to scroll with content */}
+                  {/* Header moved inside ScrollView to scroll with content */}
         <View style={styles.headerContainer}>
           {editedProfile?.bannerImage && (
             <Image 
@@ -584,10 +588,12 @@ export default memo(function Profile({
             />
           )}
           <LinearGradient
-            colors={['rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)', 'rgba(244, 91, 91, 0.4)']}
+            colors={[
+              `rgba(${parseInt(Colors[colorScheme ?? 'light'].primary.slice(1, 3), 16)}, ${parseInt(Colors[colorScheme ?? 'light'].primary.slice(3, 5), 16)}, ${parseInt(Colors[colorScheme ?? 'light'].primary.slice(5, 7), 16)}, 0.4)`,
+              `rgba(${parseInt(Colors[colorScheme ?? 'light'].primaryLight.slice(1, 3), 16)}, ${parseInt(Colors[colorScheme ?? 'light'].primaryLight.slice(3, 5), 16)}, ${parseInt(Colors[colorScheme ?? 'light'].primaryLight.slice(5, 7), 16)}, 0.4)`
+            ]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            locations={[0, 0.3, 0.7, 1]}
             style={styles.headerGradient}
           >
             <TouchableOpacity style={styles.editButton} onPress={handleEditImages}>
@@ -686,7 +692,7 @@ export default memo(function Profile({
             {/* Friends Card */}
             <TouchableOpacity style={styles.actionCard} onPress={handleOpenFriendsModal}>
             <LinearGradient
-                colors={['#667eea', '#764ba2']}
+                colors={[Colors[colorScheme ?? 'light'].secondary, Colors[colorScheme ?? 'light'].secondaryLight]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
                 style={styles.actionCardGradient}
@@ -710,7 +716,7 @@ export default memo(function Profile({
             {/* Create Event Card */}
             <TouchableOpacity style={styles.actionCard} onPress={handleCreateEvent}>
             <LinearGradient
-                colors={['#f093fb', '#f5576c']}
+                colors={[Colors[colorScheme ?? 'light'].primary, Colors[colorScheme ?? 'light'].accent]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
                 style={styles.actionCardGradient}
@@ -732,14 +738,14 @@ export default memo(function Profile({
              <View style={[styles.profileInfoHeader, { borderBottomColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]}>
                <Text style={[styles.profileInfoTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Profile Information</Text>
                <TouchableOpacity style={styles.profileEditButton} onPress={handleEditProfile}>
-                 <Ionicons name="pencil" size={20} color="#9E95BD" />
+                 <Ionicons name="pencil" size={20} color={Colors[colorScheme ?? 'light'].secondary} />
             </TouchableOpacity>
           </View>
 
              <View style={styles.profileInfoContent}>
-              <View style={styles.profileInfoRow}>
+                              <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
-                  <Ionicons name="mail-outline" size={20} color="#9E95BD" />
+                  <Ionicons name="mail-outline" size={20} color={Colors[colorScheme ?? 'light'].secondary} />
                   </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Email</Text>
@@ -751,7 +757,7 @@ export default memo(function Profile({
 
               <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
-                  <Ionicons name="calendar-outline" size={20} color="#FF6B9D" />
+                  <Ionicons name="calendar-outline" size={20} color={Colors[colorScheme ?? 'light'].accent} />
                   </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Birthday</Text>
@@ -763,7 +769,7 @@ export default memo(function Profile({
 
               <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
-                  <Ionicons name="person-outline" size={20} color="#4ECDC4" />
+                  <Ionicons name="person-outline" size={20} color={Colors[colorScheme ?? 'light'].info} />
                   </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Gender</Text>
@@ -811,7 +817,7 @@ export default memo(function Profile({
             <TouchableOpacity style={styles.settingsItem} onPress={handleOpenTerms}>
               <View style={styles.settingsItemContent}>
                 <View style={styles.settingsIconContainer}>
-                  <Ionicons name="document-text-outline" size={24} color="#9E95BD" />
+                  <Ionicons name="document-text-outline" size={24} color={Colors[colorScheme ?? 'light'].secondary} />
                 </View>
                 <View style={styles.settingsItemDetails}>
                   <Text style={[styles.settingsItemTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Terms & Conditions</Text>
@@ -826,7 +832,7 @@ export default memo(function Profile({
             <TouchableOpacity style={styles.settingsItem} onPress={handleOpenPrivacyPolicy}>
               <View style={styles.settingsItemContent}>
                 <View style={styles.settingsIconContainer}>
-                  <Ionicons name="shield-checkmark-outline" size={24} color="#9E95BD" />
+                  <Ionicons name="shield-checkmark-outline" size={24} color={Colors[colorScheme ?? 'light'].secondary} />
                 </View>
                 <View style={styles.settingsItemDetails}>
                   <Text style={[styles.settingsItemTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Privacy Policy</Text>
@@ -839,19 +845,34 @@ export default memo(function Profile({
 
           {/* Settings & Actions */}
           <View style={[styles.settingsSection, { backgroundColor: Colors[colorScheme ?? 'light'].card, marginTop: 16 }]}>
+            <TouchableOpacity style={styles.settingsItem} onPress={() => setNotificationSettingsVisible(true)}>
+              <View style={styles.settingsItemContent}>
+                <View style={styles.settingsIconContainer}>
+                  <Ionicons name="notifications-outline" size={24} color={Colors[colorScheme ?? 'light'].primary} />
+                </View>
+                <View style={styles.settingsItemDetails}>
+                  <Text style={[styles.settingsItemTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Notification Settings</Text>
+                  <Text style={[styles.settingsItemSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>Manage your notification preferences</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ opacity: 0.5 }} />
+            </TouchableOpacity>
+
+            <View style={[styles.settingsDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
+
             <TouchableOpacity style={styles.settingsItem} onPress={handleSignOut}>
               <View style={styles.settingsItemContent}>
                 <View style={styles.settingsIconContainer}>
-                  <Ionicons name="log-out-outline" size={24} color="#ff6b6b" />
+                  <Ionicons name="log-out-outline" size={24} color={Colors[colorScheme ?? 'light'].error} />
                 </View>
                 <View style={styles.settingsItemDetails}>
                   <Text style={[styles.settingsItemTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Sign Out</Text>
                   <Text style={[styles.settingsItemSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>See you next time!</Text>
-                      </View>
-                      </View>
+                </View>
+              </View>
               <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ opacity: 0.5 }} />
-                        </TouchableOpacity>
-                      </View>
+            </TouchableOpacity>
+          </View>
         </View>
                 </ScrollView>
 
@@ -883,6 +904,12 @@ export default memo(function Profile({
         visible={showPrivacyModal}
         onClose={() => setShowPrivacyModal(false)}
         documentType="privacy"
+      />
+
+      {/* Notification Settings */}
+      <NotificationSettings 
+        visible={notificationSettingsVisible}
+        onClose={() => setNotificationSettingsVisible(false)}
       />
     </View>
   );
@@ -1117,7 +1144,7 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 3,
-    borderColor: '#F45B5B',
+    borderColor: Colors.light.accent,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1125,7 +1152,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 20, 147, 0.1)',
+    backgroundColor: 'rgba(255, 105, 226, 0.15)',
   },
   loadingText: {
     fontSize: 16,

@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import NotificationService from '@/lib/NotificationService';
 
 const EVENT_TYPES = [
   'Featured Events',
@@ -285,11 +286,19 @@ export default function CreateEventScreen() {
     }
   };
 
+  // Add notification service
+  const notificationService = NotificationService.getInstance();
+
+  // Add reminder state
+  const [enableReminders, setEnableReminders] = useState(true);
+  const [reminderOptions, setReminderOptions] = useState({
+    oneDay: true,
+    oneHour: true,
+  });
+
   const handleCreateEvent = async () => {
     if (isCreating) return;
-    
     setIsCreating(true);
-    
     try {
       // Validate required fields
       if (!eventForm.name.trim()) {
@@ -308,32 +317,31 @@ export default function CreateEventScreen() {
         Alert.alert('Error', 'Description is required');
         return;
       }
-
       // Validate dates for one-time events
       if (eventForm.occurrence === 'one-time') {
         if (!eventForm.start_date) {
           Alert.alert('Error', 'Start date is required for one-time events');
           return;
         }
+        if (!eventForm.start_time) {
+          Alert.alert('Error', 'Start time is required for one-time events');
+          return;
+        }
       }
-
       // Validate days for weekly events
       if (eventForm.occurrence === 'Weekly' && eventForm.days_of_the_week.length === 0) {
         Alert.alert('Error', 'Please select at least one day for weekly events');
         return;
       }
-
       // Get current user's email
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         Alert.alert('Error', 'You must be logged in to create an event');
         return;
       }
-
       // Get coordinates for location
       let latitude: number | null = null;
       let longitude: number | null = null;
-      
       try {
         const geocodedLocation = await Location.geocodeAsync(eventForm.location);
         if (geocodedLocation && geocodedLocation.length > 0) {
@@ -343,8 +351,27 @@ export default function CreateEventScreen() {
       } catch (geocodeError) {
         console.warn('Could not geocode location:', geocodeError);
       }
-
-      // First, insert the event to get the event ID
+      // --- NEW LOGIC FOR TIMES FIELD ---
+      let times = null;
+      if (eventForm.occurrence === 'one-time') {
+        // Find day of week for start_date
+        const date = new Date(eventForm.start_date);
+        const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+        // Use start_time and end_time (if provided)
+        const startTime = eventForm.start_time;
+        // For one-time, let user optionally enter end_time in the UI, or use start_time for both if not present
+        let endTime = '';
+        if (eventForm.times && eventForm.times[dayOfWeek] && Array.isArray(eventForm.times[dayOfWeek])) {
+          endTime = eventForm.times[dayOfWeek][1] || '';
+        } else {
+          endTime = startTime;
+        }
+        times = { [dayOfWeek]: [startTime, endTime] };
+      } else if (eventForm.occurrence === 'Weekly') {
+        times = Object.keys(eventForm.times).length > 0 ? eventForm.times : null;
+      }
+      // --- END NEW LOGIC ---
+      // Prepare event data for insert (remove start_time field)
       const eventData = {
         name: eventForm.name.trim(),
         organization: eventForm.organization.trim(),
@@ -354,12 +381,11 @@ export default function CreateEventScreen() {
         age_restriction: eventForm.age_restriction ? parseInt(eventForm.age_restriction) : null,
         reservation: eventForm.reservation,
         occurrence: eventForm.occurrence,
-        event_type: eventForm.event_type,
+        event_type: [eventForm.event_type],
         start_date: eventForm.occurrence === 'one-time' ? eventForm.start_date : null,
         end_date: eventForm.occurrence === 'one-time' ? eventForm.end_date || eventForm.start_date : null,
-        start_time: eventForm.start_time || null,
         days_of_the_week: eventForm.occurrence === 'Weekly' ? eventForm.days_of_the_week : null,
-        times: Object.keys(eventForm.times).length > 0 ? eventForm.times : null,
+        times: times,
         featured: eventForm.featured,
         link: eventForm.link.trim() || null,
         latitude,
@@ -367,55 +393,151 @@ export default function CreateEventScreen() {
         posted_by: user.email,
         created_at: new Date().toISOString()
       };
-
       // Insert event into Supabase
       const { data, error } = await supabase
         .from('all_events')
         .insert([eventData])
         .select();
-
       if (error) {
         throw error;
       }
-
       const eventId = data[0].id;
 
       // Upload images to Supabase storage if any were selected
       let uploadedImages = 0;
       if (eventForm.images.length > 0) {
         console.log(`Uploading ${eventForm.images.length} images for event ${eventId}`);
-        
+
+        // --- NEW: Delete existing images for this eventId before uploading new ones ---
+        try {
+          const { data: existingFiles, error: listError } = await supabase.storage
+            .from('event-images')
+            .list(`${eventId}`);
+          if (listError) {
+            console.warn('Could not list existing images:', listError);
+          } else if (existingFiles && existingFiles.length > 0) {
+            const filesToDelete = existingFiles.map(file => `${eventId}/${file.name}`);
+            const { error: deleteError } = await supabase.storage
+              .from('event-images')
+              .remove(filesToDelete);
+            if (deleteError) {
+              console.warn('Could not delete existing images:', deleteError);
+            } else {
+              console.log(`Deleted existing images for event ${eventId}`);
+            }
+          }
+        } catch (deleteCatchError) {
+          console.warn('Error during image folder cleanup:', deleteCatchError);
+        }
+        // --- END NEW ---
+
+        // --- REFACTORED: Use robust upload strategy from EditImages.tsx ---
+        const uploadImageToSupabase = async (imageUri: string, imagePath: string): Promise<boolean> => {
+          try {
+            // Validate the image URI
+            if (!imageUri || !imageUri.startsWith('file://')) {
+              console.error('Invalid image URI:', imageUri);
+              return false;
+            }
+
+            // --- FormData approach (React Native) ---
+            try {
+              const formData = new FormData();
+              formData.append('file', {
+                uri: imageUri,
+                type: 'image/jpeg',
+                name: imagePath.split('/').pop() || 'image.jpg',
+              } as any);
+              // @ts-ignore: Supabase Storage JS client may not support FormData in React Native
+              const { data, error } = await supabase.storage
+                .from('event-images')
+                .upload(imagePath, formData, {
+                  contentType: 'image/jpeg',
+                  upsert: true,
+                });
+              if (!error && data) {
+                console.log('FormData upload successful:', data);
+                return true;
+              }
+              console.log('FormData method failed:', error);
+            } catch (formDataError) {
+              console.log('FormData method error:', formDataError);
+            }
+
+            // --- ArrayBuffer approach ---
+            try {
+              const response = await fetch(imageUri);
+              if (!response.ok) {
+                console.error('Failed to fetch image:', response.status, response.statusText);
+                return false;
+              }
+              const arrayBuffer = await response.arrayBuffer();
+              if (arrayBuffer.byteLength === 0) {
+                console.error('ArrayBuffer is empty');
+                return false;
+              }
+              const { data, error } = await supabase.storage
+                .from('event-images')
+                .upload(imagePath, arrayBuffer, {
+                  contentType: 'image/jpeg',
+                  upsert: true,
+                });
+              if (!error && data) {
+                console.log('ArrayBuffer upload successful:', data);
+                return true;
+              }
+              console.log('ArrayBuffer method failed:', error);
+            } catch (arrayBufferError) {
+              console.log('ArrayBuffer method error:', arrayBufferError);
+            }
+
+            // --- Blob approach ---
+            try {
+              const response = await fetch(imageUri);
+              if (!response.ok) {
+                console.error('Failed to fetch image:', response.status, response.statusText);
+                return false;
+              }
+              const blob = await response.blob();
+              if (!blob || blob.size === 0) {
+                console.error('Invalid or empty blob');
+                return false;
+              }
+              const { data, error } = await supabase.storage
+                .from('event-images')
+                .upload(imagePath, blob, {
+                  contentType: blob.type || 'image/jpeg',
+                  upsert: true,
+                });
+              if (!error && data) {
+                console.log('Blob upload successful:', data);
+                return true;
+              }
+              console.log('Blob method failed:', error);
+            } catch (blobError) {
+              console.log('Blob method error:', blobError);
+            }
+
+            console.error('All upload methods failed for', imagePath);
+            return false;
+          } catch (error) {
+            console.error('Error in uploadImageToSupabase:', error);
+            return false;
+          }
+        };
+
         for (let i = 0; i < eventForm.images.length; i++) {
           const imageUri = eventForm.images[i];
-          
-          try {
-            // Convert URI to blob
-            const response = await fetch(imageUri);
-            const blob = await response.blob();
-            
-            // Create file path: eventId/imageIndex.jpg
-            const fileName = `${eventId}/${i}.jpg`;
-            
-            // Upload to Supabase storage
-            const { data: uploadData, error: uploadError } = await supabase.storage
-              .from('event-images')
-              .upload(fileName, blob, {
-                contentType: 'image/jpeg',
-                upsert: true
-              });
-
-            if (uploadError) {
-              console.error(`Error uploading image ${i}:`, uploadError);
-              // Continue with other images even if one fails
-            } else {
-              console.log(`Successfully uploaded image ${i} for event ${eventId}`);
-              uploadedImages++;
-            }
-          } catch (imageError) {
-            console.error(`Error processing image ${i}:`, imageError);
-            // Continue with other images even if one fails
+          const fileName = `${eventId}/${i}.jpg`;
+          const success = await uploadImageToSupabase(imageUri, fileName);
+          if (success) {
+            uploadedImages++;
+            console.log(`Successfully uploaded image ${i} for event ${eventId}`);
+          } else {
+            console.error(`Error uploading image ${i} for event ${eventId}`);
           }
         }
+        // --- END REFACTORED ---
       }
 
       // Create success message based on image upload results
@@ -427,6 +549,43 @@ export default function CreateEventScreen() {
           successMessage += ` ${uploadedImages} of ${eventForm.images.length} images uploaded successfully.`;
         } else {
           successMessage += ' However, there was an issue uploading the images. You can try adding them later.';
+        }
+      }
+
+      // Schedule event reminders if enabled
+      if (enableReminders && data) {
+        try {
+          const eventDateTime = new Date(data[0].start_date);
+          eventDateTime.setHours(data[0].start_time.split(':')[0], data[0].start_time.split(':')[1], 0, 0);
+
+          if (reminderOptions.oneDay && reminderOptions.oneHour) {
+            // Schedule both reminders
+            await notificationService.scheduleEventReminders(
+              data[0].id.toString(),
+              data[0].name,
+              eventDateTime
+            );
+            console.log('✅ Both event reminders scheduled');
+          } else if (reminderOptions.oneDay) {
+            // Schedule only 1-day reminder
+            await notificationService.scheduleEventReminderOneDayBefore(
+              data[0].id.toString(),
+              data[0].name,
+              eventDateTime
+            );
+            console.log('✅ 1-day event reminder scheduled');
+          } else if (reminderOptions.oneHour) {
+            // Schedule only 1-hour reminder
+            await notificationService.scheduleEventReminder(
+              data[0].id.toString(),
+              data[0].name,
+              eventDateTime
+            );
+            console.log('✅ 1-hour event reminder scheduled');
+          }
+        } catch (reminderError) {
+          console.error('⚠️ Error scheduling reminders:', reminderError);
+          // Don't fail the event creation if reminders fail
         }
       }
 
@@ -882,7 +1041,106 @@ export default function CreateEventScreen() {
               />
             </View>
 
+            {/* Reminder Settings */}
+            <View style={[styles.section, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                🔔 Event Reminders
+              </Text>
+              <Text style={[styles.sectionSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Get notified before your event starts
+              </Text>
 
+              <TouchableOpacity
+                style={styles.reminderToggle}
+                onPress={() => setEnableReminders(!enableReminders)}
+              >
+                <View style={styles.reminderToggleContent}>
+                  <Ionicons 
+                    name="notifications" 
+                    size={24} 
+                    color={enableReminders ? Colors[colorScheme ?? 'light'].primary : Colors[colorScheme ?? 'light'].text + '60'} 
+                  />
+                  <View style={styles.reminderToggleText}>
+                    <Text style={[styles.reminderToggleTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Enable Event Reminders
+                    </Text>
+                    <Text style={[styles.reminderToggleSubtitle, { color: Colors[colorScheme ?? 'light'].text + '80' }]}>
+                      Get notified before your event starts
+                    </Text>
+                  </View>
+                </View>
+                <View style={[
+                  styles.reminderToggleSwitch,
+                  { backgroundColor: enableReminders ? Colors[colorScheme ?? 'light'].primary : Colors[colorScheme ?? 'light'].text + '30' }
+                ]}>
+                  <View style={[
+                    styles.reminderToggleSwitchThumb,
+                    { 
+                      backgroundColor: '#fff',
+                      transform: [{ translateX: enableReminders ? 20 : 0 }]
+                    }
+                  ]} />
+                </View>
+              </TouchableOpacity>
+
+              {enableReminders && (
+                <View style={styles.reminderOptions}>
+                  <TouchableOpacity
+                    style={styles.reminderOption}
+                    onPress={() => setReminderOptions(prev => ({ ...prev, oneDay: !prev.oneDay }))}
+                  >
+                    <View style={styles.reminderOptionContent}>
+                      <Ionicons 
+                        name="calendar" 
+                        size={20} 
+                        color={reminderOptions.oneDay ? Colors[colorScheme ?? 'light'].primary : Colors[colorScheme ?? 'light'].text + '60'} 
+                      />
+                      <Text style={[
+                        styles.reminderOptionText,
+                        { color: reminderOptions.oneDay ? Colors[colorScheme ?? 'light'].text : Colors[colorScheme ?? 'light'].text + '60' }
+                      ]}>
+                        1 day before
+                      </Text>
+                    </View>
+                    <View style={[
+                      styles.reminderOptionCheckbox,
+                      { backgroundColor: reminderOptions.oneDay ? Colors[colorScheme ?? 'light'].primary : 'transparent' }
+                    ]}>
+                      {reminderOptions.oneDay && (
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.reminderOption}
+                    onPress={() => setReminderOptions(prev => ({ ...prev, oneHour: !prev.oneHour }))}
+                  >
+                    <View style={styles.reminderOptionContent}>
+                      <Ionicons 
+                        name="time" 
+                        size={20} 
+                        color={reminderOptions.oneHour ? Colors[colorScheme ?? 'light'].primary : Colors[colorScheme ?? 'light'].text + '60'} 
+                      />
+                      <Text style={[
+                        styles.reminderOptionText,
+                        { color: reminderOptions.oneHour ? Colors[colorScheme ?? 'light'].text : Colors[colorScheme ?? 'light'].text + '60' }
+                      ]}>
+                        1 hour before
+                      </Text>
+                    </View>
+                    <View style={[
+                      styles.reminderOptionCheckbox,
+                      { backgroundColor: reminderOptions.oneHour ? Colors[colorScheme ?? 'light'].primary : 'transparent' }
+                    ]}>
+                      {reminderOptions.oneHour && (
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
 
             {/* Create Button */}
             <TouchableOpacity 
@@ -1551,5 +1809,89 @@ const styles = StyleSheet.create({
     fontSize: 13,
     flex: 1,
     lineHeight: 18,
+  },
+  section: {
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: 'rgba(0, 0, 0, 0.7)',
+  },
+  reminderToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  reminderToggleContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  reminderToggleText: {
+    flex: 1,
+  },
+  reminderToggleTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  reminderToggleSubtitle: {
+    fontSize: 14,
+    color: 'rgba(0, 0, 0, 0.7)',
+  },
+  reminderToggleSwitch: {
+    width: 40,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reminderToggleSwitchThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'white',
+  },
+  reminderOptions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  reminderOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    borderRadius: 12,
+  },
+  reminderOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  reminderOptionText: {
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  reminderOptionCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 }); 

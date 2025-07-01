@@ -795,10 +795,9 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     activeOpacity={0.8}
                   >
                     <LinearGradient
-                      colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                      colors={[Colors.light.accent, Colors.light.primaryLight]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
-                      locations={[0, 0.25, 0.5, 0.75, 1]}
                       style={styles.linkButtonGradient}
                     >
                       <Ionicons name="link-outline" size={18} color="white" style={styles.linkIcon} />
@@ -820,10 +819,9 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   activeOpacity={0.8}
                 >
                   <LinearGradient
-                    colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                    colors={[Colors.light.accent, Colors.light.primaryLight]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    locations={[0, 0.25, 0.5, 0.75, 1]}
                     style={styles.shareButtonGradient}
                   >
                     <Ionicons name="share-outline" size={20} color="white" />

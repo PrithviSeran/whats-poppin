@@ -5,6 +5,7 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CommonActions } from '@react-navigation/native';
+import { Colors } from '@/constants/Colors';
 
 const { width } = Dimensions.get('window');
 
@@ -55,10 +56,9 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
 
   return (
     <LinearGradient
-      colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+            colors={[Colors.light.accent, Colors.light.primaryLight]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      locations={[0, 0.25, 0.5, 0.75, 1]}
       style={styles.footer}
     >
       <TouchableOpacity 

@@ -8,7 +8,7 @@ module.exports = {
     scheme: "whatspoppin",
     userInterfaceStyle: "automatic",
     splash: {
-      image: "./assets/images/splash.png",
+      image: "./assets/images/logo-light.png",
       resizeMode: "contain",
       backgroundColor: "#ffffff"
     },
@@ -33,7 +33,7 @@ module.exports = {
         },
         NSLocationWhenInUseUsageDescription: "This app needs access to your location to show nearby events and your position on the map.",
         NSLocationAlwaysUsageDescription: "This app needs access to your location to show nearby events and your position on the map.",
-        UIBackgroundModes: ["location", "fetch"],
+        UIBackgroundModes: ["location", "fetch", "remote-notification"],
         CFBundleURLTypes: [
           {
             CFBundleURLSchemes: ["whatspoppin"],
@@ -65,7 +65,10 @@ module.exports = {
         "INTERNET",
         "ACCESS_NETWORK_STATE",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK"
       ],
       intentFilters: [
         {
@@ -108,10 +111,18 @@ module.exports = {
       [
         "expo-splash-screen",
         {
-          image: "./assets/images/splash-icon.png",
+          image: "./assets/images/logo-light.png",
           imageWidth: 200,
           resizeMode: "contain",
           backgroundColor: "#ffffff"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          icon: "./assets/images/balloons.png",
+          color: "#FF0005",
+          sounds: ["./assets/sounds/notification.wav"]
         }
       ],
       "expo-font",

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { Colors } from '@/constants/Colors';
 
 import SignInScreen from '@/components/SignInScreen';
 import SuggestedEvents from '@/components/SuggestedEvents';
-import MainLoadingScreen from '@/components/MainLoadingScreen';
 import { supabase } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import GlobalDataManager from '@/lib/GlobalDataManager';
@@ -81,17 +82,13 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // Handle loading completion from MainLoadingScreen
-  const handleLoadingComplete = (destination: 'suggested-events' | 'social-sign-in') => {
-    console.log('🎯 HomeScreen: Loading complete, destination:', destination);
-    // The MainLoadingScreen already determined the destination based on auth status
-    // We don't need to do additional navigation here since we're already showing the right screen
-    setIsLoading(false);
-  };
-
   // Show loading screen while checking auth or loading data
   if (isLoading || isDataLoading) {
-    return <MainLoadingScreen onLoadingComplete={handleLoadingComplete} />;
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+        <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].primary} />
+      </View>
+    );
   }
 
   // Show appropriate screen based on session
@@ -103,3 +100,11 @@ export default function HomeScreen() {
   console.log('📱 HomeScreen: Session exists, showing SuggestedEvents');
   return <SuggestedEvents />;
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
