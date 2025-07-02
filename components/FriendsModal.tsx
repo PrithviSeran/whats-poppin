@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Modal, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Modal, ScrollView, Animated, PanResponder, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors, gradients } from '@/constants/Colors';
@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserProfile } from '@/lib/GlobalDataManager';
 import UserProfileModal from './UserProfileModal';
 import SocialDataManager, { Friend, FriendRequest, Follower, Following } from '@/lib/SocialDataManager';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Social interfaces now imported from SocialDataManager
 
@@ -22,6 +23,302 @@ interface FriendsModalProps {
   onFollowCountsUpdate?: () => void;
   onRefreshRequests?: () => void;
 }
+
+const { width } = Dimensions.get('window');
+const CARD_WIDTH = width - 40;
+
+// Separate component for animated user items with swipe functionality
+const AnimatedUserItem = React.memo(({ 
+  user, 
+  type, 
+  index, 
+  colorScheme, 
+  onUserPress, 
+  onRemoveFriend, 
+  onUnfollow, 
+  onAcceptRequest, 
+  onDeclineRequest,
+  onItemRemoved,
+  isRemoving
+}: {
+  user: any;
+  type: 'friend' | 'follower' | 'following' | 'request';
+  index: number;
+  colorScheme: 'light' | 'dark';
+  onUserPress: (userId: number, userName: string, userEmail: string) => void;
+  onRemoveFriend: (friendId: number) => void;
+  onUnfollow: (userEmail: string) => void;
+  onAcceptRequest: (requestId: number) => void;
+  onDeclineRequest: (requestId: number) => void;
+  onItemRemoved: (userId: number, type: string) => void;
+  isRemoving: boolean;
+}) => {
+  const userId = user.friend_id || user.follower_id || user.following_id || user.sender_id;
+  const userName = user.friend_name || user.follower_name || user.following_name || user.sender_name;
+  const userEmail = user.friend_email || user.follower_email || user.following_email || user.sender_email;
+  const key = user.friendship_id || user.request_id || `${type}-${userId}`;
+
+  // Animation values
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.8)).current;
+  const translateX = useRef(new Animated.Value(50)).current;
+  const cardTranslateX = useRef(new Animated.Value(0)).current;
+  const heightAnim = useRef(new Animated.Value(72)).current;
+
+  // Create pan responder for swipe functionality
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Only allow rightward movement with some resistance
+        return Math.abs(gestureState.dx) > 15 && 
+               Math.abs(gestureState.dy) < 30 && 
+               gestureState.dx > 0;
+      },
+      onPanResponderGrant: () => {
+        // Add haptic feedback or visual feedback here if needed
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        // Only allow rightward movement with some resistance
+        const translateValue = Math.max(0, Math.min(gestureState.dx, CARD_WIDTH * 0.8));
+        cardTranslateX.setValue(translateValue);
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        const releaseVelocity = gestureState.vx;
+        const translateDistance = gestureState.dx;
+        
+        // More responsive threshold based on both distance and velocity
+        const shouldDelete = translateDistance > CARD_WIDTH * 0.4 || 
+                           (translateDistance > CARD_WIDTH * 0.2 && releaseVelocity > 0.5);
+        
+        if (shouldDelete) {
+          // Animate out faster and delete
+          Animated.parallel([
+            Animated.timing(cardTranslateX, {
+              toValue: CARD_WIDTH,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.timing(heightAnim, {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: false,
+            }),
+            Animated.timing(opacity, {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: true,
+            })
+          ]).start(() => {
+            // Notify parent that item is being removed (this will trigger re-render)
+            onItemRemoved(userId, type);
+            
+            // Call the appropriate removal function based on type
+            if (type === 'friend') {
+              onRemoveFriend(userId);
+            } else if (type === 'following') {
+              onUnfollow(userEmail);
+            } else if (type === 'request') {
+              onDeclineRequest(user.request_id);
+            }
+          });
+        } else {
+          // Snap back with more responsive animation
+          Animated.spring(cardTranslateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 8,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        // Handle gesture interruption
+        Animated.spring(cardTranslateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 200,
+          friction: 8,
+        }).start();
+      },
+    })
+  ).current;
+
+  // Animate in with staggered delay
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scale, {
+          toValue: 1,
+          tension: 100,
+          friction: 8,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateX, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, index * 50);
+    
+    return () => clearTimeout(timer);
+  }, [key, index]);
+
+  // Animate button press
+  const animateButtonPress = () => {
+    Animated.sequence([
+      Animated.timing(scale, {
+        toValue: 0.9,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        tension: 100,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // Don't render if item is being removed
+  if (isRemoving) {
+    return null;
+  }
+
+  return (
+    <Animated.View style={{ 
+      position: 'relative', 
+      width: '100%', 
+      height: heightAnim,
+      marginBottom: 3,
+      overflow: 'hidden'
+    }}>
+      {/* Bin icon background revealed as card is dragged */}
+      <View style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: '100%',
+        justifyContent: 'center',
+        alignItems: 'flex-start',
+        zIndex: 0,
+        height: 72,
+      }} pointerEvents="none">
+        <View style={{
+          width: 60,
+          height: 72,
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          <Ionicons name="trash" size={32} color="#FF0005" />
+        </View>
+      </View>
+      
+      <Animated.View
+        style={{
+          transform: [{ translateX: cardTranslateX }],
+          zIndex: 1,
+        }}
+        {...panResponder.panHandlers}
+      >
+        <Animated.View 
+          style={[
+            styles.userItem, 
+            { 
+              backgroundColor: Colors[colorScheme as keyof typeof Colors].card,
+              opacity,
+              transform: [
+                { scale },
+                { translateX }
+              ],
+            }
+          ]}
+        >
+          <LinearGradient
+            colors={[
+              'rgba(255,0,5,0.5)',
+              'rgba(255,77,157,0.5)',
+              'rgba(255,105,226,0.5)',
+              'rgba(185,122,255,0.5)',
+              'rgba(158,149,189,0.5)'
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            locations={[0, 0.25, 0.5, 0.75, 1]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+          
+          <TouchableOpacity 
+            style={styles.userInfo}
+            onPress={() => onUserPress(userId, userName, userEmail)}
+            activeOpacity={0.85}
+          >
+            <View style={styles.userAvatar}>
+              <Image 
+                source={{ 
+                  uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${userEmail.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+                }}
+                style={styles.userAvatarImage}
+                defaultSource={require('../assets/images/icon.png')}
+                onError={() => {
+                  console.log(`Failed to load profile image for ${type} ${userEmail}`);
+                }}
+              />
+            </View>
+            <View style={styles.userDetails}>
+              <Text style={[styles.userName, { color: Colors[colorScheme as keyof typeof Colors].text }]}>
+                {userName}
+              </Text>
+              <Text style={[styles.userEmail, { color: Colors[colorScheme as keyof typeof Colors].text }]}>
+                {userEmail}
+              </Text>
+              {type === 'request' && (
+                <View style={styles.dateContainer}>
+                  <Ionicons name="time-outline" size={12} color="#9E95BD" />
+                  <Text style={[styles.dateText, { color: Colors[colorScheme as keyof typeof Colors].text }]}>
+                    Sent {new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+          
+          {/* Action buttons based on type - only show for requests since friends/followers use swipe */}
+          {type === 'request' && (
+            <View style={styles.requestActions}>
+              <TouchableOpacity
+                style={styles.acceptButton}
+                onPress={() => {
+                  animateButtonPress();
+                  onAcceptRequest(user.request_id);
+                }}
+              >
+                <Ionicons name="checkmark" size={18} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.declineButton}
+                onPress={() => {
+                  animateButtonPress();
+                  onDeclineRequest(user.request_id);
+                }}
+              >
+                <Ionicons name="close" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          )}
+        </Animated.View>
+      </Animated.View>
+    </Animated.View>
+  );
+});
 
 export default function FriendsModal({
   visible,
@@ -41,6 +338,12 @@ export default function FriendsModal({
   // Follow state
   const [followers, setFollowers] = useState<Follower[]>([]);
   const [following, setFollowing] = useState<Following[]>([]);
+  
+  // Add state for tracking items being removed
+  const [removingItems, setRemovingItems] = useState<Set<string>>(new Set());
+  
+  // Tab switching animation
+  const tabSwitchAnim = useRef(new Animated.Value(1)).current;
   
   // Get SocialDataManager instance
   const socialDataManager = SocialDataManager.getInstance();
@@ -107,12 +410,6 @@ export default function FriendsModal({
     updateNotificationState();
   }, [friends.length, friendRequests.length, lastViewedFriendsCount, lastViewedRequestsCount]);
 
-  // REMOVED: fetchFriends - now handled by SocialDataManager in parent component
-
-
-
-  // REMOVED: fetchFriendRequests, fetchFollowers, fetchFollowing - now handled by SocialDataManager
-
   const respondToFriendRequest = async (requestId: number, response: 'accepted' | 'declined' | 'blocked') => {
     if (!profile?.id) return;
     
@@ -129,34 +426,70 @@ export default function FriendsModal({
           return;
         }
         
+        // Immediately update UI by filtering out the accepted request
+        const updatedRequests = friendRequests.filter(req => req.request_id !== requestId);
+        onRequestsUpdate(updatedRequests);
+        
         // Use SocialDataManager to accept friend request (auto-updates cache)
         success = await socialDataManager.acceptFriendRequest(requestId, request.sender_id, profile.id);
         
         if (success) {
-          Alert.alert('Success', 'Friend request accepted! You are now friends.');
+          // Show success message without blocking UI
+          setTimeout(() => {
+            Alert.alert('Success', 'Friend request accepted! You are now friends.');
+          }, 100);
         } else {
+          // Revert UI change if backend failed
+          onRequestsUpdate(friendRequests);
           Alert.alert('Error', 'Failed to accept friend request');
           return;
         }
+
+        // Refresh parent Profile component's social data (triggers cache refresh)
+        if (onFollowCountsUpdate) {
+          onFollowCountsUpdate();
+        }
+        
+        if (onRefreshRequests) {
+          onRefreshRequests();
+        }
       } else {
+        // Mark item as removing for smooth animation
+        const itemKey = `request-${requestId}`;
+        setRemovingItems(prev => new Set([...prev, itemKey]));
+        
+        // Immediately update UI by filtering out the declined request
+        const updatedRequests = friendRequests.filter(request => request.request_id !== requestId);
+        onRequestsUpdate(updatedRequests);
+        
         // Use SocialDataManager to decline friend request (auto-updates cache)
         success = await socialDataManager.declineFriendRequest(requestId, profile.id);
         
         if (success) {
-          Alert.alert('Success', `Friend request ${response}.`);
+          // Show success message without blocking UI
+          setTimeout(() => {
+            Alert.alert('Success', `Friend request ${response}.`);
+          }, 100);
         } else {
+          // Revert UI change if backend failed
+          onRequestsUpdate(friendRequests);
+          setRemovingItems(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(itemKey);
+            return newSet;
+          });
           Alert.alert('Error', `Failed to ${response} friend request`);
           return;
         }
-      }
 
-      // Refresh parent Profile component's social data (triggers cache refresh)
-      if (onFollowCountsUpdate) {
-        onFollowCountsUpdate();
-      }
-      
-      if (onRefreshRequests) {
-        onRefreshRequests();
+        // Refresh parent Profile component's social data (triggers cache refresh)
+        if (onFollowCountsUpdate) {
+          onFollowCountsUpdate();
+        }
+        
+        if (onRefreshRequests) {
+          onRefreshRequests();
+        }
       }
 
     } catch (error) {
@@ -168,40 +501,53 @@ export default function FriendsModal({
   const removeFriend = async (friendId: number) => {
     if (!profile?.id) return;
     
-    Alert.alert(
-      'Remove Friend',
-      'Are you sure you want to remove this friend?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              console.log(`🚀 OFFLINE-FIRST: Removing friend - user: ${profile.id}, friend: ${friendId}`);
-              
-              // Use SocialDataManager to remove friend (auto-updates cache)
-              const success = await socialDataManager.removeFriend(profile.id, friendId);
-              
-              if (success) {
-                Alert.alert('Success', 'Friend removed successfully');
-                
-                // Update parent Profile component's social data (triggers cache refresh)
-                if (onFollowCountsUpdate) {
-                  onFollowCountsUpdate();
-                }
-              } else {
-                Alert.alert('Error', 'Failed to remove friend');
-              }
-              
-            } catch (error) {
-              console.error('🚨 OFFLINE-FIRST: Error removing friend:', error);
-              Alert.alert('Error', 'Failed to remove friend');
-            }
-          }
+    try {
+      console.log(`🚀 OFFLINE-FIRST: Removing friend - user: ${profile.id}, friend: ${friendId}`);
+      
+      // Mark item as removing for smooth animation
+      const itemKey = `friend-${friendId}`;
+      setRemovingItems(prev => new Set([...prev, itemKey]));
+      
+      // Immediately update UI by filtering out the removed friend
+      const updatedFriends = friends.filter(friend => friend.friend_id !== friendId);
+      onFriendsUpdate(updatedFriends);
+      
+      // Use SocialDataManager to remove friend (auto-updates cache)
+      const success = await socialDataManager.removeFriend(profile.id, friendId);
+      
+      if (success) {
+        // Show success message without blocking UI
+        setTimeout(() => {
+          Alert.alert('Success', 'Friend removed successfully');
+        }, 100);
+        
+        // Update parent Profile component's social data (triggers cache refresh)
+        if (onFollowCountsUpdate) {
+          onFollowCountsUpdate();
         }
-      ]
-    );
+      } else {
+        // Revert UI change if backend failed
+        onFriendsUpdate(friends);
+        setRemovingItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(itemKey);
+          return newSet;
+        });
+        Alert.alert('Error', 'Failed to remove friend');
+      }
+      
+    } catch (error) {
+      console.error('🚨 OFFLINE-FIRST: Error removing friend:', error);
+      // Revert UI change if error occurred
+      onFriendsUpdate(friends);
+      const itemKey = `friend-${friendId}`;
+      setRemovingItems(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(itemKey);
+        return newSet;
+      });
+      Alert.alert('Error', 'Failed to remove friend');
+    }
   };
 
   const handleUnfollow = async (targetEmail: string) => {
@@ -223,27 +569,63 @@ export default function FriendsModal({
         return;
       }
 
+      // Mark item as removing for smooth animation
+      const itemKey = `following-${targetUser.id}`;
+      setRemovingItems(prev => new Set([...prev, itemKey]));
+
+      // Immediately update UI by filtering out the unfollowed user
+      const updatedFollowing = following.filter(follow => follow.following_email !== targetEmail);
+      setFollowing(updatedFollowing);
+
       // Use SocialDataManager to unfollow user (auto-updates cache)
       const success = await socialDataManager.unfollowUser(profile.id, targetUser.id);
 
       if (success) {
-        Alert.alert('Success', 'User unfollowed successfully');
+        // Show success message without blocking UI
+        setTimeout(() => {
+          Alert.alert('Success', 'User unfollowed successfully');
+        }, 100);
         
         // Update parent Profile component's social data (triggers cache refresh)
         if (onFollowCountsUpdate) {
           onFollowCountsUpdate();
         }
       } else {
+        // Revert UI change if backend failed
+        setFollowing(following);
+        setRemovingItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(itemKey);
+          return newSet;
+        });
         Alert.alert('Error', 'Failed to unfollow user');
       }
+
     } catch (error) {
       console.error('🚨 OFFLINE-FIRST: Error unfollowing user:', error);
+      // Revert UI change if error occurred
+      setFollowing(following);
+      // Note: targetUser might not be available in catch block, so we can't clean up removingItems
       Alert.alert('Error', 'Failed to unfollow user');
     }
   };
 
   // Handle tab switching and mark as viewed
   const handleTabSwitch = async (tab: 'friends' | 'followers' | 'following' | 'requests') => {
+    // Animate tab switch
+    Animated.sequence([
+      Animated.timing(tabSwitchAnim, {
+        toValue: 0.7,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(tabSwitchAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    
     setActiveTab(tab);
     
     // Mark as viewed when switching to tabs
@@ -294,8 +676,16 @@ export default function FriendsModal({
   useEffect(() => {
     if (visible) {
       handleModalOpen();
+    } else {
+      // Clear removing items when modal closes
+      setRemovingItems(new Set());
     }
   }, [visible]);
+
+  // Clear removing items when data changes (indicating successful removal)
+  useEffect(() => {
+    setRemovingItems(new Set());
+  }, [friends, followers, following, friendRequests]);
 
   // Open user profile modal
   const handleUserProfileNavigation = (userId: number, userName: string, userEmail: string) => {
@@ -305,84 +695,53 @@ export default function FriendsModal({
     setUserProfileModalVisible(true);
   };
 
-  const renderUserItem = (user: any, type: 'friend' | 'follower' | 'following' | 'request') => {
+  const handleItemRemoved = (userId: number, type: string) => {
+    // This function will be called when an item is removed via swipe
+    // Mark the item as being removed to prevent re-rendering issues
+    const itemKey = `${type}-${userId}`;
+    setRemovingItems(prev => new Set([...prev, itemKey]));
+    
+    // Remove from removing items after animation completes
+    setTimeout(() => {
+      setRemovingItems(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(itemKey);
+        return newSet;
+      });
+    }, 300);
+    
+    console.log(`Item removed: ${type} with ID ${userId}`);
+  };
+
+  const renderUserItem = (user: any, type: 'friend' | 'follower' | 'following' | 'request', index: number) => {
+    // Create wrapper functions for request handlers
+    const handleAcceptRequest = (requestId: number) => {
+      respondToFriendRequest(requestId, 'accepted');
+    };
+
+    const handleDeclineRequest = (requestId: number) => {
+      respondToFriendRequest(requestId, 'declined');
+    };
+
     const userId = user.friend_id || user.follower_id || user.following_id || user.sender_id;
-    const userName = user.friend_name || user.follower_name || user.following_name || user.sender_name;
-    const userEmail = user.friend_email || user.follower_email || user.following_email || user.sender_email;
-    const key = user.friendship_id || user.request_id || `${type}-${userId}`;
+    const itemKey = `${type}-${userId}`;
+    const isRemoving = removingItems.has(itemKey);
 
     return (
-      <View key={key} style={[styles.userItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-        <TouchableOpacity 
-          style={styles.userInfo}
-          onPress={() => handleUserProfileNavigation(userId, userName, userEmail)}
-        >
-          <View style={styles.userAvatar}>
-            <Image 
-              source={{ 
-                uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${userEmail.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-              }}
-              style={styles.userAvatarImage}
-              defaultSource={require('../assets/images/icon.png')}
-              onError={() => {
-                console.log(`Failed to load profile image for ${type} ${userEmail}`);
-              }}
-            />
-          </View>
-          <View style={styles.userDetails}>
-            <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
-              {userName}
-            </Text>
-            <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-              {userEmail}
-            </Text>
-            {type === 'request' && (
-              <View style={styles.dateContainer}>
-                <Ionicons name="time-outline" size={12} color="#9E95BD" />
-                <Text style={[styles.dateText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  Sent {new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </Text>
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
-        
-        {/* Action buttons based on type */}
-        {type === 'friend' && (
-          <TouchableOpacity
-            style={styles.removeButton}
-            onPress={() => removeFriend(userId)}
-          >
-            <Ionicons name="person-remove" size={20} color={Colors[colorScheme ?? 'light'].error} />
-          </TouchableOpacity>
-        )}
-        
-        {type === 'following' && (
-          <TouchableOpacity
-            style={styles.unfollowButton}
-            onPress={() => handleUnfollow(userEmail)}
-          >
-            <Ionicons name="person-remove-outline" size={20} color="#fff" />
-          </TouchableOpacity>
-        )}
-        
-        {type === 'request' && (
-          <View style={styles.requestActions}>
-            <TouchableOpacity
-              style={styles.acceptButton}
-              onPress={() => respondToFriendRequest(user.request_id, 'accepted')}
-            >
-              <Ionicons name="checkmark" size={18} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.declineButton}
-              onPress={() => respondToFriendRequest(user.request_id, 'declined')}
-            >
-              <Ionicons name="close" size={18} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+      <AnimatedUserItem
+        key={itemKey}
+        user={user}
+        type={type}
+        index={index}
+        colorScheme={colorScheme ?? 'light'}
+        onUserPress={handleUserProfileNavigation}
+        onRemoveFriend={removeFriend}
+        onUnfollow={handleUnfollow}
+        onAcceptRequest={handleAcceptRequest}
+        onDeclineRequest={handleDeclineRequest}
+        onItemRemoved={handleItemRemoved}
+        isRemoving={isRemoving}
+      />
     );
   };
 
@@ -449,9 +808,11 @@ export default function FriendsModal({
     }
 
     return (
-      <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-        {data.map((item) => renderUserItem(item, type))}
-      </ScrollView>
+      <Animated.View style={{ flex: 1, opacity: tabSwitchAnim }}>
+        <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+          {data.map((item, index) => renderUserItem(item, type, index))}
+        </ScrollView>
+      </Animated.View>
     );
   };
 
@@ -685,8 +1046,8 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
-    paddingHorizontal: 0,
-    paddingTop: 10,
+    paddingHorizontal: 8,
+    paddingTop: 8,
   },
   emptyContainer: {
     flex: 1,
@@ -708,51 +1069,51 @@ const styles = StyleSheet.create({
   },
   userItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    marginVertical: 6,
-    marginHorizontal: 0,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(158, 149, 189, 0.08)',
-    backgroundColor: 'rgba(158, 149, 189, 0.02)',
+    backgroundColor: '#fff',
+    height: 72,
+    overflow: 'hidden',
+    padding: 12,
+    width: '100%',
+    borderRadius: 8,
+    position: 'relative',
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    justifyContent: 'center',
+    paddingTop: 2,
   },
   userAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#F5F5F7',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 18,
+    marginRight: 12,
     borderWidth: 2,
     borderColor: 'rgba(158, 149, 189, 0.1)',
   },
   userAvatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 26,
+    borderRadius: 24,
   },
   userDetails: {
     flex: 1,
+    justifyContent: 'center',
   },
   userName: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 2,
-    letterSpacing: 0.2,
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
   userEmail: {
-    fontSize: 13,
-    opacity: 0.65,
+    fontSize: 14,
+    opacity: 0.8,
     fontWeight: '400',
-    marginTop: 1,
   },
   dateContainer: {
     flexDirection: 'row',
@@ -760,7 +1121,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   dateText: {
-    fontSize: 11,
+    fontSize: 10,
     opacity: 0.6,
     marginLeft: 4,
     fontWeight: '400',
@@ -771,6 +1132,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 68, 68, 0.08)',
     borderWidth: 1,
     borderColor: 'rgba(255, 68, 68, 0.15)',
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   unfollowButton: {
     padding: 12,
@@ -782,8 +1147,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 44,
     minHeight: 44,
-      },
-    requestActions: {
+  },
+  requestActions: {
     flexDirection: 'row',
     gap: 10,
   },
@@ -792,7 +1157,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     minWidth: 40,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(76, 175, 80, 0.2)',
   },
@@ -801,7 +1168,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     minWidth: 40,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(244, 67, 54, 0.2)',
   },

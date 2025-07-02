@@ -81,11 +81,9 @@ interface EventDetailModalProps {
 export default function EventDetailModal({ event, visible, onClose, userLocation, cardPosition }: EventDetailModalProps) {
   const colorScheme = useColorScheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
   const [isClosing, setIsClosing] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [mapReady, setMapReady] = useState(false);
-  const [mapError, setMapError] = useState(false);
   
   // Creator profile modal state
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false);
@@ -1154,7 +1152,6 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   onMapReady={() => {
                     console.log('Map is ready');
                     setMapReady(true);
-                    setMapError(false);
                   }}
                   onRegionChangeComplete={() => {
                     // Ensure map is properly initialized

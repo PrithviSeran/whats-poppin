@@ -8,8 +8,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import EventFilterOverlay from './EventFilterOverlay';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '@/lib/supabase';
-import { FileObject } from '@supabase/storage-js';
 import * as Location from 'expo-location';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import GlobalDataManager from '@/lib/GlobalDataManager';
@@ -22,7 +20,6 @@ const { width, height } = Dimensions.get('window');
 const FOOTER_HEIGHT = 80;
 const TOP_BUTTONS_HEIGHT = 60; // Space for top buttons
 const ACTION_BUTTONS_HEIGHT = 80; // Space for action buttons
-const CARD_WIDTH = (width - 45) / 2; // 2 cards per row with padding
 
 // We'll show a "No Image Found" placeholder instead of a default image
 
@@ -102,20 +99,6 @@ const isEventExpiringSoon = (event: EventCard): boolean => {
   return false;
 };
 
-// Function to calculate distance between two coordinates using Haversine formula
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371; // Radius of Earth in kilometers
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) *
-    Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c; // Distance in kilometers
-  return distance;
-};
 
 
 
@@ -133,52 +116,24 @@ export default function SuggestedEvents() {
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
   const colorScheme = useColorScheme();
-  const [likedEvents, setLikedEvents] = useState<EventCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFetchingActivities, setIsFetchingActivities] = useState(false);
   const [EVENTS, setEVENTS] = useState<EventCard[]>([]);
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
-  const cardOpacityAnim = useRef(new Animated.Value(0)).current;
   const [isSavedLikesVisible, setIsSavedLikesVisible] = useState(false);
-  const [savedActivitiesEvents, setSavedActivitiesEvents] = useState<EventCard[]>([]);
-  const [savedActivitiesLoading, setSavedActivitiesLoading] = useState(false);
-  const savedActivitiesFadeAnim = useRef(new Animated.Value(0)).current;
-  const [pressedCardIdx, setPressedCardIdx] = useState<number | null>(null);
   const [expandedSavedActivity, setExpandedSavedActivity] = useState<EventCard | null>(null);
   const savedActivityFadeAnim = useRef(new Animated.Value(0)).current;
   const savedActivityScaleAnim = useRef(new Animated.Value(0.8)).current;
   const savedActivityOpacityAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current;
-  const [isAnimating, setIsAnimating] = useState(false);
   const loadingFadeAnim = useRef(new Animated.Value(0)).current;
+  const [profileImageStates, setProfileImageStates] = useState<{ [eventId: number]: boolean }>({});
 
   const dataManager = GlobalDataManager.getInstance();
 
   // Memoized expensive calculations
   const processedEventsRef = useRef<EventCard[]>([]);
-  const lastFetchTimeRef = useRef<number>(0);
-
-  // Debounced fetch function
-  const debouncedFetchRef = useRef<any>(null);
-
-  const debouncedFetchBackend = useCallback(() => {
-    if (debouncedFetchRef.current) {
-      clearTimeout(debouncedFetchRef.current);
-    }
-
-    debouncedFetchRef.current = setTimeout(() => {
-      const now = Date.now();
-      if (now - lastFetchTimeRef.current < 1000) {
-        console.log('⚡ Fetch skipped - too frequent');
-        return;
-      }
-      lastFetchTimeRef.current = now;
-      fetchTokenAndCallBackend();
-    }, DEBOUNCE_DELAY);
-  }, []);
 
   // Optimized image URL generation with caching
   const getEventImageUrls = useCallback((eventId: number) => {
@@ -564,14 +519,6 @@ export default function SuggestedEvents() {
   }, [loading, isFetchingActivities, EVENTS.length]);
 
 
-  
-  const interpolateColor = swipeX.interpolate({
-    inputRange: [-width, 0, width],
-    outputRange: colorScheme === 'dark' 
-      ? ['#2A1A1A', '#1A1A1A', '#1A2A1A']
-      : ['#FFE5E5', '#FFFFFF', '#E5FFE5'],
-  });
-
   const handleCardPress = (card: EventCard) => {
     // Block all interactions if a swipe is in progress
     if (isSwipeInProgress) {
@@ -657,21 +604,6 @@ export default function SuggestedEvents() {
     })();
   };
 
-  // Load liked events on component mount
-  useEffect(() => {
-    const loadLikedEvents = async () => {
-      try {
-        const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-        if (savedEventsJson) {
-          const savedEvents = JSON.parse(savedEventsJson);
-          setLikedEvents(savedEvents);
-        }
-      } catch (error) {
-        console.error('Error loading liked events:', error);
-      }
-    };
-    loadLikedEvents();
-  }, []);
 
   // Add a watchdog effect to reset isSwipeInProgress if it gets stuck
   useEffect(() => {
@@ -707,72 +639,6 @@ export default function SuggestedEvents() {
       console.error('Error in handleSwipedAll:', error);
       setLoading(false);
       setIsFetchingActivities(false);
-    }
-  };
-
-
-  const fetchSavedActivities = async () => {
-    setSavedActivitiesLoading(true);
-
-    try {
-      // Get saved event ids from all_users
-      const userEvents = await dataManager.getSavedEvents();
-
-      if (!userEvents) {
-        setSavedActivitiesEvents([]);
-        setSavedActivitiesLoading(false);
-        return;
-      }
-
-      // Get user location if not already set
-      let userLat = userLocation?.latitude;
-      let userLon = userLocation?.longitude;
-      if (userLat == null || userLon == null) {
-        try {
-          // Check permissions before getting location
-          const { status } = await Location.getForegroundPermissionsAsync();
-          if (status === 'granted') {
-            let location = await Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Balanced,
-            });
-            userLat = location.coords.latitude;
-            userLon = location.coords.longitude;
-            setUserLocation({ latitude: userLat, longitude: userLon });
-          } else {
-            console.log('Location permission not granted for saved activities');
-            userLat = undefined;
-            userLon = undefined;
-          }
-        } catch (e) {
-          console.error('Error getting location for saved activities:', e);
-          // If location can't be fetched, just skip distance
-          userLat = undefined;
-          userLon = undefined;
-        }
-      }
-
-      // Attach distance to each event
-      const eventsWithDistance = (userEvents as any[]).filter(e => typeof e === 'object' && e !== null).map(event => {
-        let distance = null;
-        if (
-          userLat != null && userLon != null &&
-          event.latitude != null && event.longitude != null
-        ) {
-          distance = calculateDistance(
-            userLat,
-            userLon,
-            event.latitude,
-            event.longitude
-          );
-        }
-        return { ...event, distance };
-      });
-
-      setSavedActivitiesEvents(eventsWithDistance);
-    } catch (err) {
-      setSavedActivitiesEvents([]);
-    } finally {
-      setSavedActivitiesLoading(false);
     }
   };
 
@@ -1193,6 +1059,33 @@ export default function SuggestedEvents() {
                               
 
                               
+                              {/* Profile Picture in Top Right */}
+                              {(card.organization || card.posted_by) && profileImageStates[card.id] !== false && (
+                                <View style={styles.topRightProfileContainer}>
+                                  <Image 
+                                    source={{ 
+                                      uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${(card.posted_by || card.organization).replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+                                    }}
+                                    style={styles.topRightProfileImage}
+                                    onError={() => {
+                                      console.log(`Failed to load profile image for ${card.posted_by || card.organization}`);
+                                      // Hide the avatar container when image fails to load
+                                      setProfileImageStates(prev => ({
+                                        ...prev,
+                                        [card.id]: false
+                                      }));
+                                    }}
+                                    onLoad={() => {
+                                      // Mark that profile image loaded successfully
+                                      setProfileImageStates(prev => ({
+                                        ...prev,
+                                        [card.id]: true
+                                      }));
+                                    }}
+                                  />
+                                </View>
+                              )}
+
                               {/* Featured Badge */}
                               {card.featured && (
                                 <View style={styles.modernFeaturedBadge}>
@@ -1230,30 +1123,14 @@ export default function SuggestedEvents() {
                             <View style={styles.cardContent}>
                               {/* Title and Organization */}
                               <View style={styles.titleSection}>
-                                <View style={styles.titleRow}>
-                                  <Text style={[styles.modernTitle, { color: colorScheme === 'dark' ? '#FFFFFF' : '#1A1A1A' }]} numberOfLines={2}>
-                                    {card.name}
+                                <Text style={[styles.modernTitle, { color: colorScheme === 'dark' ? '#FFFFFF' : '#1A1A1A' }]} numberOfLines={2}>
+                                  {card.name}
+                                </Text>
+                                {(card.organization || card.posted_by) && (
+                                  <Text style={[styles.organizationLabel, { color: colorScheme === 'dark' ? '#B0B0B0' : '#666666' }]} numberOfLines={1}>
+                                    by {card.posted_by ? card.posted_by.split('@')[0] : card.organization}
                                   </Text>
-                                  {(card.organization || card.posted_by) && (
-                                    <View style={styles.organizationContainer}>
-                                      <View style={styles.organizationAvatar}>
-                                        <Image 
-                                          source={{ 
-                                            uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${(card.posted_by || card.organization).replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-                                          }}
-                                          style={styles.organizationAvatarImage}
-                                          defaultSource={require('../assets/images/icon.png')}
-                                          onError={() => {
-                                            console.log(`Failed to load profile image for ${card.posted_by || card.organization}`);
-                                          }}
-                                        />
-                                      </View>
-                                      <Text style={[styles.organizationLabel, { color: colorScheme === 'dark' ? '#B0B0B0' : '#666666' }]} numberOfLines={1}>
-                                        by {card.posted_by ? card.posted_by.split('@')[0] : card.organization}
-                                      </Text>
-                                    </View>
-                                  )}
-                                </View>
+                                )}
                               </View>
 
                               {/* Tags Row */}
@@ -2695,31 +2572,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
   },
-  // Title Row Styles
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  // Organization Avatar Styles
-  organizationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 12,
-    flexShrink: 0,
-  },
-  organizationAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(158, 149, 189, 0.2)',
+  // Top Right Profile Picture Styles
+  topRightProfileContainer: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 10,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
     overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
-  organizationAvatarImage: {
+  topRightProfileImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 10,
+    borderRadius: 25,
   },
 });

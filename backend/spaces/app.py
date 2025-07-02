@@ -997,11 +997,7 @@ class EventRecommendationSystem:
             if all_events_filtered:
                 ml_event_type_counts = {}
                 for event in all_events_filtered[:30]:  # Sample events for ML training
-                    event_types = event.get('event_type', [])
-                    if isinstance(event_types, str):
-                        event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
-                    elif not isinstance(event_types, list):
-                        event_types = []
+                    event_types = self.parse_event_types(event.get('event_type', []))
                     for event_type in event_types:
                         ml_event_type_counts[event_type] = ml_event_type_counts.get(event_type, 0) + 1
                 print(f"🤖 Event types available for ML training: {ml_event_type_counts}")
@@ -1015,23 +1011,25 @@ class EventRecommendationSystem:
                 epochs=10, learning_rate=0.01, batch_size=256, force_retrain=True
             )
 
-            # Generate recommendations
+            # Generate recommendations - OPTIMIZED: Only get top 5 since that's what we return
             liked_and_rejected_ids = set(saved_events) | set(rejected_events)
             recommendations = self.rec.recommend_for_user(
-                email, top_n=15, filter_liked=True, liked_event_ids=list(liked_and_rejected_ids)
+                email, top_n=5, filter_liked=True, liked_event_ids=list(liked_and_rejected_ids)
             )
             
             print(f"🎯 ML model generated {len(recommendations)} recommendations")
             if recommendations:
-                rec_event_ids = [eid for eid, score in recommendations[:10]]
-                print(f"🔢 Top 10 recommended event IDs: {rec_event_ids}")
+                rec_event_ids = [eid for eid, score in recommendations[:5]]
+                print(f"🔢 Top 5 recommended event IDs: {rec_event_ids}")
 
-            # Get the full event objects for the recommended events
+            # Get the full event objects for the recommended events - OPTIMIZED with lookup dict
             recommended_events = []
+            # Create a lookup dictionary for O(1) access instead of O(n) search
+            event_lookup = {event["id"]: event for event in all_events_filtered}
             for eid, score in recommendations:
                 if eid in exclude_ids:
                     continue
-                event_obj = next((event for event in all_events_filtered if event["id"] == eid), None)
+                event_obj = event_lookup.get(eid)
                 if event_obj:
                     recommended_events.append(event_obj)
                     
@@ -1039,41 +1037,23 @@ class EventRecommendationSystem:
             if recommended_events:
                 rec_event_type_counts = {}
                 for event in recommended_events[:10]:  # Sample recommended events
-                    event_types = event.get('event_type', [])
-                    if isinstance(event_types, str):
-                        event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
-                    elif not isinstance(event_types, list):
-                        event_types = []
+                    event_types = self.parse_event_types(event.get('event_type', []))
                     for event_type in event_types:
                         rec_event_type_counts[event_type] = rec_event_type_counts.get(event_type, 0) + 1
                 print(f"🎯 Event types in ML recommendations: {rec_event_type_counts}")
                 print(f"📈 Total ML recommended events: {len(recommended_events)}")
 
-            # Apply additional filters
+            # OPTIMIZATION: Skip redundant filtering since these filters were already applied earlier
+            # The ML recommendations are already based on filtered events, so no need to re-apply filters
             events_filtered = recommended_events
-
-            # Apply distance filter
-            if filter_distance and latitude is not None and longitude is not None:
-                events_filtered = self.apply_distance_filter(events_filtered, latitude, longitude, filter_distance, max_distance=50)
-
-            # Apply time filters
-            if final_start_time and final_end_time:
-                events_filtered = self.filter_by_time(events_filtered, final_start_time, final_end_time)
-
-            # Apply calendar date filter
-            if use_calendar_filter and selected_dates:
-                events_filtered = self.filter_by_dates(events_filtered, selected_dates)
+            print(f"🚀 OPTIMIZATION: Skipping redundant filtering - using ML recommendations directly")
                 
             # DEBUG: Check final event types being returned to user
             final_events_to_return = events_filtered[:5]
             if final_events_to_return:
                 final_event_type_counts = {}
                 for event in final_events_to_return:
-                    event_types = event.get('event_type', [])
-                    if isinstance(event_types, str):
-                        event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
-                    elif not isinstance(event_types, list):
-                        event_types = []
+                    event_types = self.parse_event_types(event.get('event_type', []))
                     for event_type in event_types:
                         final_event_type_counts[event_type] = final_event_type_counts.get(event_type, 0) + 1
                 print(f"🎉 FINAL event types being returned to user: {final_event_type_counts}")
@@ -1089,12 +1069,8 @@ class EventRecommendationSystem:
                 "total_found": len(all_events_filtered)
             }
         except Exception as e:
-            print(f"Error in ML recommendation logic: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error in ML recommendation logic: {str(e)}")
-                
-        except Exception as e:
-            print(f"Unexpected error in recommend_events: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
+            print(f"Error in recommend_events: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error in recommend_events: {str(e)}")
 
 # Initialize the recommendation system
 recommender = EventRecommendationSystem()
