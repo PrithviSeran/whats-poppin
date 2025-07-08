@@ -21,6 +21,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -102,7 +103,10 @@ const ForgotPasswordScreen = () => {
         return;
       }
 
-      // Use the app deep link - properly configured for production
+      // Save the email to AsyncStorage for password reset
+      await AsyncStorage.setItem('resetPasswordEmail', email);
+      
+      // Use a simple redirect URL that will open the app
       const redirectUrl = 'whatspoppin://reset-password';
       
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -116,6 +120,8 @@ const ForgotPasswordScreen = () => {
         } else {
           setEmailError(error.message);
         }
+        // Remove the email from AsyncStorage if there was an error
+        await AsyncStorage.removeItem('resetPasswordEmail');
       } else {
         setSuccessMessage('Password reset instructions have been sent to your email. Please check your inbox and follow the link to reset your password.');
         setEmail('');

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -21,6 +21,8 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import GlobalDataManager from '@/lib/GlobalDataManager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -45,9 +47,12 @@ const ResetPasswordScreen = () => {
   const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState<string | null>(null);
+  const [isEmailLoading, setIsEmailLoading] = useState(true);
   const colorScheme = useColorScheme();
   const passwordScaleAnim = useRef(new Animated.Value(1)).current;
   const confirmPasswordScaleAnim = useRef(new Animated.Value(1)).current;
+  const successScaleAnim = useRef(new Animated.Value(0.8)).current;
 
   const checkPasswordRequirements = (text: string) => ({
     length: text.length >= 8,
@@ -102,6 +107,10 @@ const ResetPasswordScreen = () => {
 
   const handleResetPassword = async () => {
     if (!validatePassword(password) || !validateConfirmPassword(confirmPassword)) return;
+    if (!resetEmail) {
+      setPasswordError('No reset email found. Please request a new password reset.');
+      return;
+    }
 
     setIsLoading(true);
     setSuccessMessage('');
@@ -109,45 +118,58 @@ const ResetPasswordScreen = () => {
     setConfirmPasswordError('');
 
     try {
-      // Get the current session - should be automatically established from the deep link
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log('🔍 Password reset - Using email from AsyncStorage:', resetEmail);
       
-      if (sessionError || !session) {
-        setPasswordError('Invalid or expired password reset link. Please request a new password reset from the sign-in screen.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Verify the session is for password recovery
-      if (!session.user?.aud || session.user.aud !== 'authenticated') {
-        setPasswordError('Invalid session. Please request a new password reset link.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Update the password
-      const { error: updateError } = await supabase.auth.updateUser({
+      // Update the password using the email from AsyncStorage
+      const { error } = await supabase.auth.updateUser({
         password: password
       });
-
-      if (updateError) {
+      
+      if (error) {
+        console.error('❌ Password update error:', error);
+        
         // Handle specific error types
-        if (updateError.message.includes('session_not_found')) {
-          setPasswordError('Session expired. Please request a new password reset link.');
-        } else if (updateError.message.includes('weak_password')) {
+        if (error.message.includes('weak_password')) {
           setPasswordError('Password is too weak. Please choose a stronger password.');
+        } else if (error.message.includes('password')) {
+          setPasswordError('Password update failed. Please try again.');
         } else {
-          setPasswordError(updateError.message);
+          setPasswordError(`Update failed: ${error.message}`);
         }
       } else {
-        setSuccessMessage('Password has been reset successfully! Redirecting to sign in...');
+        console.log('✅ Password updated successfully');
+        setSuccessMessage('🎉 Your password has been successfully reset! You will be redirected to the sign-in screen in a few seconds.');
+        
+        // Animate the success message appearance
+        Animated.spring(successScaleAnim, {
+          toValue: 1,
+          tension: 100,
+          friction: 8,
+          useNativeDriver: true,
+        }).start();
+        
+        // Remove the email from AsyncStorage since password was successfully reset
+        try {
+          await AsyncStorage.removeItem('resetPasswordEmail');
+          console.log('✅ Reset email removed from AsyncStorage');
+        } catch (removeError) {
+          console.warn('⚠️ Error removing reset email from AsyncStorage:', removeError);
+        }
+        
         // Sign out to ensure clean state
-        await supabase.auth.signOut();
+        try {
+          await supabase.auth.signOut();
+          console.log('✅ User signed out after password reset');
+        } catch (signOutError) {
+          console.warn('⚠️ Sign out error (non-critical):', signOutError);
+        }
+        
         setTimeout(() => {
           navigation.navigate('social-sign-in');
-        }, 2000);
+        }, 3000); // Increased to 3 seconds to give user time to read the message
       }
     } catch (error) {
+      console.error('❌ Unexpected error during password reset:', error);
       setPasswordError('Network error. Please check your internet connection and try again.');
     } finally {
       setIsLoading(false);
@@ -192,6 +214,37 @@ const ResetPasswordScreen = () => {
 
   const requirements = checkPasswordRequirements(password);
 
+  useEffect(() => {
+    // Load the reset email from AsyncStorage
+    const loadResetEmail = async () => {
+      try {
+        const email = await AsyncStorage.getItem('resetPasswordEmail');
+        console.log('🔍 ResetPasswordScreen - Loading email from AsyncStorage:', email ? 'Email found' : 'No email found');
+        
+        if (email) {
+          setResetEmail(email);
+          console.log('✅ Reset email loaded:', email);
+        } else {
+          console.warn('⚠️ No reset email found in AsyncStorage');
+          setPasswordError('No password reset request found. Please request a new password reset from the sign-in screen.');
+        }
+      } catch (error) {
+        console.error('❌ Error loading reset email:', error);
+        setPasswordError('Error loading reset email. Please try requesting a new password reset.');
+      } finally {
+        setIsEmailLoading(false);
+      }
+    };
+    
+    // Load the email
+    loadResetEmail();
+    
+    // Cleanup
+    return () => {
+      // No cleanup needed for this approach
+    };
+  }, []);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <TouchableOpacity
@@ -222,239 +275,264 @@ const ResetPasswordScreen = () => {
           </View>
 
           <View style={styles.contentContainer}>
-            <View style={styles.titleContainer}>
-              <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>
-                Create new password
-              </Text>
-              <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                Choose a strong password to secure your account
-              </Text>
-            </View>
-
-            {successMessage ? (
-              <View style={styles.successContainer}>
-                <View style={styles.successHeader}>
-                  <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
-                  <Text style={[styles.successTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Password Reset Complete
-                  </Text>
-                </View>
-                <Text style={[styles.successMessage, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {successMessage}
+            {isEmailLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].accent} />
+                <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Loading reset information...
                 </Text>
               </View>
             ) : (
               <>
-                <View style={styles.inputsContainer}>
-                  <Animated.View 
-                    style={[
-                      styles.inputContainer,
-                      { transform: [{ scale: passwordScaleAnim }] }
-                    ]}
-                  >
-                    <View style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: Colors[colorScheme ?? 'light'].card,
-                        borderColor: passwordError 
-                          ? '#FF3B30' 
-                          : passwordFocused 
-                            ? '#9E95BD' 
-                            : colorScheme === 'dark' ? '#333' : '#E5E5E7',
-                        shadowColor: passwordFocused ? '#9E95BD' : '#000',
-                        shadowOpacity: passwordFocused ? 0.2 : 0.1,
-                      }
-                    ]}>
-                      <Ionicons 
-                        name="lock-closed-outline" 
-                        size={22} 
-                        color={passwordFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { color: Colors[colorScheme ?? 'light'].text },
-                        ]}
-                        value={password}
-                        onChangeText={(text) => {
-                          setPassword(text);
-                          validatePassword(text);
-                          if (confirmPassword) validateConfirmPassword(confirmPassword);
-                          setSuccessMessage('');
-                        }}
-                        onFocus={handlePasswordFocus}
-                        onBlur={handlePasswordBlur}
-                        placeholder="Enter your new password"
-                        placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        secureTextEntry={!showPassword}
-                        returnKeyType="next"
-                        editable={!isLoading}
-                      />
-                      <TouchableOpacity
-                        onPress={() => setShowPassword(!showPassword)}
-                        style={styles.eyeButton}
-                      >
-                        <Ionicons 
-                          name={showPassword ? "eye-off-outline" : "eye-outline"} 
-                          size={22} 
-                          color={Colors[colorScheme ?? 'light'].icon} 
-                        />
-                      </TouchableOpacity>
-                    </View>
-                    {passwordError ? (
-                      <View style={styles.errorContainer}>
-                        <Ionicons name="alert-circle" size={16} color="#FF3B30" />
-                        <Text style={styles.errorText}>{passwordError}</Text>
-                      </View>
-                    ) : null}
-                  </Animated.View>
-
-                  <Animated.View 
-                    style={[
-                      styles.inputContainer,
-                      { transform: [{ scale: confirmPasswordScaleAnim }] }
-                    ]}
-                  >
-                    <View style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: Colors[colorScheme ?? 'light'].card,
-                        borderColor: confirmPasswordError 
-                          ? '#FF3B30' 
-                          : confirmPasswordFocused 
-                            ? '#9E95BD' 
-                            : colorScheme === 'dark' ? '#333' : '#E5E5E7',
-                        shadowColor: confirmPasswordFocused ? '#9E95BD' : '#000',
-                        shadowOpacity: confirmPasswordFocused ? 0.2 : 0.1,
-                      }
-                    ]}>
-                      <Ionicons 
-                        name="lock-closed-outline" 
-                        size={22} 
-                        color={confirmPasswordFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { color: Colors[colorScheme ?? 'light'].text },
-                        ]}
-                        value={confirmPassword}
-                        onChangeText={(text) => {
-                          setConfirmPassword(text);
-                          validateConfirmPassword(text);
-                          setSuccessMessage('');
-                        }}
-                        onFocus={handleConfirmPasswordFocus}
-                        onBlur={handleConfirmPasswordBlur}
-                        placeholder="Confirm your new password"
-                        placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        secureTextEntry={!showConfirmPassword}
-                        returnKeyType="done"
-                        onSubmitEditing={handleResetPassword}
-                        editable={!isLoading}
-                      />
-                      <TouchableOpacity
-                        onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                        style={styles.eyeButton}
-                      >
-                        <Ionicons 
-                          name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} 
-                          size={22} 
-                          color={Colors[colorScheme ?? 'light'].icon} 
-                        />
-                      </TouchableOpacity>
-                    </View>
-                    {confirmPasswordError ? (
-                      <View style={styles.errorContainer}>
-                        <Ionicons name="alert-circle" size={16} color="#FF3B30" />
-                        <Text style={styles.errorText}>{confirmPasswordError}</Text>
-                      </View>
-                    ) : null}
-                  </Animated.View>
-
-                  {password && !passwordError && (
-                    <View style={styles.requirementsContainer}>
-                      <Text style={[styles.requirementsTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Password requirements:
-                      </Text>
-                      <View style={styles.requirementsList}>
-                        {[
-                          { key: 'length', label: 'At least 8 characters', icon: 'checkmark-circle' },
-                          { key: 'uppercase', label: 'One uppercase letter', icon: 'checkmark-circle' },
-                          { key: 'lowercase', label: 'One lowercase letter', icon: 'checkmark-circle' },
-                          { key: 'number', label: 'One number', icon: 'checkmark-circle' },
-                          { key: 'special', label: 'One special character', icon: 'checkmark-circle' },
-                        ].map(({ key, label, icon }) => (
-                          <View key={key} style={styles.requirementRow}>
-                            <Ionicons 
-                              name={requirements[key as keyof typeof requirements] ? icon as any : "ellipse-outline"} 
-                              size={16} 
-                              color={requirements[key as keyof typeof requirements] ? '#22C55E' : '#6B7280'} 
-                              style={styles.requirementIcon}
-                            />
-                            <Text
-                              style={[
-                                styles.requirementText,
-                                { 
-                                  color: requirements[key as keyof typeof requirements] 
-                                    ? '#22C55E' 
-                                    : Colors[colorScheme ?? 'light'].text,
-                                  opacity: requirements[key as keyof typeof requirements] ? 1 : 0.6,
-                                }
-                              ]}
-                            >
-                              {label}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    </View>
+                <View style={styles.titleContainer}>
+                  <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Create new password
+                  </Text>
+                  <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Choose a strong password to secure your account
+                  </Text>
+                  {resetEmail && (
+                    <Text style={[styles.emailText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Resetting password for: {resetEmail}
+                    </Text>
                   )}
                 </View>
 
-                <View style={styles.buttonContainer}>
-                  <TouchableOpacity
-                    onPress={handleResetPassword}
-                    disabled={!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError || isLoading}
-                    style={styles.buttonWrapper}
+                {successMessage ? (
+                  <Animated.View 
+                    style={[
+                      styles.successContainer,
+                      { transform: [{ scale: successScaleAnim }] }
+                    ]}
                   >
-                    <LinearGradient
-                      colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      locations={[0, 0.25, 0.5, 0.75, 1]}
-                      style={[
-                        styles.resetButton,
-                        (!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError || isLoading) && styles.disabledButton,
-                      ]}
-                    >
-                      {isLoading ? (
-                        <ActivityIndicator size="small" color="white" />
-                      ) : (
-                        <>
-                          <Text style={styles.resetButtonText}>Reset Password</Text>
-                          <Ionicons name="checkmark" size={18} color="white" style={styles.buttonIcon} />
-                        </>
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
+                    <View style={styles.successHeader}>
+                      <Ionicons name="checkmark-circle" size={28} color="#22C55E" />
+                      <Text style={[styles.successTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        Password Reset Complete
+                      </Text>
+                    </View>
+                    <Text style={[styles.successMessage, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {successMessage}
+                    </Text>
+                  </Animated.View>
+                ) : (
+                  <>
+                    <View style={styles.inputsContainer}>
+                      <Animated.View 
+                        style={[
+                          styles.inputContainer,
+                          { transform: [{ scale: passwordScaleAnim }] }
+                        ]}
+                      >
+                        <View style={[
+                          styles.inputWrapper,
+                          {
+                            backgroundColor: Colors[colorScheme ?? 'light'].card,
+                            borderColor: passwordError 
+                              ? '#FF3B30' 
+                              : passwordFocused 
+                                ? '#9E95BD' 
+                                : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                            shadowColor: passwordFocused ? '#9E95BD' : '#000',
+                            shadowOpacity: passwordFocused ? 0.2 : 0.1,
+                          }
+                        ]}>
+                          <Ionicons 
+                            name="lock-closed-outline" 
+                            size={22} 
+                            color={passwordFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
+                            style={styles.inputIcon}
+                          />
+                          <TextInput
+                            style={[
+                              styles.input,
+                              { color: Colors[colorScheme ?? 'light'].text },
+                            ]}
+                            value={password}
+                            onChangeText={(text) => {
+                              setPassword(text);
+                              validatePassword(text);
+                              if (confirmPassword) validateConfirmPassword(confirmPassword);
+                              setSuccessMessage('');
+                              // Reset success animation
+                              successScaleAnim.setValue(0.8);
+                            }}
+                            onFocus={handlePasswordFocus}
+                            onBlur={handlePasswordBlur}
+                            placeholder="Enter your new password"
+                            placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            secureTextEntry={!showPassword}
+                            returnKeyType="next"
+                            editable={!isLoading}
+                          />
+                          <TouchableOpacity
+                            onPress={() => setShowPassword(!showPassword)}
+                            style={styles.eyeButton}
+                          >
+                            <Ionicons 
+                              name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                              size={22} 
+                              color={Colors[colorScheme ?? 'light'].icon} 
+                            />
+                          </TouchableOpacity>
+                        </View>
+                        {passwordError ? (
+                          <View style={styles.errorContainer}>
+                            <Ionicons name="alert-circle" size={16} color="#FF3B30" />
+                            <Text style={styles.errorText}>{passwordError}</Text>
+                          </View>
+                        ) : null}
+                      </Animated.View>
 
-                <TouchableOpacity 
-                  style={styles.backToSignInLink}
-                  onPress={handleBackToSignIn}
-                  disabled={isLoading}
-                >
-                  <Text style={[styles.backToSignInLinkText, { color: '#9E95BD' }]}>
-                    Back to Sign In
-                  </Text>
-                </TouchableOpacity>
+                      <Animated.View 
+                        style={[
+                          styles.inputContainer,
+                          { transform: [{ scale: confirmPasswordScaleAnim }] }
+                        ]}
+                      >
+                        <View style={[
+                          styles.inputWrapper,
+                          {
+                            backgroundColor: Colors[colorScheme ?? 'light'].card,
+                            borderColor: confirmPasswordError 
+                              ? '#FF3B30' 
+                              : confirmPasswordFocused 
+                                ? '#9E95BD' 
+                                : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                            shadowColor: confirmPasswordFocused ? '#9E95BD' : '#000',
+                            shadowOpacity: confirmPasswordFocused ? 0.2 : 0.1,
+                          }
+                        ]}>
+                          <Ionicons 
+                            name="lock-closed-outline" 
+                            size={22} 
+                            color={confirmPasswordFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
+                            style={styles.inputIcon}
+                          />
+                          <TextInput
+                            style={[
+                              styles.input,
+                              { color: Colors[colorScheme ?? 'light'].text },
+                            ]}
+                            value={confirmPassword}
+                            onChangeText={(text) => {
+                              setConfirmPassword(text);
+                              validateConfirmPassword(text);
+                              setSuccessMessage('');
+                              // Reset success animation
+                              successScaleAnim.setValue(0.8);
+                            }}
+                            onFocus={handleConfirmPasswordFocus}
+                            onBlur={handleConfirmPasswordBlur}
+                            placeholder="Confirm your new password"
+                            placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            secureTextEntry={!showConfirmPassword}
+                            returnKeyType="done"
+                            onSubmitEditing={handleResetPassword}
+                            editable={!isLoading}
+                          />
+                          <TouchableOpacity
+                            onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                            style={styles.eyeButton}
+                          >
+                            <Ionicons 
+                              name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} 
+                              size={22} 
+                              color={Colors[colorScheme ?? 'light'].icon} 
+                            />
+                          </TouchableOpacity>
+                        </View>
+                        {confirmPasswordError ? (
+                          <View style={styles.errorContainer}>
+                            <Ionicons name="alert-circle" size={16} color="#FF3B30" />
+                            <Text style={styles.errorText}>{confirmPasswordError}</Text>
+                          </View>
+                        ) : null}
+                      </Animated.View>
+
+                      {password && !passwordError && (
+                        <View style={styles.requirementsContainer}>
+                          <Text style={[styles.requirementsTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                            Password requirements:
+                          </Text>
+                          <View style={styles.requirementsList}>
+                            {[
+                              { key: 'length', label: 'At least 8 characters', icon: 'checkmark-circle' },
+                              { key: 'uppercase', label: 'One uppercase letter', icon: 'checkmark-circle' },
+                              { key: 'lowercase', label: 'One lowercase letter', icon: 'checkmark-circle' },
+                              { key: 'number', label: 'One number', icon: 'checkmark-circle' },
+                              { key: 'special', label: 'One special character', icon: 'checkmark-circle' },
+                            ].map(({ key, label, icon }) => (
+                              <View key={key} style={styles.requirementRow}>
+                                <Ionicons 
+                                  name={requirements[key as keyof typeof requirements] ? icon as any : "ellipse-outline"} 
+                                  size={16} 
+                                  color={requirements[key as keyof typeof requirements] ? '#22C55E' : '#6B7280'} 
+                                  style={styles.requirementIcon}
+                                />
+                                <Text
+                                  style={[
+                                    styles.requirementText,
+                                    { 
+                                      color: requirements[key as keyof typeof requirements] 
+                                        ? '#22C55E' 
+                                        : Colors[colorScheme ?? 'light'].text,
+                                      opacity: requirements[key as keyof typeof requirements] ? 1 : 0.6,
+                                    }
+                                  ]}
+                                >
+                                  {label}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.buttonContainer}>
+                      <TouchableOpacity
+                        onPress={handleResetPassword}
+                        disabled={!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError || isLoading || !resetEmail || isEmailLoading}
+                        style={styles.buttonWrapper}
+                      >
+                        <LinearGradient
+                          colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          locations={[0, 0.25, 0.5, 0.75, 1]}
+                          style={[
+                            styles.resetButton,
+                            (!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError || isLoading || !resetEmail || isEmailLoading) && styles.disabledButton,
+                          ]}
+                        >
+                          {isLoading ? (
+                            <ActivityIndicator size="small" color="white" />
+                          ) : (
+                            <>
+                              <Text style={styles.resetButtonText}>Reset Password</Text>
+                              <Ionicons name="checkmark" size={18} color="white" style={styles.buttonIcon} />
+                            </>
+                          )}
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity 
+                      style={styles.backToSignInLink}
+                      onPress={handleBackToSignIn}
+                      disabled={isLoading || isEmailLoading}
+                    >
+                      <Text style={[styles.backToSignInLinkText, { color: '#9E95BD' }]}>
+                        Back to Sign In
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
               </>
             )}
           </View>
@@ -573,28 +651,36 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   successContainer: {
-    padding: 20,
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.3)',
+    padding: 24,
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(34, 197, 94, 0.2)',
     alignItems: 'center',
+    marginVertical: 20,
+    shadowColor: '#22C55E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
   successHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   successTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 8,
+    fontSize: 20,
+    fontWeight: '700',
+    marginLeft: 10,
+    color: '#22C55E',
   },
   successMessage: {
-    fontSize: 14,
+    fontSize: 16,
     textAlign: 'center',
-    opacity: 0.8,
-    lineHeight: 20,
+    lineHeight: 24,
+    fontWeight: '500',
+    color: '#22C55E',
   },
   requirementsContainer: {
     marginTop: 16,
@@ -663,6 +749,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     textDecorationLine: 'underline',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 16,
+  },
+  emailText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: 8,
+    color: '#9E95BD',
   },
 });
 

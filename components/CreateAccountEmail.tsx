@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import MaskedView from '@react-native-masked-view/masked-view';
 import CreateAccountProgressBar from './CreateAccountProgressBar';
 import { supabase } from '@/lib/supabase';
+import { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 const { width } = Dimensions.get('window');
 
@@ -50,10 +51,17 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
   const [emailExists, setEmailExists] = useState(false);
+  const [isVerificationSent, setIsVerificationSent] = useState(false);
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
+  const [isResending, setIsResending] = useState(false);
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [enteredCode, setEnteredCode] = useState('');
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
-
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
   const validateEmail = (text: string) => {
@@ -78,37 +86,22 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     setEmailError('');
     
     try {
-      // First check auth.users table for existing auth accounts
-      const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
+      // Only check our all_users table for registered accounts
+      // We don't need to worry about the auth table since we're using OTP without creating users
+      const { data: userData, error: userError } = await supabase
+        .from('all_users')
+        .select('email')
+        .eq('email', email.toLowerCase())
+        .maybeSingle();
       
-      // If we can't access admin API (which is expected in client-side), 
-      // check the all_users table instead
-      if (authError) {
-        const { data: userData, error: userError } = await supabase
-          .from('all_users')
-          .select('email')
-          .eq('email', email.toLowerCase())
-          .maybeSingle();
-        
-        if (userError && userError.code !== 'PGRST116') {
-          console.error('Error checking email:', userError);
-          return;
-        }
-        
-        if (userData) {
-          setEmailExists(true);
-          setEmailError('This email is already registered');
-        }
-      } else {
-        // Check if email exists in auth users
-        const existingUser = authData.users.find(user => 
-          user.email?.toLowerCase() === email.toLowerCase()
-        );
-        
-        if (existingUser) {
-          setEmailExists(true);
-          setEmailError('This email is already registered');
-        }
+      if (userError && userError.code !== 'PGRST116') {
+        console.error('Error checking email:', userError);
+        return;
+      }
+      
+      if (userData) {
+        setEmailExists(true);
+        setEmailError('This email is already registered');
       }
     } catch (error) {
       console.error('Error checking email existence:', error);
@@ -121,6 +114,11 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     setEmail(text);
     setEmailExists(false);
     setEmailError('');
+    setVerificationError('');
+    setIsVerificationSent(false);
+    setIsEmailVerified(false);
+    setVerificationCode('');
+    setEnteredCode('');
     
     // Validate format first
     if (validateEmail(text)) {
@@ -133,11 +131,179 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     }
   };
 
+  const sendVerificationEmail = async () => {
+    if (!validateEmail(email) || emailExists) return;
+
+    setIsSendingVerification(true);
+    setVerificationError('');
+
+    try {
+      console.log('Sending verification code to:', email);
+      
+      // Generate a 6-digit verification code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      setVerificationCode(code);
+      
+      // Store verification record in our database
+      const { error: insertError } = await supabase
+        .from('email_verifications')
+        .insert({
+          email: email.toLowerCase(),
+          verification_token: code, // Use the code as the token
+          verified: false,
+          created_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() // 30 minutes
+        });
+
+      if (insertError) {
+        console.error('Error creating verification record:', insertError);
+        setVerificationError('Failed to create verification record. Please try again.');
+        return;
+      }
+
+      // Send verification email with the code
+      const { data, error } = await supabase.auth.signInWithOtp({
+        email: email.toLowerCase(),
+        options: {
+          shouldCreateUser: false,
+          data: {
+            verification_code: code,
+            verification_type: 'email_code_check',
+            custom_email_template: `
+              <h2>Verify Your Email</h2>
+              <p>Your verification code is:</p>
+              <h1 style="font-size: 32px; letter-spacing: 8px; color: #9E95BD;">${code}</h1>
+              <p>Enter this code in the What's Poppin app to verify your email.</p>
+              <p>This code expires in 30 minutes.</p>
+            `
+          }
+        }
+      });
+
+      if (error) {
+        console.error('Error sending verification email:', error);
+        
+        // For OTP, "user not found" is actually good - it means the email is valid for new registration
+        if (error.message.includes('Invalid login credentials') || 
+            error.message.includes('User not found') ||
+            error.message.includes('Email not confirmed')) {
+          console.log('Verification code sent successfully (new user)');
+          setIsVerificationSent(true);
+          setVerificationError('');
+        } else if (error.message.includes('Email rate limit exceeded')) {
+          setVerificationError('Too many emails sent. Please wait a moment before trying again.');
+        } else if (error.message.includes('already registered')) {
+          setEmailExists(true);
+          setEmailError('This email is already registered');
+        } else {
+          setVerificationError('Failed to send verification email. Please check the email address and try again.');
+        }
+        return;
+      }
+
+      console.log('Verification code sent successfully');
+      setIsVerificationSent(true);
+      setVerificationError('');
+
+    } catch (error) {
+      console.error('Unexpected error during email verification:', error);
+      setVerificationError('Network error. Please check your connection and try again.');
+    } finally {
+      setIsSendingVerification(false);
+    }
+  };
+
+  const verifyCode = async () => {
+    if (!enteredCode.trim() || enteredCode.length !== 6) {
+      setVerificationError('Please enter a valid 6-digit code');
+      return;
+    }
+
+    setIsVerifyingCode(true);
+    setVerificationError('');
+
+    try {
+      // Check if the code matches and is not expired
+      const { data, error } = await supabase
+        .from('email_verifications')
+        .select('*')
+        .eq('email', email.toLowerCase())
+        .eq('verification_token', enteredCode)
+        .eq('verified', false)
+        .single();
+
+      if (error || !data) {
+        setVerificationError('Invalid or expired verification code. Please try again or request a new code.');
+        setIsVerifyingCode(false);
+        return;
+      }
+
+      // Check if code is expired
+      if (new Date(data.expires_at) < new Date()) {
+        setVerificationError('Verification code has expired. Please request a new code.');
+        setIsVerifyingCode(false);
+        return;
+      }
+
+      // Mark as verified
+      const { error: updateError } = await supabase
+        .from('email_verifications')
+        .update({ 
+          verified: true, 
+          verified_at: new Date().toISOString() 
+        })
+        .eq('verification_token', enteredCode);
+
+      if (updateError) {
+        console.error('Error updating verification status:', updateError);
+        setVerificationError('Failed to verify code. Please try again.');
+        setIsVerifyingCode(false);
+        return;
+      }
+
+      // Success!
+      setIsEmailVerified(true);
+      setVerificationError('');
+      console.log('Email verified successfully with code!');
+
+    } catch (error) {
+      console.error('Error verifying code:', error);
+      setVerificationError('Network error. Please check your connection and try again.');
+    } finally {
+      setIsVerifyingCode(false);
+    }
+  };
+
+  // Cleanup effect
+
+
+  const resendVerificationEmail = async () => {
+    setIsResending(true);
+    
+    // Reset verification states
+    setIsVerificationSent(false);
+    setIsEmailVerified(false);
+    setVerificationCode('');
+    setEnteredCode('');
+    setVerificationError('');
+    
+    // Send new verification email
+    await sendVerificationEmail();
+    setIsResending(false);
+  };
+
   const handleNext = () => {
     if (validateEmail(email) && !emailExists && !isCheckingEmail) {
-      navigation.navigate('create-account-birthday', {
-        userData: JSON.stringify({ ...userData, email }),
-      });
+      if (!isVerificationSent) {
+        // First time - send verification code
+        sendVerificationEmail();
+      } else if (isEmailVerified) {
+        // Email verified - proceed to next step
+        navigation.navigate('create-account-birthday', {
+          userData: JSON.stringify({ ...userData, email, emailVerified: true }),
+        });
+      }
+      // If verification sent but not verified yet, user needs to enter code
     }
   };
 
@@ -307,13 +473,132 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
                    </View>
                  </View>
                )}
+
+               {/* Email Verification Section */}
+               {isVerificationSent && (
+                 <View style={[
+                   styles.verificationContainer,
+                   isEmailVerified && { backgroundColor: 'rgba(76, 175, 80, 0.15)', borderColor: 'rgba(76, 175, 80, 0.4)' }
+                 ]}>
+                   <View style={styles.verificationHeader}>
+                     <Ionicons 
+                       name={isEmailVerified ? "checkmark-circle" : "mail"} 
+                       size={24} 
+                       color={isEmailVerified ? "#4CAF50" : "#FF8C00"} 
+                     />
+                     <Text style={[styles.verificationTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                       {isEmailVerified 
+                         ? 'Email Verified!' 
+                         : 'Verification Code Sent!'
+                       }
+                     </Text>
+                   </View>
+                   
+                   <Text style={[styles.verificationMessage, { color: Colors[colorScheme ?? 'light'].text }]}>
+                     {isEmailVerified ? (
+                       <>
+                         Great! Your email <Text style={styles.emailHighlight}>{email}</Text> has been verified. 
+                         You can now continue with your account creation.
+                       </>
+                     ) : (
+                       <>
+                         We've sent a 6-digit verification code to <Text style={styles.emailHighlight}>{email}</Text>. 
+                         Please check your inbox (and spam folder) and enter the code below.
+                       </>
+                     )}
+                   </Text>
+
+                   {!isEmailVerified && (
+                     <View style={styles.codeInputContainer}>
+                       <Text style={[styles.codeInputLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                         Enter Verification Code
+                       </Text>
+                       <TextInput
+                         style={[
+                           styles.codeInput,
+                           {
+                             color: Colors[colorScheme ?? 'light'].text,
+                             backgroundColor: Colors[colorScheme ?? 'light'].card,
+                             borderColor: colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                           }
+                         ]}
+                         value={enteredCode}
+                         onChangeText={setEnteredCode}
+                         placeholder="123456"
+                         placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                         keyboardType="number-pad"
+                         maxLength={6}
+                         textAlign="center"
+                         autoCapitalize="none"
+                         autoCorrect={false}
+                       />
+                       
+                       <TouchableOpacity 
+                         style={[
+                           styles.verifyCodeButton,
+                           (!enteredCode.trim() || enteredCode.length !== 6 || isVerifyingCode) && styles.disabledCodeButton
+                         ]}
+                         onPress={verifyCode}
+                         disabled={!enteredCode.trim() || enteredCode.length !== 6 || isVerifyingCode}
+                         activeOpacity={0.7}
+                       >
+                         <LinearGradient
+                           colors={['#4CAF50', '#45A049']}
+                           start={{ x: 0, y: 0 }}
+                           end={{ x: 1, y: 1 }}
+                           style={styles.verifyCodeButtonGradient}
+                         >
+                           {isVerifyingCode ? (
+                             <ActivityIndicator size="small" color="white" />
+                           ) : (
+                             <Ionicons name="checkmark" size={18} color="white" />
+                           )}
+                           <Text style={styles.verifyCodeButtonText}>
+                             {isVerifyingCode ? 'Verifying...' : 'Verify Code'}
+                           </Text>
+                         </LinearGradient>
+                       </TouchableOpacity>
+                     </View>
+                   )}
+
+                   {!isEmailVerified && (
+                     <View style={styles.verificationActions}>
+                       <TouchableOpacity 
+                         style={[styles.resendButton, { 
+                           borderColor: colorScheme === 'dark' ? '#666' : '#D1D5DB',
+                           backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)'
+                         }]}
+                         onPress={resendVerificationEmail}
+                         disabled={isResending}
+                         activeOpacity={0.7}
+                       >
+                         {isResending ? (
+                           <ActivityIndicator size="small" color="#9E95BD" />
+                         ) : (
+                           <Ionicons name="refresh-outline" size={18} color="#9E95BD" />
+                         )}
+                         <Text style={[styles.resendButtonText, { color: '#9E95BD' }]}>
+                           {isResending ? 'Sending...' : 'Resend Code'}
+                         </Text>
+                       </TouchableOpacity>
+                     </View>
+                   )}
+
+                   {verificationError && (
+                     <View style={styles.errorContainer}>
+                       <Ionicons name="alert-circle" size={16} color="#FF3B30" />
+                       <Text style={styles.errorText}>{verificationError}</Text>
+                     </View>
+                   )}
+                 </View>
+               )}
             </Animated.View>
           </View>
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               onPress={handleNext}
-              disabled={!email.trim() || !!emailError || emailExists || isCheckingEmail}
+              disabled={!email.trim() || !!emailError || emailExists || isCheckingEmail || isSendingVerification || (isVerificationSent && !isEmailVerified)}
               style={styles.buttonWrapper}
             >
               <LinearGradient
@@ -323,11 +608,37 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
                 locations={[0, 0.25, 0.5, 0.75, 1]}
                 style={[
                   styles.nextButton,
-                  (!email.trim() || !!emailError || emailExists || isCheckingEmail) && styles.disabledButton,
+                  (!email.trim() || !!emailError || emailExists || isCheckingEmail || isSendingVerification || (isVerificationSent && !isEmailVerified)) && styles.disabledButton,
                 ]}
               >
-                <Text style={styles.nextButtonText}>Continue</Text>
-                <Ionicons name="chevron-forward" size={20} color="white" style={styles.buttonIcon} />
+                {isSendingVerification ? (
+                  <>
+                    <ActivityIndicator size="small" color="white" />
+                    <Text style={styles.nextButtonText}>Sending Code...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.nextButtonText}>
+                      {!isVerificationSent 
+                        ? 'Send Verification Code' 
+                        : isEmailVerified 
+                          ? 'Continue' 
+                          : 'Enter Code Above to Continue'
+                      }
+                    </Text>
+                    <Ionicons 
+                      name={!isVerificationSent 
+                        ? "mail" 
+                        : isEmailVerified 
+                          ? "chevron-forward" 
+                          : "keypad"
+                      } 
+                      size={20} 
+                      color="white" 
+                      style={styles.buttonIcon} 
+                    />
+                  </>
+                )}
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -531,6 +842,115 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     letterSpacing: 0.2,
+  },
+  verificationContainer: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(76, 175, 80, 0.3)',
+  },
+  verificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  verificationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  verificationMessage: {
+    fontSize: 14,
+    opacity: 0.8,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  emailHighlight: {
+    fontWeight: '600',
+    color: '#4CAF50',
+  },
+  verificationActions: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  checkStatusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    gap: 6,
+    width: '100%',
+  },
+  checkStatusButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  resendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    gap: 6,
+    width: '100%',
+  },
+  resendButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  codeInputContainer: {
+    marginVertical: 16,
+    alignItems: 'center',
+  },
+  codeInputLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  codeInput: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    letterSpacing: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderWidth: 2,
+    borderRadius: 12,
+    width: 200,
+    marginBottom: 16,
+  },
+  verifyCodeButton: {
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  verifyCodeButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 8,
+  },
+  verifyCodeButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  disabledCodeButton: {
+    opacity: 0.5,
   },
 });
 

@@ -559,7 +559,7 @@ export default function UserProfileModal({
 
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#9E95BD" />
+            <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].accent} />
             <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
               Loading profile...
             </Text>

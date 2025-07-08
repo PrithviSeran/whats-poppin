@@ -86,6 +86,18 @@ module.exports = {
           autoVerify: true,
           data: [
             {
+              scheme: "whatspoppin",
+              host: "*",
+              pathPrefix: "/reset-password"
+            }
+          ],
+          category: ["BROWSABLE", "DEFAULT"]
+        },
+        {
+          action: "VIEW",
+          autoVerify: true,
+          data: [
+            {
               scheme: "https",
               host: "whatspoppin.app",
               pathPrefix: "/event"

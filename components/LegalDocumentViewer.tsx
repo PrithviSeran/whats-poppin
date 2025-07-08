@@ -88,7 +88,7 @@ We may terminate or suspend your account at any time for violations of these ter
 We reserve the right to modify these terms at any time. Changes will be effective upon posting.
 
 11. CONTACT INFORMATION
-For questions about these terms, please contact us at legal@whatspoppin.app
+For questions about these terms, please contact us at help@whatspoppin.info
 
 By using What's Poppin, you acknowledge that you have read and understood these terms and agree to be bound by them.`;
 
@@ -149,8 +149,7 @@ We may update this privacy policy from time to time. We will notify you of any c
 
 11. CONTACT US
 If you have questions about this privacy policy, please contact us at:
-- Email: privacy@whatspoppin.app
-- Address: [Your Company Address]
+- Email: help@whatspoppin.info
 
 Your privacy matters to us. We are committed to protecting your personal information and being transparent about our data practices.`;
 

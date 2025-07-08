@@ -69,66 +69,141 @@ const AnimatedUserItem = React.memo(({
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        // Only allow rightward movement with some resistance
-        return Math.abs(gestureState.dx) > 15 && 
-               Math.abs(gestureState.dy) < 30 && 
-               gestureState.dx > 0;
+        // Allow both leftward and rightward movement for requests, only rightward for others
+        const isRequest = type === 'request';
+        const minDistance = 15;
+        const maxVerticalDistance = 30;
+        
+        if (isRequest) {
+          // For requests, allow both directions
+          return Math.abs(gestureState.dx) > minDistance && 
+                 Math.abs(gestureState.dy) < maxVerticalDistance;
+        } else {
+          // For others, only allow rightward movement
+          return Math.abs(gestureState.dx) > minDistance && 
+                 Math.abs(gestureState.dy) < maxVerticalDistance && 
+                 gestureState.dx > 0;
+        }
       },
       onPanResponderGrant: () => {
         // Add haptic feedback or visual feedback here if needed
       },
       onPanResponderMove: (evt, gestureState) => {
-        // Only allow rightward movement with some resistance
-        const translateValue = Math.max(0, Math.min(gestureState.dx, CARD_WIDTH * 0.8));
-        cardTranslateX.setValue(translateValue);
+        const isRequest = type === 'request';
+        
+        if (isRequest) {
+          // For requests, allow movement in both directions
+          const maxDistance = CARD_WIDTH * 0.8;
+          const translateValue = Math.max(-maxDistance, Math.min(gestureState.dx, maxDistance));
+          cardTranslateX.setValue(translateValue);
+        } else {
+          // For others, only allow rightward movement
+          const translateValue = Math.max(0, Math.min(gestureState.dx, CARD_WIDTH * 0.8));
+          cardTranslateX.setValue(translateValue);
+        }
       },
       onPanResponderRelease: (evt, gestureState) => {
         const releaseVelocity = gestureState.vx;
         const translateDistance = gestureState.dx;
+        const isRequest = type === 'request';
         
-        // More responsive threshold based on both distance and velocity
-        const shouldDelete = translateDistance > CARD_WIDTH * 0.4 || 
-                           (translateDistance > CARD_WIDTH * 0.2 && releaseVelocity > 0.5);
-        
-        if (shouldDelete) {
-          // Animate out faster and delete
-          Animated.parallel([
-            Animated.timing(cardTranslateX, {
-              toValue: CARD_WIDTH,
-              duration: 150,
-              useNativeDriver: true,
-            }),
-            Animated.timing(heightAnim, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: false,
-            }),
-            Animated.timing(opacity, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            })
-          ]).start(() => {
-            // Notify parent that item is being removed (this will trigger re-render)
-            onItemRemoved(userId, type);
-            
-            // Call the appropriate removal function based on type
-            if (type === 'friend') {
-              onRemoveFriend(userId);
-            } else if (type === 'following') {
-              onUnfollow(userEmail);
-            } else if (type === 'request') {
+        if (isRequest) {
+          // For requests, handle both directions
+          const threshold = CARD_WIDTH * 0.4;
+          const velocityThreshold = 0.5;
+          
+          if (translateDistance > threshold || (translateDistance > CARD_WIDTH * 0.2 && releaseVelocity > velocityThreshold)) {
+            // Swipe right - decline request
+            Animated.parallel([
+              Animated.timing(cardTranslateX, {
+                toValue: CARD_WIDTH,
+                duration: 150,
+                useNativeDriver: true,
+              }),
+              Animated.timing(heightAnim, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: false,
+              }),
+              Animated.timing(opacity, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              })
+            ]).start(() => {
+              onItemRemoved(userId, type);
               onDeclineRequest(user.request_id);
-            }
-          });
+            });
+          } else if (translateDistance < -threshold || (translateDistance < -CARD_WIDTH * 0.2 && releaseVelocity < -velocityThreshold)) {
+            // Swipe left - accept request
+            Animated.parallel([
+              Animated.timing(cardTranslateX, {
+                toValue: -CARD_WIDTH,
+                duration: 150,
+                useNativeDriver: true,
+              }),
+              Animated.timing(heightAnim, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: false,
+              }),
+              Animated.timing(opacity, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              })
+            ]).start(() => {
+              onItemRemoved(userId, type);
+              onAcceptRequest(user.request_id);
+            });
+          } else {
+            // Snap back
+            Animated.spring(cardTranslateX, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 200,
+              friction: 8,
+            }).start();
+          }
         } else {
-          // Snap back with more responsive animation
-          Animated.spring(cardTranslateX, {
-            toValue: 0,
-            useNativeDriver: true,
-            tension: 200,
-            friction: 8,
-          }).start();
+          // For others, only handle rightward swipe (delete)
+          const shouldDelete = translateDistance > CARD_WIDTH * 0.4 || 
+                             (translateDistance > CARD_WIDTH * 0.2 && releaseVelocity > 0.5);
+          
+          if (shouldDelete) {
+            Animated.parallel([
+              Animated.timing(cardTranslateX, {
+                toValue: CARD_WIDTH,
+                duration: 150,
+                useNativeDriver: true,
+              }),
+              Animated.timing(heightAnim, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: false,
+              }),
+              Animated.timing(opacity, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              })
+            ]).start(() => {
+              onItemRemoved(userId, type);
+              
+              if (type === 'friend') {
+                onRemoveFriend(userId);
+              } else if (type === 'following') {
+                onUnfollow(userEmail);
+              }
+            });
+          } else {
+            Animated.spring(cardTranslateX, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 200,
+              friction: 8,
+            }).start();
+          }
         }
       },
       onPanResponderTerminate: () => {
@@ -199,7 +274,7 @@ const AnimatedUserItem = React.memo(({
       marginBottom: 3,
       overflow: 'hidden'
     }}>
-      {/* Bin icon background revealed as card is dragged */}
+      {/* Background icons revealed as card is dragged */}
       <View style={{
         position: 'absolute',
         left: 0,
@@ -220,6 +295,30 @@ const AnimatedUserItem = React.memo(({
           <Ionicons name="trash" size={32} color="#FF0005" />
         </View>
       </View>
+      
+      {/* Accept icon for requests (swipe left) */}
+      {type === 'request' && (
+        <View style={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: '100%',
+          justifyContent: 'center',
+          alignItems: 'flex-end',
+          zIndex: 0,
+          height: 72,
+        }} pointerEvents="none">
+          <View style={{
+            width: 60,
+            height: 72,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}>
+            <Ionicons name="checkmark-circle" size={32} color="#4CAF50" />
+          </View>
+        </View>
+      )}
       
       <Animated.View
         style={{
@@ -291,29 +390,7 @@ const AnimatedUserItem = React.memo(({
             </View>
           </TouchableOpacity>
           
-          {/* Action buttons based on type - only show for requests since friends/followers use swipe */}
-          {type === 'request' && (
-            <View style={styles.requestActions}>
-              <TouchableOpacity
-                style={styles.acceptButton}
-                onPress={() => {
-                  animateButtonPress();
-                  onAcceptRequest(user.request_id);
-                }}
-              >
-                <Ionicons name="checkmark" size={18} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.declineButton}
-                onPress={() => {
-                  animateButtonPress();
-                  onDeclineRequest(user.request_id);
-                }}
-              >
-                <Ionicons name="close" size={18} color="#fff" />
-              </TouchableOpacity>
-            </View>
-          )}
+          {/* No action buttons needed for requests - both accept and decline are handled by swiping */}
         </Animated.View>
       </Animated.View>
     </Animated.View>
@@ -749,7 +826,7 @@ export default function FriendsModal({
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#9E95BD" style={styles.loader} />
+          <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].accent} style={styles.loader} />
         </View>
       );
     }
@@ -1150,7 +1227,8 @@ const styles = StyleSheet.create({
   },
   requestActions: {
     flexDirection: 'row',
-    gap: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   acceptButton: {
     backgroundColor: Colors.light.success,

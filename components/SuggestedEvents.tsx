@@ -109,6 +109,7 @@ export default function SuggestedEvents() {
   const [isFilterVisible, setIsFilterVisible] = useState(false);
   // Removed swiperVisible state - swiper now stays visible when modal opens
   const [isSwipeInProgress, setIsSwipeInProgress] = useState(false);
+  const [pendingOperations, setPendingOperations] = useState(new Set<string>());
 
   const swipeX = useRef(new Animated.Value(0)).current;
   const swiperRef = useRef<Swiper<EventCard>>(null);
@@ -253,8 +254,9 @@ export default function SuggestedEvents() {
     try {
       setLoading(true);
       
-      // Use debounced refresh instead of immediate
-      await dataManager.refreshAllDataDebounced();
+      // CRITICAL: Force immediate refresh to get absolutely latest data (not debounced)
+      console.log('🔄 Force refreshing data before backend call...');
+      await dataManager.refreshAllData();
       
       // Get location only if not cached
       let userLat = userLocation?.latitude;
@@ -310,9 +312,11 @@ export default function SuggestedEvents() {
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id);
       const savedEventIds = savedEvents.map((e: any) => e.id);
       
-      console.log('📊 Optimized data state:', {
+      console.log('📊 Data state before backend call:', {
         rejectedCount: rejectedEventIds.length,
         savedCount: savedEventIds.length,
+        savedEventIds: savedEventIds, // Log full saved event IDs
+        rejectedEventIds: rejectedEventIds.slice(-5), // Log last 5 rejected events
         location: { lat: userLat, lon: userLon }
       });
 
@@ -404,6 +408,9 @@ export default function SuggestedEvents() {
         database_queries_eliminated: 'user preferences, time settings, location, travel distance, preferred days'
       });
 
+      console.log('🎯 CRITICAL: Sending saved events to backend:', savedEventIds);
+      console.log('🎯 CRITICAL: Sending rejected events to backend:', rejectedEventIds);
+
       const response = await fetch('https://iamtheprince-whats-poppin.hf.space/recommend', {
         method: 'POST',
         headers: {
@@ -439,6 +446,21 @@ export default function SuggestedEvents() {
     fetchTokenAndCallBackend();
     requestLocationPermission(); // Request and get user location
   }, []);
+
+  // Cleanup effect to handle component unmount
+  useEffect(() => {
+    return () => {
+      // Clear any pending operations on unmount
+      setPendingOperations(new Set());
+    };
+  }, []);
+
+  // Debug effect to track pending operations
+  useEffect(() => {
+    if (pendingOperations.size > 0) {
+      console.log(`📊 Pending operations: ${Array.from(pendingOperations).join(', ')}`);
+    }
+  }, [pendingOperations]);
 
 
 
@@ -563,6 +585,11 @@ export default function SuggestedEvents() {
     }, 1000); // Much shorter since we unblock immediately anyway
     
     const likedEvent = EVENTS[cardIndex];
+    const operationId = `save-${likedEvent.id}-${Date.now()}`;
+    
+    // Track this operation
+    setPendingOperations(prev => new Set(prev).add(operationId));
+    console.log(`💾 Starting save operation for event ${likedEvent.id}`);
     
     // Clear swipe in progress IMMEDIATELY to unblock UI
     setIsSwipeInProgress(false);
@@ -587,19 +614,25 @@ export default function SuggestedEvents() {
       })
     ]).start();
     
-    // Do heavy backend operations in background (non-blocking)
+    // Do save operations with proper tracking
     (async () => {
       try {
-        // Save the event (this can take time but won't block UI)
+        // Save the event and ensure it's synced to database
         await dataManager.addEventToSavedEvents(likedEvent.id);
         
-        // Refresh data in background (don't await this - let it happen async)
-        GlobalDataManager.getInstance().refreshAllData().catch((error) => {
-          // Background refresh failed silently
-        });
+        // Refresh data to ensure everything is in sync
+        await GlobalDataManager.getInstance().refreshAllData();
         
       } catch (error) {
-        // Background save failed silently
+        console.error('Error saving event:', error);
+      } finally {
+        // Mark operation as complete
+        setPendingOperations(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(operationId);
+          return newSet;
+        });
+        console.log(`✅ Completed save operation for event ${likedEvent.id}`);
       }
     })();
   };
@@ -621,17 +654,69 @@ export default function SuggestedEvents() {
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
     
+    console.log('🔄 All cards swiped, waiting for pending operations to complete...');
+    
+    // Wait for all pending save/reject operations to complete
+    const waitForPendingOperations = () => {
+      return new Promise<void>((resolve) => {
+        const checkPending = () => {
+          if (pendingOperations.size === 0) {
+            console.log('✅ All pending operations completed');
+            resolve();
+          } else {
+            console.log(`⏳ Waiting for ${pendingOperations.size} pending operations...`);
+            setTimeout(checkPending, 100); // Check every 100ms
+          }
+        };
+        checkPending();
+      });
+    };
+    
+    // Wait with a timeout to prevent infinite waiting
+    const waitWithTimeout = Promise.race([
+      waitForPendingOperations(),
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          console.log('⚠️ Timeout waiting for pending operations, proceeding anyway');
+          resolve();
+        }, 5000); // 5 second timeout
+      })
+    ]);
+    
+    await waitWithTimeout;
+    
     try {
-      // First, update all rejected events in Supabase to ensure we have the latest data
-      const rejectedEvents = await dataManager.getRejectedEvents();
-      const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString()); // Convert to strings
+      console.log('🔄 Refreshing all data to ensure latest state...');
+      
+      // CRITICAL: Force a complete data refresh to ensure we have the absolute latest data
+      await GlobalDataManager.getInstance().refreshAllData();
+      
+      // Additional delay to ensure database transactions are fully committed
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Double-check: Get the latest saved and rejected events after refresh
+      const [rejectedEvents, savedEvents] = await Promise.all([
+        dataManager.getRejectedEvents(),
+        dataManager.getSavedEvents()
+      ]);
+      
+      const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString());
+      const savedEventIds = savedEvents.map((e: any) => e.id.toString());
+      
+      console.log('📊 Final state before backend call:', {
+        rejectedEventsCount: rejectedEventIds.length,
+        savedEventsCount: savedEventIds.length,
+        lastSavedEvents: savedEventIds.slice(-3) // Log last 3 saved events
+      });
+      
+      // Update both rejected and saved events in Supabase to ensure backend has latest data
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
       
       // Set loading states
       setLoading(true);
       setIsFetchingActivities(true);
       
-      // Now call backend with updated data
+      // Now call backend with fully updated data
       await fetchTokenAndCallBackend();
       
       setCardIndex(0);
@@ -735,6 +820,11 @@ export default function SuggestedEvents() {
     }, 5000); // Reset after 5 seconds maximum
     
     const rejectedEvent = EVENTS[cardIndex];
+    const operationId = `reject-${rejectedEvent.id}-${Date.now()}`;
+    
+    // Track this operation
+    setPendingOperations(prev => new Set(prev).add(operationId));
+    console.log(`❌ Starting reject operation for event ${rejectedEvent.id}`);
 
     try {
       // Update rejected events in AsyncStorage
@@ -748,8 +838,17 @@ export default function SuggestedEvents() {
       // Clear the failsafe timer since we completed successfully
       clearTimeout(failsafeTimer);
     } catch (error) {
+      console.error('Error rejecting event:', error);
       // Clear the failsafe timer
       clearTimeout(failsafeTimer);
+    } finally {
+      // Mark operation as complete
+      setPendingOperations(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(operationId);
+        return newSet;
+      });
+      console.log(`✅ Completed reject operation for event ${rejectedEvent.id}`);
     }
 
     // Clear swipe in progress immediately after backend operations complete
@@ -843,11 +942,11 @@ export default function SuggestedEvents() {
               styles.loadingCircle,
               {
                 transform: [{ scale }, { rotate: spin }],
-                borderColor: '#FF1493',
+                borderColor: Colors[colorScheme ?? 'light'].accent,
               },
             ]}
           >
-            <View style={styles.innerCircle} />
+            <View style={[styles.innerCircle, { backgroundColor: `${Colors[colorScheme ?? 'light'].accent}20` }]} />
           </Animated.View>
           <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>Loading events...</Text>
         </View>
@@ -925,11 +1024,11 @@ export default function SuggestedEvents() {
                   inputRange: [0, 1],
                   outputRange: ['0deg', '360deg'],
                 })}],
-                borderColor: '#FF1493',
+                borderColor: Colors[colorScheme ?? 'light'].accent,
               },
             ]}
           >
-            <View style={styles.innerCircle} />
+            <View style={[styles.innerCircle, { backgroundColor: `${Colors[colorScheme ?? 'light'].accent}20` }]} />
           </Animated.View>
           <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>
             {isFetchingActivities ? 'Fetching activities...' : 'Loading events...'}
@@ -2321,8 +2420,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    position: 'absolute',
+    top: '50%',
+    left: 0,
+    right: 0,
+    transform: [{ translateY: -50 }],
     alignItems: 'center',
     backgroundColor: 'transparent',
   },
@@ -2331,7 +2433,6 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 3,
-    borderColor: '#FF1493',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2339,7 +2440,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 20, 147, 0.1)',
   },
   loadingText: {
     fontSize: 16,

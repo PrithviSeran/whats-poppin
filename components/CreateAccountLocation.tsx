@@ -318,7 +318,7 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
 
               {isLoading && locationPermission === true && (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#9E95BD" />
+                  <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].accent} />
                   <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
                     Getting your location...
                   </Text>

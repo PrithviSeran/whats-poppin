@@ -73,6 +73,120 @@ interface ExtendedEventCard extends EventCard {
   isLiked?: boolean;
 }
 
+// Memoized user item component
+const UserItem = React.memo(({ 
+  user, 
+  index, 
+  colorScheme, 
+  onUserPress 
+}: {
+  user: SearchUser;
+  index: number;
+  colorScheme: 'light' | 'dark';
+  onUserPress: (userId: number, userName: string, userEmail: string, friendshipStatus?: 'pending' | 'accepted' | 'blocked' | 'declined' | 'incoming' | null) => void;
+}) => {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.8)).current;
+  const translateX = useRef(new Animated.Value(50)).current;
+
+  // Animate in with staggered delay
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scale, {
+          toValue: 1,
+          tension: 100,
+          friction: 8,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateX, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, index * 50);
+    
+    return () => clearTimeout(timer);
+  }, [user.user_id, index]);
+
+  return (
+    <Animated.View 
+      style={[
+        { 
+          position: 'relative', 
+          width: '100%', 
+          height: 72, 
+          marginBottom: 3,
+          overflow: 'hidden',
+          opacity,
+          transform: [
+            { scale },
+            { translateX }
+          ],
+        }
+      ]}
+    >
+      <View style={[styles.userItem, { backgroundColor: Colors[colorScheme ?? 'light'].card, position: 'relative', overflow: 'hidden' }]}>
+        <LinearGradient
+          colors={[
+            'rgba(255,0,5,0.5)',
+            'rgba(255,77,157,0.5)',
+            'rgba(255,105,226,0.5)',
+            'rgba(185,122,255,0.5)',
+            'rgba(158,149,189,0.5)'
+          ]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          locations={[0, 0.25, 0.5, 0.75, 1]}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+        <TouchableOpacity 
+          style={styles.userInfo}
+          onPress={() => onUserPress(user.user_id, user.name, user.email, user.friendship_status)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.userAvatar}>
+            <Image 
+              source={{ 
+                uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${user.email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+              }}
+              style={styles.userAvatarImage}
+              defaultSource={require('../assets/images/icon.png')}
+              onError={() => {
+                console.log(`Failed to load profile image for user ${user.email}`);
+              }}
+            />
+          </View>
+          <View style={styles.userDetails}>
+            <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {user.name}
+            </Text>
+            <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
+              {user.email}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function to prevent unnecessary re-renders
+  return (
+    prevProps.user.user_id === nextProps.user.user_id &&
+    prevProps.index === nextProps.index &&
+    prevProps.colorScheme === nextProps.colorScheme &&
+    prevProps.user.name === nextProps.user.name &&
+    prevProps.user.email === nextProps.user.email
+  );
+});
+
 export default function Discover() {
   const [events, setEvents] = useState<ExtendedEventCard[]>([]);
   const [allEvents, setAllEvents] = useState<ExtendedEventCard[]>([]);
@@ -118,6 +232,9 @@ export default function Discover() {
   const cardOpacity = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  
+  // User item animation refs
+  const userItemAnimations = useRef<{ [key: number]: Animated.Value }>({}).current;
 
   const colorScheme = useColorScheme();
   const dataManager = GlobalDataManager.getInstance();
@@ -1045,11 +1162,11 @@ export default function Discover() {
                     outputRange: ['0deg', '360deg'],
                   })}
                 ],
-                borderColor: '#FF1493',
+                borderColor: Colors[colorScheme ?? 'light'].accent,
               },
             ]}
           >
-            <View style={styles.innerCircle} />
+            <View style={[styles.innerCircle, { backgroundColor: `${Colors[colorScheme ?? 'light'].accent}20` }]} />
           </Animated.View>
           <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
             Discovering events...
@@ -1086,7 +1203,7 @@ export default function Discover() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {userLoading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#FF1493" />
+              <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].accent} />
               <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
                 Searching users...
               </Text>
@@ -1103,34 +1220,14 @@ export default function Discover() {
             </View>
           ) : (
             <View style={styles.userResultsContainer}>
-              {searchResults.map((user) => (
-                <View key={user.user_id} style={[styles.userItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                  <TouchableOpacity 
-                    style={styles.userInfo}
-                    onPress={() => handleUserProfileNavigation(user.user_id, user.name, user.email, user.friendship_status)}
-                  >
-                    <View style={styles.userAvatar}>
-                      <Image 
-                        source={{ 
-                          uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${user.email.replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
-                        }}
-                        style={styles.userAvatarImage}
-                        defaultSource={require('../assets/images/icon.png')}
-                        onError={() => {
-                          console.log(`Failed to load profile image for user ${user.email}`);
-                        }}
-                      />
-                    </View>
-                    <View style={styles.userDetails}>
-                      <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {user.name}
-                      </Text>
-                      <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {user.email}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                </View>
+              {searchResults.map((user, index) => (
+                <UserItem
+                  key={user.user_id}
+                  user={user}
+                  index={index}
+                  colorScheme={colorScheme ?? 'light'}
+                  onUserPress={handleUserProfileNavigation}
+                />
               ))}
             </View>
           )}
@@ -1258,7 +1355,7 @@ export default function Discover() {
         </Animated.View>
         {isLoadingMore && (
           <View style={styles.loadingMoreContainer}>
-            <ActivityIndicator size="small" color="#FF1493" />
+                            <ActivityIndicator size="small" color={Colors[colorScheme ?? 'light'].accent} />
             <Text style={[styles.loadingMoreText, { color: Colors[colorScheme ?? 'light'].text }]}>
               Loading more events...
             </Text>
@@ -1497,8 +1594,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    position: 'absolute',
+    top: '50%',
+    left: 0,
+    right: 0,
+    transform: [{ translateY: -50 }],
     alignItems: 'center',
   },
   errorContainer: {
@@ -1574,7 +1674,6 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 3,
-    borderColor: '#FF1493',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1582,7 +1681,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 20, 147, 0.1)',
   },
   loadingText: {
     fontSize: 16,
@@ -1620,54 +1718,55 @@ const styles = StyleSheet.create({
   userResultsContainer: {
     paddingHorizontal: 20,
     paddingTop: 10,
+    paddingBottom: 40,
   },
   userItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    marginVertical: 6,
-    marginHorizontal: 0,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(158, 149, 189, 0.08)',
-    backgroundColor: 'rgba(158, 149, 189, 0.02)',
+    backgroundColor: '#fff',
+    height: 72,
+    overflow: 'hidden',
+    padding: 12,
+    width: '100%',
+    borderRadius: 8,
+    position: 'relative',
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    justifyContent: 'center',
+    paddingTop: 2,
   },
   userAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#F5F5F7',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 18,
+    marginRight: 12,
     borderWidth: 2,
     borderColor: 'rgba(158, 149, 189, 0.1)',
   },
   userAvatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 26,
+    borderRadius: 24,
   },
   userDetails: {
     flex: 1,
+    justifyContent: 'center',
   },
   userName: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 2,
-    letterSpacing: 0.2,
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
   userEmail: {
-    fontSize: 13,
-    opacity: 0.65,
+    fontSize: 14,
+    opacity: 0.8,
     fontWeight: '400',
-    marginTop: 1,
   },
   userStatusContainer: {
     marginTop: 4,
