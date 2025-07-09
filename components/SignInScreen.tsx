@@ -18,10 +18,12 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MaskedView from '@react-native-masked-view/masked-view';
 import LegalDocumentViewer from './LegalDocumentViewer';
+import GoogleSignInButton from './GoogleSignInButton';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
   'create-account': undefined;
+  'suggested-events': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -97,6 +99,25 @@ const SignInScreen = () => {
           <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
             By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink} onPress={handleOpenTerms}>Terms of Service</Text> and <Text style={styles.termsLink} onPress={handleOpenPrivacyPolicy}>Privacy Policy</Text>.
           </Text>
+          
+          {/* Google Sign-In Button */}
+          <GoogleSignInButton
+            onSuccess={(result) => {
+              console.log('Google Sign-In successful:', result);
+              navigation.navigate('suggested-events');
+            }}
+            onError={(error) => {
+              console.error('Google Sign-In error:', error);
+            }}
+            style={styles.googleButton}
+          />
+          
+          <View style={styles.dividerContainer}>
+            <View style={[styles.divider, { backgroundColor: Colors[colorScheme ?? 'light'].text }]} />
+            <Text style={[styles.dividerText, { color: Colors[colorScheme ?? 'light'].text }]}>or</Text>
+            <View style={[styles.divider, { backgroundColor: Colors[colorScheme ?? 'light'].text }]} />
+          </View>
+          
           <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
             <LinearGradient
               colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
@@ -228,6 +249,25 @@ const styles = StyleSheet.create({
   termsLink: {
     color: '#F45B5B',
     textDecorationLine: 'underline',
+  },
+  googleButton: {
+    marginBottom: 20,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+    width: width * 0.8,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    opacity: 0.3,
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 14,
+    opacity: 0.7,
   },
 });
 

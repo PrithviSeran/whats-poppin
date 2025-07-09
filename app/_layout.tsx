@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { setupDeepLinking } from '@/lib/deepLinking';
 import GlobalDataManager from '@/lib/GlobalDataManager';
+import { GoogleAuthService } from '@/lib/googleAuth';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -31,6 +32,11 @@ export default function RootLayout() {
     return () => {
       cleanup();
     };
+  }, []);
+
+  // Configure Google Sign-In
+  useEffect(() => {
+    GoogleAuthService.configure();
   }, []);
 
   if (!loaded) {
