@@ -56,13 +56,40 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
   const [verificationError, setVerificationError] = useState('');
   const [isResending, setIsResending] = useState(false);
   const [isEmailVerified, setIsEmailVerified] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
   const [enteredCode, setEnteredCode] = useState('');
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  const [lastSendTime, setLastSendTime] = useState<number>(0);
+  const [cooldownSeconds, setCooldownSeconds] = useState<number>(0);
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
+
+  // Cooldown timer effect
+  useEffect(() => {
+    let interval: number;
+    
+    if (lastSendTime > 0) {
+      interval = setInterval(() => {
+        const now = Date.now();
+        const timeSinceLastSend = now - lastSendTime;
+        const cooldownMs = 60 * 1000; // 60 seconds
+        const remaining = Math.max(0, Math.ceil((cooldownMs - timeSinceLastSend) / 1000));
+        
+        setCooldownSeconds(remaining);
+        
+        if (remaining === 0) {
+          clearInterval(interval);
+        }
+      }, 1000);
+    } else {
+      setCooldownSeconds(0);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [lastSendTime]);
 
   const validateEmail = (text: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -117,8 +144,8 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     setVerificationError('');
     setIsVerificationSent(false);
     setIsEmailVerified(false);
-    setVerificationCode('');
     setEnteredCode('');
+    setLastSendTime(0); // Reset cooldown when email changes
     
     // Validate format first
     if (validateEmail(text)) {
@@ -131,8 +158,19 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     }
   };
 
-  const sendVerificationEmail = async () => {
+    const sendVerificationEmail = async () => {
     if (!validateEmail(email) || emailExists) return;
+
+    // Check cooldown period (60 seconds)
+    const now = Date.now();
+    const timeSinceLastSend = now - lastSendTime;
+    const cooldownMs = 60 * 1000; // 60 seconds
+
+    if (lastSendTime > 0 && timeSinceLastSend < cooldownMs) {
+      const remainingSeconds = Math.ceil((cooldownMs - timeSinceLastSend) / 1000);
+      setVerificationError(`Please wait ${remainingSeconds} seconds before requesting another code.`);
+      return;
+    }
 
     setIsSendingVerification(true);
     setVerificationError('');
@@ -140,70 +178,27 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     try {
       console.log('Sending verification code to:', email);
       
-      // Generate a 6-digit verification code
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      setVerificationCode(code);
-      
-      // Store verification record in our database
-      const { error: insertError } = await supabase
-        .from('email_verifications')
-        .insert({
-          email: email.toLowerCase(),
-          verification_token: code, // Use the code as the token
-          verified: false,
-          created_at: new Date().toISOString(),
-          expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() // 30 minutes
-        });
-
-      if (insertError) {
-        console.error('Error creating verification record:', insertError);
-        setVerificationError('Failed to create verification record. Please try again.');
-        return;
-      }
-
-      // Send verification email with the code
-      const { data, error } = await supabase.auth.signInWithOtp({
-        email: email.toLowerCase(),
-        options: {
-          shouldCreateUser: false,
-          data: {
-            verification_code: code,
-            verification_type: 'email_code_check',
-            custom_email_template: `
-              <h2>Verify Your Email</h2>
-              <p>Your verification code is:</p>
-              <h1 style="font-size: 32px; letter-spacing: 8px; color: #9E95BD;">${code}</h1>
-              <p>Enter this code in the What's Poppin app to verify your email.</p>
-              <p>This code expires in 30 minutes.</p>
-            `
-          }
-        }
+      // Call our custom Edge Function to send verification code
+      const { data: functionData, error: functionError } = await supabase.functions.invoke('send-verification-code', {
+        body: { email: email.toLowerCase() }
       });
 
-      if (error) {
-        console.error('Error sending verification email:', error);
-        
-        // For OTP, "user not found" is actually good - it means the email is valid for new registration
-        if (error.message.includes('Invalid login credentials') || 
-            error.message.includes('User not found') ||
-            error.message.includes('Email not confirmed')) {
-          console.log('Verification code sent successfully (new user)');
-          setIsVerificationSent(true);
-          setVerificationError('');
-        } else if (error.message.includes('Email rate limit exceeded')) {
-          setVerificationError('Too many emails sent. Please wait a moment before trying again.');
-        } else if (error.message.includes('already registered')) {
-          setEmailExists(true);
-          setEmailError('This email is already registered');
-        } else {
-          setVerificationError('Failed to send verification email. Please check the email address and try again.');
-        }
+      if (functionError) {
+        console.error('Error calling send-verification-code function:', functionError);
+        setVerificationError('Failed to send verification email. Please try again.');
         return;
       }
 
-      console.log('Verification code sent successfully');
+      if (!functionData?.success) {
+        console.error('Send verification function returned error:', functionData);
+        setVerificationError('Failed to send verification email. Please try again.');
+        return;
+      }
+
+      console.log('✅ Verification code sent successfully');
       setIsVerificationSent(true);
       setVerificationError('');
+      setLastSendTime(Date.now());
 
     } catch (error) {
       console.error('Unexpected error during email verification:', error);
@@ -223,48 +218,45 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     setVerificationError('');
 
     try {
-      // Check if the code matches and is not expired
-      const { data, error } = await supabase
+      console.log('🔐 Verifying code:', enteredCode, 'for email:', email.toLowerCase());
+      
+      // Check verification code in our custom table
+      const { data: verificationData, error: verificationError } = await supabase
         .from('email_verifications')
         .select('*')
         .eq('email', email.toLowerCase())
-        .eq('verification_token', enteredCode)
-        .eq('verified', false)
-        .single();
+        .eq('code', enteredCode)
+        .gt('expires_at', new Date().toISOString())
+        .is('verified_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (error || !data) {
-        setVerificationError('Invalid or expired verification code. Please try again or request a new code.');
-        setIsVerifyingCode(false);
+      if (verificationError) {
+        console.error('Error checking verification code:', verificationError);
+        setVerificationError('Failed to verify code. Please try again.');
         return;
       }
 
-      // Check if code is expired
-      if (new Date(data.expires_at) < new Date()) {
-        setVerificationError('Verification code has expired. Please request a new code.');
-        setIsVerifyingCode(false);
+      if (!verificationData) {
+        setVerificationError('Invalid or expired verification code. Please check the code or request a new one.');
         return;
       }
 
-      // Mark as verified
+      // Mark the verification as used
       const { error: updateError } = await supabase
         .from('email_verifications')
-        .update({ 
-          verified: true, 
-          verified_at: new Date().toISOString() 
-        })
-        .eq('verification_token', enteredCode);
+        .update({ verified_at: new Date().toISOString() })
+        .eq('id', verificationData.id);
 
       if (updateError) {
-        console.error('Error updating verification status:', updateError);
-        setVerificationError('Failed to verify code. Please try again.');
-        setIsVerifyingCode(false);
-        return;
+        console.error('Error marking verification as used:', updateError);
+        // Don't fail here - verification was successful
       }
 
-      // Success!
+      console.log('✅ Email verified successfully!');
       setIsEmailVerified(true);
       setVerificationError('');
-      console.log('Email verified successfully with code!');
 
     } catch (error) {
       console.error('Error verifying code:', error);
@@ -278,12 +270,22 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
 
 
   const resendVerificationEmail = async () => {
+    // Check cooldown before proceeding
+    const now = Date.now();
+    const timeSinceLastSend = now - lastSendTime;
+    const cooldownMs = 60 * 1000; // 60 seconds
+
+    if (lastSendTime > 0 && timeSinceLastSend < cooldownMs) {
+      const remainingSeconds = Math.ceil((cooldownMs - timeSinceLastSend) / 1000);
+      setVerificationError(`Please wait ${remainingSeconds} seconds before requesting another code.`);
+      return;
+    }
+
     setIsResending(true);
     
     // Reset verification states
     setIsVerificationSent(false);
     setIsEmailVerified(false);
-    setVerificationCode('');
     setEnteredCode('');
     setVerificationError('');
     
@@ -299,8 +301,13 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
         sendVerificationEmail();
       } else if (isEmailVerified) {
         // Email verified - proceed to next step
+        console.log('📤 Navigating to next step with verified email');
         navigation.navigate('create-account-birthday', {
-          userData: JSON.stringify({ ...userData, email, emailVerified: true }),
+          userData: JSON.stringify({ 
+            ...userData, 
+            email: email.toLowerCase().trim(), 
+            emailVerified: true 
+          }),
         });
       }
       // If verification sent but not verified yet, user needs to enter code
@@ -494,19 +501,19 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
                      </Text>
                    </View>
                    
-                   <Text style={[styles.verificationMessage, { color: Colors[colorScheme ?? 'light'].text }]}>
-                     {isEmailVerified ? (
-                       <>
-                         Great! Your email <Text style={styles.emailHighlight}>{email}</Text> has been verified. 
-                         You can now continue with your account creation.
-                       </>
-                     ) : (
-                       <>
-                         We've sent a 6-digit verification code to <Text style={styles.emailHighlight}>{email}</Text>. 
-                         Please check your inbox (and spam folder) and enter the code below.
-                       </>
-                     )}
-                   </Text>
+                                        <Text style={[styles.verificationMessage, { color: Colors[colorScheme ?? 'light'].text }]}>
+                       {isEmailVerified ? (
+                         <>
+                           Great! Your email <Text style={styles.emailHighlight}>{email}</Text> has been verified. 
+                           You can now continue with your account creation.
+                         </>
+                       ) : (
+                         <>
+                           We've sent a 6-digit verification code to <Text style={styles.emailHighlight}>{email}</Text>. 
+                           Please check your inbox (and spam folder) and enter the code below.
+                         </>
+                       )}
+                     </Text>
 
                    {!isEmailVerified && (
                      <View style={styles.codeInputContainer}>
@@ -564,12 +571,16 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
                    {!isEmailVerified && (
                      <View style={styles.verificationActions}>
                        <TouchableOpacity 
-                         style={[styles.resendButton, { 
-                           borderColor: colorScheme === 'dark' ? '#666' : '#D1D5DB',
-                           backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)'
-                         }]}
+                         style={[
+                           styles.resendButton, 
+                           { 
+                             borderColor: colorScheme === 'dark' ? '#666' : '#D1D5DB',
+                             backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
+                             opacity: (cooldownSeconds > 0 || isResending) ? 0.5 : 1
+                           }
+                         ]}
                          onPress={resendVerificationEmail}
-                         disabled={isResending}
+                         disabled={isResending || cooldownSeconds > 0}
                          activeOpacity={0.7}
                        >
                          {isResending ? (
@@ -578,7 +589,12 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
                            <Ionicons name="refresh-outline" size={18} color="#9E95BD" />
                          )}
                          <Text style={[styles.resendButtonText, { color: '#9E95BD' }]}>
-                           {isResending ? 'Sending...' : 'Resend Code'}
+                           {isResending 
+                             ? 'Sending...' 
+                             : cooldownSeconds > 0 
+                               ? `Resend Code (${cooldownSeconds}s)`
+                               : 'Resend Code'
+                           }
                          </Text>
                        </TouchableOpacity>
                      </View>

@@ -14,6 +14,7 @@ import GlobalDataManager from '@/lib/GlobalDataManager';
 import SavedActivities from './SavedActivities';
 import EventDetailModal from './EventDetailModal';
 import { EventCard } from '../lib/GlobalDataManager';
+import { supabase } from '@/lib/supabase';
 
 
 const { width, height } = Dimensions.get('window');
@@ -247,7 +248,9 @@ export default function SuggestedEvents() {
     const currentUserEmail = dataManager.getCurrentUser()?.email;
     
     if (!currentUserEmail) {
-      console.error('No user email available');
+      console.error('No user email available - user should be signed in by now');
+      setLoading(false);
+      setIsFetchingActivities(false);
       return;
     }
 
