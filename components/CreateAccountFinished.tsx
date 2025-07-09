@@ -338,7 +338,7 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
       return;
     }
     
-          console.log('✅ Navigating to SuggestedEvents for:', currentUser.email);
+    console.log('✅ Navigating to SuggestedEvents for:', currentUser.email);
       // Temporarily commented out to view CreateAccountFinished screen
       // navigation.navigate('suggested-events');
   }
@@ -379,254 +379,254 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         end={{ x: 1, y: 1 }}
       />
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>  
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.keyboardContainer}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        >
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardContainer}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
           <ScrollView
             contentContainerStyle={styles.scrollContainer}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Status Icon */}
-            <View style={styles.iconContainer}>
-              {isCreatingAccount ? (
-                <View style={styles.loadingIcon}>
-                  <Ionicons name="hourglass-outline" size={64} color="#9E95BD" />
-                </View>
-              ) : accountCreated && !locationPermissionGranted ? (
-                <View style={styles.successIcon}>
-                  <Ionicons name="checkmark-circle" size={64} color="#22C55E" />
-                </View>
-              ) : locationPermissionGranted ? (
-                <View style={styles.locationIcon}>
-                  <Ionicons name="location" size={64} color="#3B82F6" />
-                </View>
-              ) : (
-                <View style={styles.errorIcon}>
-                  <Ionicons name="alert-circle" size={64} color="#EF4444" />
+        {/* Status Icon */}
+        <View style={styles.iconContainer}>
+          {isCreatingAccount ? (
+            <View style={styles.loadingIcon}>
+              <Ionicons name="hourglass-outline" size={64} color="#9E95BD" />
+            </View>
+          ) : accountCreated && !locationPermissionGranted ? (
+            <View style={styles.successIcon}>
+              <Ionicons name="checkmark-circle" size={64} color="#22C55E" />
+            </View>
+          ) : locationPermissionGranted ? (
+            <View style={styles.locationIcon}>
+              <Ionicons name="location" size={64} color="#3B82F6" />
+            </View>
+          ) : (
+            <View style={styles.errorIcon}>
+              <Ionicons name="alert-circle" size={64} color="#EF4444" />
+            </View>
+          )}
+        </View>
+
+        {/* Main Content */}
+        <View style={styles.textContainer}>
+          {isCreatingAccount ? (
+            <>
+              <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Setting up your account...
+              </Text>
+              <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                We're personalizing your experience based on your preferences
+              </Text>
+            </>
+          ) : showAddressInput ? (
+            <>
+              <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Enter Your Address 📍
+              </Text>
+              <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Help us find the best events in your area by entering your address or city
+              </Text>
+            </>
+          ) : accountCreated && !locationPermissionGranted ? (
+            <>
+              <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Welcome to What's Poppin! 🎉
+              </Text>
+              <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Your account is ready! Now let's help you discover amazing events nearby.
+              </Text>
+              {!dataManager.getCurrentUser()?.email && (
+                <View style={styles.emailConfirmationNote}>
+                  <Ionicons name="mail-outline" size={20} color="#FF8C00" />
+                  <Text style={[styles.emailNoteText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Note: You may receive a confirmation email from Supabase. You can continue using the app and sign in later if needed.
+                  </Text>
                 </View>
               )}
-            </View>
+            </>
+          ) : locationPermissionGranted ? (
+            <>
+              <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
+                All set! 🌟
+              </Text>
+              <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                You're ready to explore events in your area
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Almost there!
+              </Text>
+              <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Let's get you set up to find the best events
+              </Text>
+            </>
+          )}
+        </View>
 
-            {/* Main Content */}
-            <View style={styles.textContainer}>
-              {isCreatingAccount ? (
-                <>
-                  <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Setting up your account...
-                  </Text>
-                  <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    We're personalizing your experience based on your preferences
-                  </Text>
-                </>
-              ) : showAddressInput ? (
-                <>
-                  <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Enter Your Address 📍
-                  </Text>
-                  <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Help us find the best events in your area by entering your address or city
-                  </Text>
-                </>
-              ) : accountCreated && !locationPermissionGranted ? (
-                <>
-                  <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Welcome to What's Poppin! 🎉
-                  </Text>
-                  <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Your account is ready! Now let's help you discover amazing events nearby.
-                  </Text>
-                  {!dataManager.getCurrentUser()?.email && (
-                    <View style={styles.emailConfirmationNote}>
-                      <Ionicons name="mail-outline" size={20} color="#FF8C00" />
-                      <Text style={[styles.emailNoteText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Note: You may receive a confirmation email from Supabase. You can continue using the app and sign in later if needed.
-                      </Text>
-                    </View>
-                  )}
-                </>
-              ) : locationPermissionGranted ? (
-                <>
-                  <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    All set! 🌟
-                  </Text>
-                  <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    You're ready to explore events in your area
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={[styles.title, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Almost there!
-                  </Text>
-                  <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Let's get you set up to find the best events
-                  </Text>
-                </>
-              )}
-            </View>
+        {/* Address Input Form */}
+        {showAddressInput && (
+          <View style={styles.addressInputContainer}>
+            <TextInput
+              style={[
+                styles.addressInput,
+                { 
+                  backgroundColor: Colors[colorScheme ?? 'light'].card,
+                  color: Colors[colorScheme ?? 'light'].text,
+                  borderColor: Colors[colorScheme ?? 'light'].text + '20'
+                }
+              ]}
+              placeholder="Enter your city or address (e.g., New York, NY)"
+              placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
+              value={manualAddress}
+              onChangeText={setManualAddress}
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={handleAddressSubmit}
+            />
+          </View>
+        )}
 
-            {/* Address Input Form */}
-            {showAddressInput && (
-              <View style={styles.addressInputContainer}>
-                <TextInput
-                  style={[
-                    styles.addressInput,
-                    { 
-                      backgroundColor: Colors[colorScheme ?? 'light'].card,
-                      color: Colors[colorScheme ?? 'light'].text,
-                      borderColor: Colors[colorScheme ?? 'light'].text + '20'
-                    }
-                  ]}
-                  placeholder="Enter your city or address (e.g., New York, NY)"
-                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
-                  value={manualAddress}
-                  onChangeText={setManualAddress}
-                  autoCapitalize="words"
-                  returnKeyType="done"
-                  onSubmitEditing={handleAddressSubmit}
-                />
-              </View>
-            )}
-
-            {/* Action Buttons */}
-            <View style={styles.buttonContainer}>
-              {showAddressInput ? (
-                <>
-                  <TouchableOpacity 
-                    style={styles.primaryButton} 
-                    onPress={handleAddressSubmit}
-                    activeOpacity={0.8}
-                  >
-                    <LinearGradient
-                      colors={['#22C55E', '#16A34A']}
-                      style={styles.primaryButtonGradient}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    >
-                      <Ionicons name="checkmark-outline" size={20} color="white" />
-                      <Text style={styles.primaryButtonText}>Continue</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.secondaryButton} 
-                    onPress={() => navigation.navigate('suggested-events')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.secondaryButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      Skip for now
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              ) : accountCreated && !locationPermissionGranted ? (
-                <>
-                  <TouchableOpacity 
-                    style={styles.primaryButton} 
-                    onPress={requestLocationPermissions}
-                    activeOpacity={0.8}
-                  >
-                    <LinearGradient
-                      colors={['#3B82F6', '#8B5CF6']}
-                      style={styles.primaryButtonGradient}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    >
-                      <Ionicons name="location-outline" size={20} color="white" />
-                      <Text style={styles.primaryButtonText}>Enable Location</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.secondaryButton} 
-                    onPress={() => navigation.navigate('suggested-events')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.secondaryButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      Skip for now
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              ) : !accountCreated && !isCreatingAccount ? (
-                <TouchableOpacity 
-                  style={styles.primaryButton} 
-                  onPress={createUser}
-                  activeOpacity={0.8}
+        {/* Action Buttons */}
+        <View style={styles.buttonContainer}>
+          {showAddressInput ? (
+            <>
+              <TouchableOpacity 
+                style={styles.primaryButton} 
+                onPress={handleAddressSubmit}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#22C55E', '#16A34A']}
+                  style={styles.primaryButtonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
                 >
-                  <LinearGradient
-                    colors={['#EF4444', '#F97316']}
-                    style={styles.primaryButtonGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <Ionicons name="refresh-outline" size={20} color="white" />
-                    <Text style={styles.primaryButtonText}>Try Again</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-
-            {/* Legal Documents Section */}
-            {accountCreated && (
-              <View style={styles.legalContainer}>
-                <Text style={[styles.legalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  By creating your account, you agree to our:
+                  <Ionicons name="checkmark-outline" size={20} color="white" />
+                  <Text style={styles.primaryButtonText}>Continue</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.secondaryButton} 
+                onPress={() => navigation.navigate('suggested-events')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.secondaryButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Skip for now
                 </Text>
-                <View style={styles.legalLinks}>
-                  <TouchableOpacity onPress={handleOpenTerms} style={styles.legalLink}>
-                    <Ionicons name="document-text-outline" size={16} color="#9E95BD" />
-                    <Text style={styles.legalLinkText}>Terms & Conditions</Text>
-                  </TouchableOpacity>
-                  <Text style={[styles.legalSeparator, { color: Colors[colorScheme ?? 'light'].text }]}>and</Text>
-                  <TouchableOpacity onPress={handleOpenPrivacyPolicy} style={styles.legalLink}>
-                    <Ionicons name="shield-checkmark-outline" size={16} color="#9E95BD" />
-                    <Text style={styles.legalLinkText}>Privacy Policy</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
+              </TouchableOpacity>
+            </>
+          ) : accountCreated && !locationPermissionGranted ? (
+            <>
+              <TouchableOpacity 
+                style={styles.primaryButton} 
+                onPress={requestLocationPermissions}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#3B82F6', '#8B5CF6']}
+                  style={styles.primaryButtonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <Ionicons name="location-outline" size={20} color="white" />
+                  <Text style={styles.primaryButtonText}>Enable Location</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.secondaryButton} 
+                onPress={() => navigation.navigate('suggested-events')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.secondaryButtonText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Skip for now
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : !accountCreated && !isCreatingAccount ? (
+            <TouchableOpacity 
+              style={styles.primaryButton} 
+              onPress={createUser}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={['#EF4444', '#F97316']}
+                style={styles.primaryButtonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons name="refresh-outline" size={20} color="white" />
+                <Text style={styles.primaryButtonText}>Try Again</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          ) : null}
+        </View>
 
-            {/* Location Permission Info */}
-            {accountCreated && !locationPermissionGranted && (
-              <View style={styles.infoContainer}>
-                <View style={styles.infoItem}>
-                  <Ionicons name="map-outline" size={20} color="#9E95BD" />
-                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Discover events near you
-                  </Text>
-                </View>
-                <View style={styles.infoItem}>
-                  <Ionicons name="notifications-outline" size={20} color="#9E95BD" />
-                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Get notified about local happenings
-                  </Text>
-                </View>
-                <View style={styles.infoItem}>
-                  <Ionicons name="time-outline" size={20} color="#9E95BD" />
-                  <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Save time with personalized suggestions
-                  </Text>
-                </View>
-              </View>
-            )}
+        {/* Legal Documents Section */}
+        {accountCreated && (
+          <View style={styles.legalContainer}>
+            <Text style={[styles.legalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+              By creating your account, you agree to our:
+            </Text>
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={handleOpenTerms} style={styles.legalLink}>
+                <Ionicons name="document-text-outline" size={16} color="#9E95BD" />
+                <Text style={styles.legalLinkText}>Terms & Conditions</Text>
+              </TouchableOpacity>
+              <Text style={[styles.legalSeparator, { color: Colors[colorScheme ?? 'light'].text }]}>and</Text>
+              <TouchableOpacity onPress={handleOpenPrivacyPolicy} style={styles.legalLink}>
+                <Ionicons name="shield-checkmark-outline" size={16} color="#9E95BD" />
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Location Permission Info */}
+        {accountCreated && !locationPermissionGranted && (
+          <View style={styles.infoContainer}>
+            <View style={styles.infoItem}>
+              <Ionicons name="map-outline" size={20} color="#9E95BD" />
+              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Discover events near you
+              </Text>
+            </View>
+            <View style={styles.infoItem}>
+              <Ionicons name="notifications-outline" size={20} color="#9E95BD" />
+              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Get notified about local happenings
+              </Text>
+            </View>
+            <View style={styles.infoItem}>
+              <Ionicons name="time-outline" size={20} color="#9E95BD" />
+              <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Save time with personalized suggestions
+              </Text>
+            </View>
+          </View>
+        )}
           </ScrollView>
-        </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
 
-        {/* Legal Document Modals */}
-        <LegalDocumentViewer
-          visible={showTermsModal}
-          onClose={() => setShowTermsModal(false)}
-          documentType="terms"
-        />
+      {/* Legal Document Modals */}
+      <LegalDocumentViewer
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        documentType="terms"
+      />
 
-        <LegalDocumentViewer
-          visible={showPrivacyModal}
-          onClose={() => setShowPrivacyModal(false)}
-          documentType="privacy"
-        />
-      </SafeAreaView>
+      <LegalDocumentViewer
+        visible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        documentType="privacy"
+      />
+    </SafeAreaView>
     </View>
   );
 }

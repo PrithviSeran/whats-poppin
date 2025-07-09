@@ -9,6 +9,8 @@ import {
   Dimensions,
   Platform,
   Animated,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedGradientText from './GradientAnimatedText';
@@ -18,10 +20,15 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MaskedView from '@react-native-masked-view/masked-view';
 import LegalDocumentViewer from './LegalDocumentViewer';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { supabase } from '@/lib/supabase';
+import GlobalDataManager from '@/lib/GlobalDataManager';
+import { Ionicons } from '@expo/vector-icons';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
   'create-account': undefined;
+  'suggested-events': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -47,6 +54,18 @@ const SignInScreen = () => {
   const colorScheme = useColorScheme();
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+
+  const dataManager = GlobalDataManager.getInstance();
+
+  // Configure Google Sign-In
+  useEffect(() => {
+    GoogleSignin.configure({
+      iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
+      // Add Android client ID if needed
+      // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
+    });
+  }, []);
 
   const handleOpenTerms = () => {
     setShowTermsModal(true);
@@ -54,6 +73,104 @@ const SignInScreen = () => {
 
   const handleOpenPrivacyPolicy = () => {
     setShowPrivacyModal(true);
+  };
+
+      const handleGoogleSignIn = async () => {
+    if (isGoogleSigningIn) return;
+    
+    setIsGoogleSigningIn(true);
+    
+    try {
+      // Check if Google Play Services are available (Android)
+      if (Platform.OS === 'android') {
+        await GoogleSignin.hasPlayServices();
+      }
+      
+      // Sign in with Google
+      const userInfo = await GoogleSignin.signIn() as any;
+      console.log('Google Sign-In successful:', userInfo);
+      
+      if (!userInfo.data?.idToken) {
+        throw new Error('No ID token received from Google');
+      }
+      
+      // Sign in with Supabase using Google token
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: userInfo.data.idToken,
+      });
+      
+      if (error) {
+        console.error('Supabase Google Sign-In error:', error);
+        throw error;
+      }
+      
+      if (data.user) {
+        console.log('✅ Google Sign-In successful with Supabase');
+        
+        // Check if user exists in our all_users table
+        const { data: existingUser, error: userError } = await supabase
+          .from('all_users')
+          .select('*')
+          .eq('email', userInfo.data.user?.email)
+          .maybeSingle();
+        
+        if (userError) {
+          console.error('Error checking existing user:', userError);
+        }
+        
+        if (!existingUser) {
+          // Create user profile in all_users table
+          console.log('🔄 Creating user profile for Google user...');
+          const { error: insertError } = await supabase
+            .from('all_users')
+            .insert([{
+              name: userInfo.data.user?.name || userInfo.data.user?.email?.split('@')[0] || 'User',
+              email: userInfo.data.user?.email,
+              // Set default values for required fields
+              birthday: '1990-01-01', // Default birthday
+              gender: 'Other', // Default gender
+              saved_events: '{}',
+              preferences: [],
+              ['start-time']: '21:00',
+              ['end-time']: '03:00',
+              location: 'Toronto, ON', // Default location
+              ['travel-distance']: 50,
+            }]);
+          
+          if (insertError) {
+            console.error('Error creating user profile:', insertError);
+            // Don't fail the sign-in for profile creation errors
+          } else {
+            console.log('✅ User profile created successfully');
+          }
+        }
+        
+        // Initialize GlobalDataManager with the new session
+        await dataManager.setCurrentUser(data.user);
+        await dataManager.initialize();
+        
+        // Navigate to suggested events
+        navigation.navigate('suggested-events');
+      }
+      
+    } catch (error: any) {
+      console.error('Google Sign-In error:', error);
+      
+      let errorMessage = 'Failed to sign in with Google. Please try again.';
+      
+      if (error.code === 'SIGN_IN_CANCELLED') {
+        errorMessage = 'Sign-in was cancelled.';
+      } else if (error.code === 'PLAY_SERVICES_NOT_AVAILABLE') {
+        errorMessage = 'Google Play Services not available.';
+      } else if (error.message?.includes('network')) {
+        errorMessage = 'Network error. Please check your connection.';
+      }
+      
+      Alert.alert('Google Sign-In Error', errorMessage);
+    } finally {
+      setIsGoogleSigningIn(false);
+    }
   };
 
   useEffect(() => {
@@ -97,6 +214,36 @@ const SignInScreen = () => {
           <Text style={[styles.welcomeText, { color: Colors[colorScheme ?? 'light'].text }]}>
             By tapping "Sign In" or "Create Account", you agree to our <Text style={styles.termsLink} onPress={handleOpenTerms}>Terms of Service</Text> and <Text style={styles.termsLink} onPress={handleOpenPrivacyPolicy}>Privacy Policy</Text>.
           </Text>
+          
+          {/* Google Sign-In Button */}
+          <TouchableOpacity 
+            onPress={handleGoogleSignIn}
+            disabled={isGoogleSigningIn}
+            style={[styles.googleButton, isGoogleSigningIn && styles.disabledButton]}
+            activeOpacity={0.8}
+          >
+            <View style={styles.googleButtonContent}>
+              {isGoogleSigningIn ? (
+                <ActivityIndicator size="small" color="#757575" />
+              ) : (
+                <Image 
+                  source={require('../assets/images/google-logo.webp')} 
+                  style={styles.googleIcon}
+                  resizeMode="contain"
+                />
+              )}
+              <Text style={styles.googleButtonText}>
+                {isGoogleSigningIn ? 'Signing in...' : 'Continue with Google'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          
+          <View style={styles.dividerContainer}>
+            <View style={styles.dividerLine} />
+            <Text style={[styles.dividerText, { color: Colors[colorScheme ?? 'light'].text }]}>or</Text>
+            <View style={styles.dividerLine} />
+          </View>
+          
           <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
             <LinearGradient
               colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
@@ -189,6 +336,57 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginHorizontal: 20,
     marginTop: 30,
+  },
+  googleButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
+    width: width * 0.8,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  googleIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 12,
+  },
+  googleButtonText: {
+    color: '#757575',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Gotham Rounded',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: width * 0.8,
+    marginBottom: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E0E0E0',
+  },
+  dividerText: {
+    marginHorizontal: 15,
+    fontSize: 14,
+    fontWeight: '500',
+    opacity: 0.6,
   },
   loginButton: {
     borderRadius: 30,

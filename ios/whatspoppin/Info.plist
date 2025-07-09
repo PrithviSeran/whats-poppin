@@ -32,6 +32,14 @@
         <key>CFBundleURLName</key>
         <string>com.prithviseran.whatspoppin</string>
       </dict>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>com.googleusercontent.apps.1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn</string>
+        </array>
+        <key>CFBundleURLName</key>
+        <string>com.googleusercontent.apps.1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn</string>
+      </dict>
     </array>
     <key>CFBundleVersion</key>
     <string>1</string>
