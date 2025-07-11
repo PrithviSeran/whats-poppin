@@ -20,7 +20,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MaskedView from '@react-native-masked-view/masked-view';
 import LegalDocumentViewer from './LegalDocumentViewer';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+//import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { supabase } from '@/lib/supabase';
 import GlobalDataManager from '@/lib/GlobalDataManager';
 import { Ionicons } from '@expo/vector-icons';
@@ -60,11 +60,11 @@ const SignInScreen = () => {
 
   // Configure Google Sign-In
   useEffect(() => {
-    GoogleSignin.configure({
-      iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
-      // Add Android client ID if needed
-      // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
-    });
+    // GoogleSignin.configure({
+    //   iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
+    //   // Add Android client ID if needed
+    //   // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
+    // });
   }, []);
 
   const handleOpenTerms = () => {
@@ -81,121 +81,121 @@ const SignInScreen = () => {
     setIsGoogleSigningIn(true);
     
     try {
-      // Check if Google Play Services are available (Android)
-      if (Platform.OS === 'android') {
-        await GoogleSignin.hasPlayServices();
-      }
+      // // Check if Google Play Services are available (Android)
+      // if (Platform.OS === 'android') {
+      //   await GoogleSignin.hasPlayServices();
+      // }
       
-      // Sign in with Google
-      const userInfo = await GoogleSignin.signIn() as any;
-      console.log('Google Sign-In successful:', userInfo);
+      // // Sign in with Google
+      // const userInfo = await GoogleSignin.signIn() as any;
+      // console.log('Google Sign-In successful:', userInfo);
       
-      if (!userInfo.data?.idToken) {
-        throw new Error('No ID token received from Google');
-      }
+      // if (!userInfo.data?.idToken) {
+      //   throw new Error('No ID token received from Google');
+      // }
       
-      // Sign in with Supabase using Google token
-      const { data, error } = await supabase.auth.signInWithIdToken({
-        provider: 'google',
-        token: userInfo.data.idToken,
-      });
+      // // Sign in with Supabase using Google token
+      // const { data, error } = await supabase.auth.signInWithIdToken({
+      //   provider: 'google',
+      //   token: userInfo.data.idToken,
+      // });
       
-      if (error) {
-        console.error('Supabase Google Sign-In error:', error);
-        throw error;
-      }
+      // if (error) {
+      //   console.error('Supabase Google Sign-In error:', error);
+      //   throw error;
+      // }
       
-      if (data.user) {
-        console.log('✅ Google Sign-In successful with Supabase');
+      // if (data.user) {
+      //   console.log('✅ Google Sign-In successful with Supabase');
         
-        // Check if user exists in our all_users table
-        const { data: existingUser, error: userError } = await supabase
-          .from('all_users')
-          .select('*')
-          .eq('email', userInfo.data.user?.email)
-          .maybeSingle();
+      //   // Check if user exists in our all_users table
+      //   const { data: existingUser, error: userError } = await supabase
+      //     .from('all_users')
+      //     .select('*')
+      //     .eq('email', userInfo.data.user?.email)
+      //     .maybeSingle();
         
-        if (userError) {
-          console.error('Error checking existing user:', userError);
-        }
+      //   if (userError) {
+      //     console.error('Error checking existing user:', userError);
+      //   }
         
-        if (!existingUser) {
-          // Create user profile in all_users table with Google profile data
-          console.log('🔄 Creating user profile for Google user...');
+      //   if (!existingUser) {
+      //     // Create user profile in all_users table with Google profile data
+      //     console.log('🔄 Creating user profile for Google user...');
           
-          // Extract user info from Google profile
-          const googleUser = userInfo.data.user;
-          const googleName = googleUser?.name || googleUser?.givenName || googleUser?.email?.split('@')[0] || 'User';
-          const googleEmail = googleUser?.email;
-          const googlePhoto = googleUser?.photo;
+      //     // Extract user info from Google profile
+      //     const googleUser = userInfo.data.user;
+      //     const googleName = googleUser?.name || googleUser?.givenName || googleUser?.email?.split('@')[0] || 'User';
+      //     const googleEmail = googleUser?.email;
+      //     const googlePhoto = googleUser?.photo;
           
-          // Create user profile with Google data (no profile_picture field)
-          const { error: insertError } = await supabase
-            .from('all_users')
-            .insert([{
-              name: googleName,
-              email: googleEmail,
-              birthday: '1990-01-01', // Default birthday - user can update later
-              gender: null, // Default gender - user can update later
-              saved_events: '{}',
-              preferences: [], // Default empty preferences - user can set up later
-              ['start-time']: '21:00', // Default evening time
-              ['end-time']: '03:00', // Default late night time
-              location: 'Toronto, ON', // Default location - user can update later
-              ['travel-distance']: 50, // Default 50km travel distance
-            }]);
+      //     // Create user profile with Google data (no profile_picture field)
+      //     const { error: insertError } = await supabase
+      //       .from('all_users')
+      //       .insert([{
+      //         name: googleName,
+      //         email: googleEmail,
+      //         birthday: '1990-01-01', // Default birthday - user can update later
+      //         gender: null, // Default gender - user can update later
+      //         saved_events: '{}',
+      //         preferences: [], // Default empty preferences - user can set up later
+      //         ['start-time']: '21:00', // Default evening time
+      //         ['end-time']: '03:00', // Default late night time
+      //         location: 'Toronto, ON', // Default location - user can update later
+      //         ['travel-distance']: 50, // Default 50km travel distance
+      //       }]);
           
-          if (insertError) {
-            console.error('Error creating user profile:', insertError);
-            // Don't fail the sign-in for profile creation errors
-          } else {
-            console.log('✅ User profile created successfully with Google data');
-            console.log('📊 Created profile for:', {
-              name: googleName,
-              email: googleEmail,
-              photo: googlePhoto ? 'Available' : 'Not provided'
-            });
-            // Upload Google profile image to Supabase Storage
-            if (googlePhoto && googleEmail) {
-              try {
-                const response = await fetch(googlePhoto);
-                const blob = await response.blob();
-                const emailDir = googleEmail.replace(/[@.]/g, '_');
-                const { error: uploadError } = await supabase.storage
-                  .from('user-images')
-                  .upload(`${emailDir}/profile.jpg`, blob, {
-                    cacheControl: '3600',
-                    upsert: true,
-                    contentType: 'image/jpeg',
-                  });
-                if (uploadError) {
-                  console.error('Error uploading profile image:', uploadError);
-                } else {
-                  console.log('✅ Uploaded Google profile image to Supabase Storage');
-                }
-              } catch (err) {
-                console.error('Error downloading or uploading Google profile image:', err);
-              }
-            }
-            // Show success message to user
-            Alert.alert(
-              'Welcome to What\'s Poppin! 🎉',
-              `Your account has been created with your Google profile data. You can update your preferences and profile information later.`,
-              [{ text: 'Continue' }]
-            );
-            return; // Exit early since we're handling navigation in the alert
-          }
-        } else {
-          console.log('✅ Existing user found:', existingUser.name);
+      //     if (insertError) {
+      //       console.error('Error creating user profile:', insertError);
+      //       // Don't fail the sign-in for profile creation errors
+      //     } else {
+      //       console.log('✅ User profile created successfully with Google data');
+      //       console.log('📊 Created profile for:', {
+      //         name: googleName,
+      //         email: googleEmail,
+      //         photo: googlePhoto ? 'Available' : 'Not provided'
+      //       });
+      //       // Upload Google profile image to Supabase Storage
+      //       if (googlePhoto && googleEmail) {
+      //         try {
+      //           const response = await fetch(googlePhoto);
+      //           const blob = await response.blob();
+      //           const emailDir = googleEmail.replace(/[@.]/g, '_');
+      //           const { error: uploadError } = await supabase.storage
+      //             .from('user-images')
+      //             .upload(`${emailDir}/profile.jpg`, blob, {
+      //               cacheControl: '3600',
+      //               upsert: true,
+      //               contentType: 'image/jpeg',
+      //             });
+      //           if (uploadError) {
+      //             console.error('Error uploading profile image:', uploadError);
+      //           } else {
+      //             console.log('✅ Uploaded Google profile image to Supabase Storage');
+      //           }
+      //         } catch (err) {
+      //           console.error('Error downloading or uploading Google profile image:', err);
+      //         }
+      //       }
+      //       // Show success message to user
+      //       Alert.alert(
+      //         'Welcome to What\'s Poppin! 🎉',
+      //         `Your account has been created with your Google profile data. You can update your preferences and profile information later.`,
+      //         [{ text: 'Continue' }]
+      //       );
+      //       return; // Exit early since we're handling navigation in the alert
+      //     }
+      //   } else {
+      //     console.log('✅ Existing user found:', existingUser.name);
           
-          // Initialize GlobalDataManager with the new session
-          await dataManager.setCurrentUser(data.user);
-          await dataManager.initialize();
+      //     // Initialize GlobalDataManager with the new session
+      //     await dataManager.setCurrentUser(data.user);
+      //     await dataManager.initialize();
           
-          // Navigate to suggested events
-          navigation.navigate('suggested-events');
-        }
-      }
+      //     // Navigate to suggested events
+      //     navigation.navigate('suggested-events');
+      //   }
+      // }
       
     } catch (error: any) {
       console.error('Google Sign-In error:', error);

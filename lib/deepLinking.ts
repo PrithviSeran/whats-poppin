@@ -1,9 +1,11 @@
 import { Linking } from 'react-native';
 import GlobalDataManager from './GlobalDataManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from './supabase';
+import { CommonActions } from '@react-navigation/native';
 
 // Handle deep links for shared events and password reset
-export const handleDeepLink = async (url: string) => {
+export const handleDeepLink = async (url: string, navigation?: any) => {
   try {
     console.log('🔗 Handling deep link:', url);
     
@@ -32,20 +34,44 @@ export const handleDeepLink = async (url: string) => {
         const eventId = eventIdMatch[1];
         console.log('📋 Event ID extracted:', eventId);
 
-        // Store the event ID for the app to handle
-        try {
-          await AsyncStorage.setItem('sharedEventId', eventId);
-          console.log('✅ Event ID stored in AsyncStorage');
-        } catch (error) {
-          console.error('❌ Error storing event ID:', error);
+        // Check if user is logged in
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          // Not logged in: store eventId and navigate to SignInScreen
+          try {
+            await AsyncStorage.setItem('pendingEventId', eventId);
+            console.log('✅ Pending event ID stored in AsyncStorage');
+          } catch (error) {
+            console.error('❌ Error storing pending event ID:', error);
+          }
+          if (navigation) {
+            navigation.dispatch(
+              CommonActions.reset({
+                index: 0,
+                routes: [{ name: 'social-sign-in' }],
+              })
+            );
+          }
+          return {
+            type: 'event-share',
+            success: true,
+            eventId,
+            message: 'User not logged in, redirected to SignInScreen',
+            pending: true
+          };
+        } else {
+          // Logged in: navigate to event detail
+          if (navigation) {
+            navigation.navigate('event/[id]', { id: eventId });
+          }
+          return {
+            type: 'event-share',
+            success: true,
+            eventId,
+            message: 'Navigated to event detail',
+            pending: false
+          };
         }
-        
-        return {
-          type: 'event-share',
-          success: true,
-          eventId: eventId,
-          message: 'Event sharing link handled successfully'
-        };
       } else {
         console.error('❌ Could not extract event ID from URL');
         return {
@@ -71,6 +97,17 @@ export const handleDeepLink = async (url: string) => {
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
+};
+
+// Helper to check for pending event after login
+export const checkPendingEventAfterLogin = async (navigation: any) => {
+  const eventId = await AsyncStorage.getItem('pendingEventId');
+  if (eventId) {
+    await AsyncStorage.removeItem('pendingEventId');
+    navigation.navigate('event/[id]', { id: eventId });
+    return true;
+  }
+  return false;
 };
 
 // Set up deep link listener

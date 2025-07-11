@@ -22,6 +22,7 @@ import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import LegalDocumentViewer from './LegalDocumentViewer';
+import { checkPendingEventAfterLogin } from '@/lib/deepLinking';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -96,7 +97,11 @@ const SocialSignInScreen = () => {
       }
       
       console.log('Sign in successful:', data);
-      navigation.navigate('suggested-events');
+      // Check for pending event after login
+      const handled = await checkPendingEventAfterLogin(navigation);
+      if (!handled) {
+        navigation.navigate('suggested-events');
+      }
     } catch (error) {
       console.error('Error during sign in:', error);
       setError('An unexpected error occurred. Please try again.');

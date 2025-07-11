@@ -511,17 +511,15 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       // Format the date
       const eventDate = event.start_date ? new Date(event.start_date).toLocaleDateString() : 'Check event details';
       
-      // Use the same custom URL scheme format that works for reset password
-      // This directly opens the app if it's installed (same format that's proven to work)
+      // App link for deep linking
       const appLink = `whatspoppin://event/${event.id}`;
-      
-      // Create the share message with the proper app link
-      const shareMessage = `Let's see What's Poppin @ ${event.name} 🎈\n\n📍 ${event.location}\n⏰ ${eventDate}\n\nYou down? 😉\n\n${appLink}`;
-      
+      // Create the share message WITHOUT the app link in the text
+      const shareMessage = `Let's see What's Poppin @ ${event.name} 🎈\n\n📍 ${event.location}\n⏰ ${eventDate}\n\nYou down? 😉`;
+
       await Share.share({
         message: shareMessage,
         title: event.name,
-        url: appLink, // This helps with better link previews on some platforms
+        url: appLink, // App link is attached but not visible in the message
       });
     } catch (error) {
       console.error('Error sharing event:', error);

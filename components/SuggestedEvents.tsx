@@ -15,6 +15,7 @@ import SavedActivities from './SavedActivities';
 import EventDetailModal from './EventDetailModal';
 import { EventCard } from '../lib/GlobalDataManager';
 import { supabase } from '@/lib/supabase';
+import { useRoute } from '@react-navigation/native';
 
 
 const { width, height } = Dimensions.get('window');
@@ -443,6 +444,51 @@ export default function SuggestedEvents() {
       setIsFetchingActivities(false);
     }
   }, [userLocation, dataManager, processEvents]);
+
+  const route = useRoute();
+
+  useEffect(() => {
+    // If a sharedEventId param is present, fetch that event and add to top of stack
+    const sharedEventId = (route.params as any)?.sharedEventId;
+    if (sharedEventId) {
+      // Only add if not already present
+      if (!EVENTS.some(e => e.id === parseInt(sharedEventId, 10))) {
+        (async () => {
+          try {
+            const { data: event, error } = await supabase
+              .from('all_events')
+              .select('*')
+              .eq('id', parseInt(sharedEventId, 10))
+              .single();
+            if (event) {
+              // Add image URLs
+              const randomImageIndex = Math.floor(Math.random() * 5);
+              const imageUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg`;
+              const allImages = Array.from({ length: 5 }, (_, i) => 
+                `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
+              );
+              setEVENTS(prev => [{ ...event, image: imageUrl, allImages }, ...prev]);
+              setCardIndex(0);
+            }
+          } catch (e) {
+            console.error('Error fetching shared event for stack:', e);
+          }
+        })();
+      } else {
+        // If already present, move it to the top
+        setEVENTS(prev => {
+          const idx = prev.findIndex(e => e.id === parseInt(sharedEventId, 10));
+          if (idx > 0) {
+            const event = prev[idx];
+            const newArr = [event, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+            return newArr;
+          }
+          return prev;
+        });
+        setCardIndex(0);
+      }
+    }
+  }, [(route.params as any)?.sharedEventId]);
 
   useEffect(() => {
     //fetchUserEvents(); // Consider if this should be here or after filters are loaded
