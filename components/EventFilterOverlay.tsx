@@ -46,7 +46,8 @@ const EVENT_TYPES = [
   'Nightlife & Parties',
   'Wellness & Low-Energy',
   'Experiences & Activities',
-  'Travel & Discovery'
+  'Travel & Discovery',
+  'Happy Hour'
 ];
 
 const defaultStart = '21:00';

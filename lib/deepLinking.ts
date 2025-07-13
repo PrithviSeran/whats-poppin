@@ -4,25 +4,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { CommonActions } from '@react-navigation/native';
 
-// Handle deep links for shared events and password reset
+// Handle deep links for shared events
 export const handleDeepLink = async (url: string, navigation?: any) => {
   try {
     console.log('🔗 Handling deep link:', url);
-    
-    // Check if this is a password reset link
-    if (url.includes('reset-password')) {
-      console.log('🔑 Password reset link detected');
-      
-      // The email is already saved in AsyncStorage from ForgotPasswordScreen
-      // Just navigate to the reset password screen
-      console.log('✅ Password reset link handled - email should be in AsyncStorage');
-      
-      return {
-        type: 'password-reset',
-        success: true,
-        message: 'Password reset link handled successfully'
-      };
-    }
     
     // Check if this is an event sharing link
     if (url.includes('/event/')) {
@@ -121,15 +106,7 @@ export const setupDeepLinking = () => {
     const result = await handleDeepLink(url);
     
     if (result) {
-      if (result.type === 'password-reset') {
-        // Handle password reset result
-        if (result.success) {
-          console.log('✅ Password reset link handled, user can now reset password');
-          // The ResetPasswordScreen will handle the actual password reset
-        } else {
-          console.error('❌ Password reset failed:', result.error);
-        }
-      } else if (result.type === 'event-share') {
+      if (result.type === 'event-share') {
         // Handle event sharing result
         if (result.success && result.eventId) {
           console.log('📅 Event sharing link handled, event ID:', result.eventId);

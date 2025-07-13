@@ -22,7 +22,8 @@ import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import GlobalDataManager from '@/lib/GlobalDataManager';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CommonActions } from '@react-navigation/native';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -47,8 +48,6 @@ const ResetPasswordScreen = () => {
   const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [resetEmail, setResetEmail] = useState<string | null>(null);
-  const [isEmailLoading, setIsEmailLoading] = useState(true);
   const colorScheme = useColorScheme();
   const passwordScaleAnim = useRef(new Animated.Value(1)).current;
   const confirmPasswordScaleAnim = useRef(new Animated.Value(1)).current;
@@ -107,10 +106,6 @@ const ResetPasswordScreen = () => {
 
   const handleResetPassword = async () => {
     if (!validatePassword(password) || !validateConfirmPassword(confirmPassword)) return;
-    if (!resetEmail) {
-      setPasswordError('No reset email found. Please request a new password reset.');
-      return;
-    }
 
     setIsLoading(true);
     setSuccessMessage('');
@@ -118,9 +113,10 @@ const ResetPasswordScreen = () => {
     setConfirmPasswordError('');
 
     try {
-      console.log('🔍 Password reset - Using email from AsyncStorage:', resetEmail);
+      console.log('🔍 Password reset - User has verified recovery token');
       
-      // Update the password using the email from AsyncStorage
+      // Since the user has already verified their recovery token in ForgotPasswordScreen,
+      // they should have an active session. We can now update their password.
       const { error } = await supabase.auth.updateUser({
         password: password
       });
@@ -133,6 +129,8 @@ const ResetPasswordScreen = () => {
           setPasswordError('Password is too weak. Please choose a stronger password.');
         } else if (error.message.includes('password')) {
           setPasswordError('Password update failed. Please try again.');
+        } else if (error.message.includes('session')) {
+          setPasswordError('Session expired. Please go back and verify your recovery token again.');
         } else {
           setPasswordError(`Update failed: ${error.message}`);
         }
@@ -148,14 +146,6 @@ const ResetPasswordScreen = () => {
           useNativeDriver: true,
         }).start();
         
-        // Remove the email from AsyncStorage since password was successfully reset
-        try {
-          await AsyncStorage.removeItem('resetPasswordEmail');
-          console.log('✅ Reset email removed from AsyncStorage');
-        } catch (removeError) {
-          console.warn('⚠️ Error removing reset email from AsyncStorage:', removeError);
-        }
-        
         // Sign out to ensure clean state
         try {
           await supabase.auth.signOut();
@@ -165,9 +155,16 @@ const ResetPasswordScreen = () => {
         }
         
         setTimeout(() => {
-          navigation.navigate('social-sign-in');
+          // Clear the navigation stack and reset to sign-in screen
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'social-sign-in' }],
+            })
+          );
         }, 3000); // Increased to 3 seconds to give user time to read the message
       }
+      
     } catch (error) {
       console.error('❌ Unexpected error during password reset:', error);
       setPasswordError('Network error. Please check your internet connection and try again.');
@@ -208,52 +205,16 @@ const ResetPasswordScreen = () => {
     }).start();
   };
 
-  const handleBackToSignIn = () => {
-    navigation.navigate('social-sign-in');
-  };
-
   const requirements = checkPasswordRequirements(password);
 
   useEffect(() => {
-    // Load the reset email from AsyncStorage
-    const loadResetEmail = async () => {
-      try {
-        const email = await AsyncStorage.getItem('resetPasswordEmail');
-        console.log('🔍 ResetPasswordScreen - Loading email from AsyncStorage:', email ? 'Email found' : 'No email found');
-        
-        if (email) {
-          setResetEmail(email);
-          console.log('✅ Reset email loaded:', email);
-        } else {
-          console.warn('⚠️ No reset email found in AsyncStorage');
-          setPasswordError('No password reset request found. Please request a new password reset from the sign-in screen.');
-        }
-      } catch (error) {
-        console.error('❌ Error loading reset email:', error);
-        setPasswordError('Error loading reset email. Please try requesting a new password reset.');
-      } finally {
-        setIsEmailLoading(false);
-      }
-    };
-    
-    // Load the email
-    loadResetEmail();
-    
-    // Cleanup
-    return () => {
-      // No cleanup needed for this approach
-    };
+    // No longer loading email data from AsyncStorage since we use manual token input
+    // The user has already verified their recovery token in ForgotPasswordScreen
+    // and should have an active session when they reach this screen
   }, []);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => navigation.navigate('social-sign-in')}
-      >
-        <Ionicons name="chevron-back" size={28} color="#9E95BD" />
-      </TouchableOpacity>
-
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardContainer}
@@ -275,14 +236,15 @@ const ResetPasswordScreen = () => {
           </View>
 
           <View style={styles.contentContainer}>
-            {isEmailLoading ? (
+            {/* isEmailLoading is no longer used, so remove it */}
+            {/* {isEmailLoading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].accent} />
                 <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
                   Loading reset information...
                 </Text>
               </View>
-            ) : (
+            ) : ( */}
               <>
                 <View style={styles.titleContainer}>
                   <Text style={[styles.titleLarge, { color: Colors[colorScheme ?? 'light'].text }]}>
@@ -291,11 +253,11 @@ const ResetPasswordScreen = () => {
                   <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
                     Choose a strong password to secure your account
                   </Text>
-                  {resetEmail && (
+                  {/* {resetEmail && (
                     <Text style={[styles.emailText, { color: Colors[colorScheme ?? 'light'].text }]}>
                       Resetting password for: {resetEmail}
                     </Text>
-                  )}
+                  )} */}
                 </View>
 
                 {successMessage ? (
@@ -497,7 +459,7 @@ const ResetPasswordScreen = () => {
                     <View style={styles.buttonContainer}>
                       <TouchableOpacity
                         onPress={handleResetPassword}
-                        disabled={!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError || isLoading || !resetEmail || isEmailLoading}
+                        disabled={!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError || isLoading}
                         style={styles.buttonWrapper}
                       >
                         <LinearGradient
@@ -507,7 +469,7 @@ const ResetPasswordScreen = () => {
                           locations={[0, 0.25, 0.5, 0.75, 1]}
                           style={[
                             styles.resetButton,
-                            (!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError || isLoading || !resetEmail || isEmailLoading) && styles.disabledButton,
+                            (!password.trim() || !confirmPassword.trim() || !!passwordError || !!confirmPasswordError || isLoading) && styles.disabledButton,
                           ]}
                         >
                           {isLoading ? (
@@ -524,8 +486,8 @@ const ResetPasswordScreen = () => {
 
                     <TouchableOpacity 
                       style={styles.backToSignInLink}
-                      onPress={handleBackToSignIn}
-                      disabled={isLoading || isEmailLoading}
+                      onPress={() => navigation.navigate('social-sign-in')}
+                      disabled={isLoading}
                     >
                       <Text style={[styles.backToSignInLinkText, { color: '#9E95BD' }]}>
                         Back to Sign In
@@ -534,7 +496,12 @@ const ResetPasswordScreen = () => {
                   </>
                 )}
               </>
-            )}
+            {/* ) : ( */}
+            {/* The original code had a loading state here, but it's removed.
+                If there's a specific loading state you want to keep,
+                you'll need to re-introduce it or adjust the structure.
+                For now, the loading state is removed as per the edit hint. */}
+            {/* )} */}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -553,18 +520,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingBottom: 40,
-  },
-  backButton: {
-    position: 'absolute',
-    top: 50,
-    left: 20,
-    zIndex: 10,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(158, 149, 189, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerContainer: {
     alignItems: 'center',

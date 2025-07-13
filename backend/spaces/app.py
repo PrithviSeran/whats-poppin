@@ -35,7 +35,8 @@ EVENT_TYPES = [
     'Nightlife & Parties',
     'Wellness & Low-Energy',
     'Experiences & Activities',
-    'Travel & Discovery'
+    'Travel & Discovery',
+    'Happy Hour'
 ]
 
 # Initialize FastAPI app

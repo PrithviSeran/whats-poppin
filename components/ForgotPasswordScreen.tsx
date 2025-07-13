@@ -21,7 +21,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -42,8 +42,14 @@ const ForgotPasswordScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [showRecoveryTokenInput, setShowRecoveryTokenInput] = useState(false);
+  const [recoveryToken, setRecoveryToken] = useState('');
+  const [recoveryTokenError, setRecoveryTokenError] = useState('');
+  const [isTokenFocused, setIsTokenFocused] = useState(false);
+  const [isVerifyingToken, setIsVerifyingToken] = useState(false);
   const colorScheme = useColorScheme();
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
+  const tokenInputScaleAnim = useRef(new Animated.Value(1)).current;
 
   const validateEmail = (text: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -104,7 +110,7 @@ const ForgotPasswordScreen = () => {
       }
 
       // Save the email to AsyncStorage for password reset
-      await AsyncStorage.setItem('resetPasswordEmail', email);
+      // await AsyncStorage.setItem('resetPasswordEmail', email);
       
       // Use a simple redirect URL that will open the app
       const redirectUrl = 'whatspoppin://reset-password';
@@ -121,15 +127,72 @@ const ForgotPasswordScreen = () => {
           setEmailError(error.message);
         }
         // Remove the email from AsyncStorage if there was an error
-        await AsyncStorage.removeItem('resetPasswordEmail');
+        // await AsyncStorage.removeItem('resetPasswordEmail');
       } else {
-        setSuccessMessage('Password reset instructions have been sent to your email. Please check your inbox and follow the link to reset your password.');
-        setEmail('');
+        setSuccessMessage('Password reset instructions have been sent to your email. Please check your inbox and enter the recovery token below.');
+        setShowRecoveryTokenInput(true);
       }
     } catch (error) {
       setEmailError('An error occurred. Please check your internet connection and try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRecoveryTokenChange = (text: string) => {
+    setRecoveryToken(text);
+    setRecoveryTokenError('');
+  };
+
+  const validateRecoveryToken = (token: string) => {
+    if (!token.trim()) {
+      setRecoveryTokenError('Recovery token is required');
+      return false;
+    }
+    // Supabase sends 6-digit numeric tokens
+    if (token.length !== 6) {
+      setRecoveryTokenError('Please enter the 6-digit recovery token from your email');
+      return false;
+    }
+    // Check if token contains only numbers
+    if (!/^\d{6}$/.test(token)) {
+      setRecoveryTokenError('Recovery token should be 6 digits');
+      return false;
+    }
+    setRecoveryTokenError('');
+    return true;
+  };
+
+  const handleVerifyToken = async () => {
+    if (!validateRecoveryToken(recoveryToken)) return;
+
+    setIsVerifyingToken(true);
+    setRecoveryTokenError('');
+
+    try {
+      console.log('🔍 Verifying recovery token...');
+      
+      // Try to set the session with the recovery token
+      // The token should be in the format that Supabase sends in the email
+      const { error } = await supabase.auth.verifyOtp({
+        email: email,
+        token: recoveryToken,
+        type: 'recovery'
+      });
+
+      if (error) {
+        console.error('❌ Token verification error:', error);
+        setRecoveryTokenError('Invalid or expired recovery token. Please check your email and try again.');
+      } else {
+        console.log('✅ Recovery token verified successfully');
+        // Navigate to reset password screen
+        navigation.navigate('reset-password');
+      }
+    } catch (error) {
+      console.error('❌ Unexpected error during token verification:', error);
+      setRecoveryTokenError('Network error. Please check your internet connection and try again.');
+    } finally {
+      setIsVerifyingToken(false);
     }
   };
 
@@ -144,6 +207,22 @@ const ForgotPasswordScreen = () => {
   const handleInputBlur = () => {
     setIsFocused(false);
     Animated.spring(inputScaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleTokenInputFocus = () => {
+    setIsTokenFocused(true);
+    Animated.spring(tokenInputScaleAnim, {
+      toValue: 1.02,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleTokenInputBlur = () => {
+    setIsTokenFocused(false);
+    Animated.spring(tokenInputScaleAnim, {
       toValue: 1,
       useNativeDriver: true,
     }).start();
@@ -188,37 +267,117 @@ const ForgotPasswordScreen = () => {
                 Reset your password
               </Text>
               <Text style={[styles.subtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                Enter your email address and we'll send you instructions to reset your password
+                {showRecoveryTokenInput 
+                  ? 'Enter the recovery token from your email to continue'
+                  : 'Enter your email address and we\'ll send you instructions to reset your password'
+                }
               </Text>
             </View>
 
-            {successMessage ? (
-              <View style={styles.successContainer}>
-                <View style={styles.successHeader}>
-                  <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
-                  <Text style={[styles.successTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    Check your email
+            {showRecoveryTokenInput ? (
+              <>
+                <View style={styles.successContainer}>
+                  <View style={styles.successHeader}>
+                    <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
+                    <Text style={[styles.successTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Email sent successfully
+                    </Text>
+                  </View>
+                  <Text style={[styles.successMessage, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Password reset instructions have been sent to {email}. Please check your inbox and enter the recovery token below.
                   </Text>
                 </View>
-                <Text style={[styles.successMessage, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {successMessage}
-                </Text>
-                <TouchableOpacity 
-                  style={styles.backToSignInButtonWrapper}
-                  onPress={handleBackToSignIn}
-                  activeOpacity={0.8}
+
+                <View style={styles.tokenInputSpacing} />
+
+                <Animated.View 
+                  style={[
+                    styles.inputContainer,
+                    { transform: [{ scale: tokenInputScaleAnim }] }
+                  ]}
                 >
-                  <LinearGradient
-                    colors={['#9E95BD', '#B97AFF']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.backToSignInButton}
+                  <View style={styles.codeInputContainer}>
+                    <Text style={[styles.codeInputLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Enter Recovery Token
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.codeInput,
+                        {
+                          color: Colors[colorScheme ?? 'light'].text,
+                          backgroundColor: Colors[colorScheme ?? 'light'].card,
+                          borderColor: recoveryTokenError 
+                            ? '#FF3B30' 
+                            : isTokenFocused 
+                              ? '#9E95BD' 
+                              : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                        }
+                      ]}
+                      value={recoveryToken}
+                      onChangeText={handleRecoveryTokenChange}
+                      onFocus={handleTokenInputFocus}
+                      onBlur={handleTokenInputBlur}
+                      placeholder="123456"
+                      placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                      keyboardType="numeric"
+                      maxLength={6}
+                      textAlign="center"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!isVerifyingToken}
+                    />
+                    {isVerifyingToken && (
+                      <ActivityIndicator 
+                        size="small" 
+                        color="#9E95BD" 
+                        style={{ marginTop: 8 }}
+                      />
+                    )}
+                  </View>
+                  {recoveryTokenError ? (
+                    <View style={styles.errorContainer}>
+                      <Ionicons name="alert-circle" size={16} color="#FF3B30" />
+                      <Text style={styles.errorText}>{recoveryTokenError}</Text>
+                    </View>
+                  ) : null}
+                </Animated.View>
+
+                <View style={styles.buttonContainer}>
+                  <TouchableOpacity
+                    onPress={handleVerifyToken}
+                    disabled={!recoveryToken.trim() || !!recoveryTokenError || isVerifyingToken}
+                    style={styles.buttonWrapper}
                   >
-                    <Ionicons name="arrow-back" size={18} color="white" />
-                    <Text style={styles.backToSignInButtonText}>Back to Sign In</Text>
-                  </LinearGradient>
+                    <LinearGradient
+                      colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      locations={[0, 0.25, 0.5, 0.75, 1]}
+                      style={[
+                        styles.resetButton,
+                        (!recoveryToken.trim() || !!recoveryTokenError || isVerifyingToken) && styles.disabledButton,
+                      ]}
+                    >
+                      <Text style={styles.resetButtonText}>
+                        {isVerifyingToken ? 'Verifying...' : 'Verify Token'}
+                      </Text>
+                      {!isVerifyingToken && (
+                        <Ionicons name="checkmark" size={18} color="white" style={styles.buttonIcon} />
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity 
+                  style={styles.backToSignInLink}
+                  onPress={handleBackToSignIn}
+                  disabled={isVerifyingToken}
+                >
+                  <Text style={[styles.backToSignInLinkText, { color: '#9E95BD' }]}>
+                    Back to Sign In
+                  </Text>
                 </TouchableOpacity>
-              </View>
+              </>
             ) : (
               <>
                 <Animated.View 
@@ -449,6 +608,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     lineHeight: 20,
   },
+  tokenInputSpacing: {
+    height: 20, // Adjust as needed for spacing
+  },
   backToSignInButtonWrapper: {
     shadowColor: '#9E95BD',
     shadowOffset: { width: 0, height: 3 },
@@ -510,6 +672,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     textDecorationLine: 'underline',
+  },
+  codeInputContainer: {
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  codeInputLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  codeInput: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    letterSpacing: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderWidth: 2,
+    borderRadius: 12,
+    width: 200,
+    marginBottom: 16,
+    textAlign: 'center',
   },
 });
 
