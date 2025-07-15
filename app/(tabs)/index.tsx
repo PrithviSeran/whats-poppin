@@ -8,7 +8,6 @@ import SuggestedEvents from '@/components/SuggestedEvents';
 import { supabase } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import GlobalDataManager from '@/lib/GlobalDataManager';
-import CreateAccountFinished from '@/components/CreateAccountFinished';
 
 export default function HomeScreen() {
   const [session, setSession] = useState<Session | null>(null);

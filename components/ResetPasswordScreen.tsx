@@ -26,7 +26,7 @@ import GlobalDataManager from '@/lib/GlobalDataManager';
 import { CommonActions } from '@react-navigation/native';
 
 type RootStackParamList = {
-  'social-sign-in': undefined;
+  '(tabs)': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -159,7 +159,7 @@ const ResetPasswordScreen = () => {
           navigation.dispatch(
             CommonActions.reset({
               index: 0,
-              routes: [{ name: 'social-sign-in' }],
+              routes: [{ name: '(tabs)' }],
             })
           );
         }, 3000); // Increased to 3 seconds to give user time to read the message
@@ -486,7 +486,7 @@ const ResetPasswordScreen = () => {
 
                     <TouchableOpacity 
                       style={styles.backToSignInLink}
-                      onPress={() => navigation.navigate('social-sign-in')}
+                      onPress={() => navigation.navigate('(tabs)')}
                       disabled={isLoading}
                     >
                       <Text style={[styles.backToSignInLinkText, { color: '#9E95BD' }]}>
