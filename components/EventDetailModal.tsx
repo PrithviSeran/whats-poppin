@@ -200,16 +200,42 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   useEffect(() => {
     if (event) {
       setCurrentImageIndex(0);
-      // Determine actual image count
-      determineActualImageCount();
-      // Fetch creator info if posted_by exists
-      if (event.posted_by) {
-        fetchCreatorInfo(event.posted_by);
-      } else {
-        setCreatorInfo(null);
-      }
+      
+      // Defer heavy operations until after animation to prevent stuttering
+      const timer = setTimeout(() => {
+        // Determine actual image count
+        determineActualImageCount();
+        // Fetch creator info if posted_by exists
+        if (event.posted_by) {
+          fetchCreatorInfo(event.posted_by);
+        } else {
+          setCreatorInfo(null);
+        }
+      }, 100); // Small delay to let animation start smoothly
+      
+      return () => clearTimeout(timer);
     }
   }, [event]);
+
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 EventDetailModal: Cleaning up animations');
+      
+      // Stop all animated values
+      fadeAnim.stopAnimation();
+      expandScale.stopAnimation();
+      translateX.stopAnimation();
+      translateY.stopAnimation();
+      contentOpacity.stopAnimation();
+      overlayOpacity.stopAnimation();
+      imageControlsOpacity.stopAnimation();
+      
+      // Reset animation states
+      setIsClosing(false);
+    };
+  }, []);
 
   // Function to fetch creator information
   const fetchCreatorInfo = async (creatorEmail: string) => {
@@ -380,51 +406,52 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       overlayOpacity.setValue(0); // Overlay starts transparent
       imageControlsOpacity.setValue(0); // Image controls start hidden
 
-      // First: Show dark background immediately
-      Animated.timing(overlayOpacity, {
-        toValue: 0.8,
-        duration: 120,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start(() => {
-        // Then: Start modal expansion animation
-        Animated.parallel([
-          Animated.timing(expandScale, {
-            toValue: 1,
-            duration: 250,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateX, {
-            toValue: 0,
-            duration: 250,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateY, {
-            toValue: 0,
-            duration: 250,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          })
-        ]).start(() => {
-          // Finally: Content fade in after modal animation completes
-          Animated.timing(contentOpacity, {
-            toValue: 1,
-            duration: 150,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }).start(() => {
-            // Last: Image controls fade in after content is fully visible
-            Animated.timing(imageControlsOpacity, {
-              toValue: 1,
-              duration: 200,
-              easing: Easing.out(Easing.quad),
-              useNativeDriver: true,
-            }).start();
-          });
-        });
-      });
+      // Simplified animation sequence - all animations run in parallel for smoother performance
+      Animated.parallel([
+        // Overlay fade in
+        Animated.timing(overlayOpacity, {
+          toValue: 0.8,
+          duration: 200,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        // Modal expansion
+        Animated.timing(expandScale, {
+          toValue: 1,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        // Modal positioning
+        Animated.timing(translateX, {
+          toValue: 0,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        // Content fade in (delayed slightly)
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 250,
+          delay: 100,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        // Image controls fade in (delayed more)
+        Animated.timing(imageControlsOpacity, {
+          toValue: 1,
+          duration: 200,
+          delay: 200,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        })
+      ]).start();
     }
   }, [visible, event, cardPosition]);
 
@@ -447,8 +474,9 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
         targetScale = Math.max(0.1, Math.min(targetScale, 0.5));
       }
 
-      // First: Image controls and content fade out simultaneously
+      // Simplified closing animation - all animations run in parallel
       Animated.parallel([
+        // Content and controls fade out immediately
         Animated.timing(contentOpacity, {
           toValue: 0,
           duration: 150,
@@ -460,46 +488,42 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           duration: 100,
           easing: Easing.in(Easing.quad),
           useNativeDriver: true,
+        }),
+        // Modal shrinks and moves back to card position
+        Animated.timing(expandScale, {
+          toValue: targetScale,
+          duration: 300,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateX, {
+          toValue: targetX,
+          duration: 300,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: targetY,
+          duration: 300,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        // Overlay fades out
+        Animated.timing(overlayOpacity, {
+          toValue: 0,
+          duration: 200,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
         })
       ]).start(() => {
-        // Then: Modal shrinks back to card position
-        Animated.parallel([
-          Animated.timing(expandScale, {
-            toValue: targetScale,
-            duration: 250,
-            easing: Easing.in(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateX, {
-            toValue: targetX,
-            duration: 250,
-            easing: Easing.in(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateY, {
-            toValue: targetY,
-            duration: 250,
-            easing: Easing.in(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(fadeAnim, {
-            toValue: 0,
-            duration: 250,
-            useNativeDriver: true,
-          })
-        ]).start(() => {
-          // Finally: Dark background fades out
-          Animated.timing(overlayOpacity, {
-            toValue: 0,
-            duration: 120,
-            easing: Easing.in(Easing.quad),
-            useNativeDriver: true,
-          }).start(() => {
-            // Animation complete - now close the modal
-            setIsClosing(false);
-            onClose();
-          });
-        });
+        // Animation complete - now close the modal
+        setIsClosing(false);
+        onClose();
       });
     }
   }, [isClosing, cardPosition, onClose]);
@@ -589,13 +613,14 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               source={{ uri: getCurrentImageUrl() }} 
               style={styles.imageExpanded}
               onError={(e) => {
-                console.log('Image failed to load in modal, trying next image');
+                console.log('Image failed to load in modal, trying next image (retry once)');
                 const totalImages = getActualImageCount();
-                // If current image fails and there are more images, try to move to next image
+                // Only retry once - if current image fails and there are more images, try the next one
                 if (event && totalImages > 1 && currentImageIndex < totalImages - 1) {
                   navigateImage('next');
                 } else {
-                  // If no more images to try, set current image to null to show placeholder
+                  // If no more images to try or this is already a retry, show placeholder
+                  console.log('No more images to try, showing placeholder');
                   setCurrentImageIndex(-1);
                 }
               }}
@@ -667,6 +692,9 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             scrollEnabled={true}
             removeClippedSubviews={true}
             keyboardShouldPersistTaps="handled"
+            bounces={false}
+            decelerationRate="fast"
+            overScrollMode="never"
           >
             {/* Modern Header Section */}
             <View style={styles.modernHeaderSection}>
@@ -1092,20 +1120,36 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               </View>
             </View>
 
-            {/* Modern Description Section */}
-            <View style={[styles.modernDescriptionCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-              <View style={styles.modernDescriptionHeader}>
-                <View style={[styles.modernInfoIconBadge, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
-                  <Ionicons name="document-text" size={18} color="#9E95BD" />
-                </View>
-                <Text style={[styles.modernDescriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                About this event
-              </Text>
-              </View>
-              <Text style={[styles.modernDescriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {event.description}
-              </Text>
-            </View>
+            {/* Modern Description Section - Only show if content is more than 2 lines */}
+            {event.description && (() => {
+              // Calculate if description is more than 2 lines
+              const descriptionText = event.description;
+              const estimatedLineHeight = 20; // Approximate line height for the text style
+              const containerWidth = width - 80; // Account for padding and margins
+              const fontSize = 16; // Approximate font size
+              const charactersPerLine = Math.floor(containerWidth / (fontSize * 0.6)); // Rough estimate
+              const lines = Math.ceil(descriptionText.length / charactersPerLine);
+              
+              // Only show section if more than 2 lines
+              if (lines > 2) {
+                return (
+                  <View style={[styles.modernDescriptionCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                    <View style={styles.modernDescriptionHeader}>
+                      <View style={[styles.modernInfoIconBadge, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
+                        <Ionicons name="document-text" size={18} color="#9E95BD" />
+                      </View>
+                      <Text style={[styles.modernDescriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        About this event
+                      </Text>
+                    </View>
+                    <Text style={[styles.modernDescriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {event.description}
+                    </Text>
+                  </View>
+                );
+              }
+              return null;
+            })()}
 
             {/* Google Map */}
             <View style={styles.mapContainer}>

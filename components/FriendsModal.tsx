@@ -764,6 +764,20 @@ export default function FriendsModal({
     setRemovingItems(new Set());
   }, [friends, followers, following, friendRequests]);
 
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 FriendsModal: Cleaning up animations');
+      
+      // Stop tab switch animation
+      tabSwitchAnim.stopAnimation();
+      
+      // Clear removing items state
+      setRemovingItems(new Set());
+    };
+  }, []);
+
   // Open user profile modal
   const handleUserProfileNavigation = (userId: number, userName: string, userEmail: string) => {
     setSelectedUserId(userId);

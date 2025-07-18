@@ -8,6 +8,8 @@ import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import OptimizedImage from './OptimizedImage';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 interface UserProfile {
   id: number;
@@ -42,18 +44,37 @@ type RouteParams = {
 export default function EditImages() {
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [imagesPreloaded, setImagesPreloaded] = useState(false);
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
   const params = route.params as RouteParams;
+  const dataManager = GlobalDataManager.getInstance();
 
   // Reset state when component mounts or params change
   useEffect(() => {
     if (params?.currentProfile) {
       setEditedProfile(params.currentProfile);
       setIsUploading(false);
+      
+      // Preload images for faster display
+      if (params.currentProfile.profileImage || params.currentProfile.bannerImage) {
+        console.log('🖼️ EditImages: Preloading images...');
+        dataManager.preloadProfileImages(
+          params.currentProfile.profileImage, 
+          params.currentProfile.bannerImage
+        ).then(() => {
+          console.log('✅ EditImages: Images preloaded successfully');
+          setImagesPreloaded(true);
+        }).catch(error => {
+          console.warn('⚠️ EditImages: Some images failed to preload:', error);
+          setImagesPreloaded(true); // Still set to true to show images
+        });
+      } else {
+        setImagesPreloaded(true);
+      }
     }
-  }, [params?.currentProfile]);
+  }, [params?.currentProfile, dataManager]);
 
   // Cleanup when component unmounts
   useEffect(() => {
@@ -243,8 +264,6 @@ export default function EditImages() {
       console.log('Banner image URL:', updatedProfile.bannerImage);
 
       // Immediately refresh the GlobalDataManager cache with fresh data
-      const GlobalDataManager = require('@/lib/GlobalDataManager').default;
-      const dataManager = GlobalDataManager.getInstance();
       await dataManager.refreshAllData();
       console.log('✅ GlobalDataManager cache refreshed with updated image data');
 
@@ -324,6 +343,14 @@ export default function EditImages() {
           }
           
           setEditedProfile(updatedProfile);
+          
+          // Preload the new image immediately for faster display
+          console.log(`🖼️ Preloading new ${type} image...`);
+          if (type === 'profile') {
+            dataManager.preloadProfileImages(imageUri, updatedProfile.bannerImage);
+          } else {
+            dataManager.preloadProfileImages(updatedProfile.profileImage, imageUri);
+          }
         }
       }
     } catch (error) {
@@ -332,12 +359,12 @@ export default function EditImages() {
     }
   };
 
-  if (!editedProfile) {
+  if (!editedProfile || !imagesPreloaded) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
         <View style={styles.loadingContainer}>
           <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
-            Loading...
+            {!editedProfile ? 'Loading...' : 'Loading images...'}
           </Text>
         </View>
       </SafeAreaView>
@@ -378,7 +405,12 @@ export default function EditImages() {
             disabled={isUploading}
           >
             {editedProfile.bannerImage ? (
-              <Image source={{ uri: editedProfile.bannerImage }} style={styles.bannerImage} />
+              <OptimizedImage 
+                source={{ uri: editedProfile.bannerImage }} 
+                style={styles.bannerImage}
+                resizeMode="cover"
+                placeholder={false}
+              />
             ) : (
               <LinearGradient
                 colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -404,7 +436,12 @@ export default function EditImages() {
             disabled={isUploading}
           >
             {editedProfile.profileImage ? (
-              <Image source={{ uri: editedProfile.profileImage }} style={styles.profileImage} />
+              <OptimizedImage 
+                source={{ uri: editedProfile.profileImage }} 
+                style={styles.profileImage}
+                resizeMode="cover"
+                placeholder={false}
+              />
             ) : (
               <View style={styles.profilePlaceholder}>
                 <Ionicons name="person-outline" size={40} color={Colors[colorScheme ?? 'light'].text} />

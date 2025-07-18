@@ -207,6 +207,19 @@ const ResetPasswordScreen = () => {
 
   const requirements = checkPasswordRequirements(password);
 
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 ResetPasswordScreen: Cleaning up animations');
+      
+      // Stop all animated values
+      passwordScaleAnim.stopAnimation();
+      confirmPasswordScaleAnim.stopAnimation();
+      successScaleAnim.stopAnimation();
+    };
+  }, []);
+
   useEffect(() => {
     // No longer loading email data from AsyncStorage since we use manual token input
     // The user has already verified their recovery token in ForgotPasswordScreen

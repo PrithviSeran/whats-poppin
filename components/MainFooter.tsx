@@ -45,6 +45,19 @@ export default function MainFooter({ activeTab }: MainFooterProps) {
     }).start();
   }, [activeTab]);
 
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 MainFooter: Cleaning up animations');
+      
+      // Stop all animated values
+      homeAnim.stopAnimation();
+      discoverAnim.stopAnimation();
+      meAnim.stopAnimation();
+    };
+  }, []);
+
   const navigateToTab = (routeName: keyof RootStackParamList) => {
     navigation.dispatch(
       CommonActions.reset({

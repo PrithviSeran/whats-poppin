@@ -226,6 +226,19 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     }
   }, [visible]);
 
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 EventFilterOverlay: Cleaning up animations');
+      
+      // Stop all animated values
+      fadeAnim.stopAnimation();
+      slideAnim.stopAnimation();
+      locationBubbleAnim.stopAnimation();
+    };
+  }, []);
+
 
   const toggleEventType = (type: string) => {
     setSelectedEventTypes(prev =>

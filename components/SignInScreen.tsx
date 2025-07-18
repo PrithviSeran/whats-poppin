@@ -130,6 +130,17 @@ const SignInScreen = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 SignInScreen: Cleaning up animations');
+      
+      // Stop all animated values
+      fadeAnim.stopAnimation();
+    };
+  }, []);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <View style={styles.centerContent}>

@@ -726,9 +726,13 @@ export default function Discover() {
     ).start();
   }, []);
 
-  // Clean up animations when component unmounts
+  // Comprehensive animation cleanup on component unmount
   useEffect(() => {
     return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 Discover: Cleaning up animations');
+      
+      // Stop all animated values
       scaleAnim.stopAnimation();
       translateXAnim.stopAnimation();
       translateYAnim.stopAnimation();
@@ -736,6 +740,17 @@ export default function Discover() {
       cardOpacity.stopAnimation();
       pulseAnim.stopAnimation();
       rotateAnim.stopAnimation();
+      refreshAnimation.stopAnimation();
+      
+      // Clean up user item animations
+      Object.values(userItemAnimations).forEach(anim => {
+        anim.stopAnimation();
+      });
+      
+      // Clear user item animations object
+      Object.keys(userItemAnimations).forEach(key => {
+        delete (userItemAnimations as any)[key];
+      });
     };
   }, []);
 

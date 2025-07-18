@@ -6,6 +6,11 @@ import { Ionicons } from '@expo/vector-icons';
 const imageCache = new Map<string, boolean>();
 const preloadQueue = new Set<string>();
 
+// Profile and banner image cache with timestamps
+const profileImageCache = new Map<string, { url: string; timestamp: number }>();
+const bannerImageCache = new Map<string, { url: string; timestamp: number }>();
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
 interface OptimizedImageProps {
   source: { uri: string } | number;
   style?: any;
@@ -39,6 +44,27 @@ const OptimizedImage = memo<OptimizedImageProps>(({
     }
   }, [currentSource]);
 
+  // Check profile/banner image cache
+  useEffect(() => {
+    if (typeof currentSource === 'string') {
+      const now = Date.now();
+      
+      // Check profile image cache
+      const profileCacheEntry = profileImageCache.get(currentSource);
+      if (profileCacheEntry && (now - profileCacheEntry.timestamp) < CACHE_DURATION) {
+        setIsLoading(false);
+        return;
+      }
+      
+      // Check banner image cache
+      const bannerCacheEntry = bannerImageCache.get(currentSource);
+      if (bannerCacheEntry && (now - bannerCacheEntry.timestamp) < CACHE_DURATION) {
+        setIsLoading(false);
+        return;
+      }
+    }
+  }, [currentSource]);
+
   // OPTIMIZED: Preload next images in background
   useEffect(() => {
     if (fallbackImages.length > 0 && typeof source === 'object') {
@@ -60,6 +86,14 @@ const OptimizedImage = memo<OptimizedImageProps>(({
     setIsLoading(false);
     if (typeof currentSource === 'string') {
       imageCache.set(currentSource, true);
+      
+      // Cache profile and banner images with timestamp
+      const now = Date.now();
+      if (currentSource.includes('profile')) {
+        profileImageCache.set(currentSource, { url: currentSource, timestamp: now });
+      } else if (currentSource.includes('banner')) {
+        bannerImageCache.set(currentSource, { url: currentSource, timestamp: now });
+      }
     }
   };
 
@@ -87,10 +121,10 @@ const OptimizedImage = memo<OptimizedImageProps>(({
   }
 
   return (
-    <View style={style}>
+    <View style={[style, { position: 'relative', overflow: 'hidden' }]}>
       <Image
         source={typeof currentSource === 'string' ? { uri: currentSource } : currentSource}
-        style={[style, { opacity: isLoading ? 0 : 1 }]}
+        style={[StyleSheet.absoluteFill, { opacity: isLoading ? 0 : 1 }]}
         onLoad={handleLoad}
         onError={handleError}
         resizeMode={resizeMode}
@@ -118,5 +152,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 });
+
+// Export cache clearing functions
+export const clearProfileImageCache = () => {
+  profileImageCache.clear();
+  console.log('🧹 Profile image cache cleared');
+};
+
+export const clearBannerImageCache = () => {
+  bannerImageCache.clear();
+  console.log('🧹 Banner image cache cleared');
+};
+
+export const clearAllImageCache = () => {
+  imageCache.clear();
+  profileImageCache.clear();
+  bannerImageCache.clear();
+  preloadQueue.clear();
+  console.log('🧹 All image cache cleared');
+};
 
 export default OptimizedImage; 

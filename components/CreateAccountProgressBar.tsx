@@ -37,6 +37,18 @@ export default function CreateAccountProgressBar({
     }).start();
   }, [currentStep, totalSteps]);
 
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 CreateAccountProgressBar: Cleaning up animations');
+      
+      // Stop all animated values
+      progressAnim.stopAnimation();
+      fadeAnim.stopAnimation();
+    };
+  }, []);
+
   const progressWidth = progressAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0%', '100%'],

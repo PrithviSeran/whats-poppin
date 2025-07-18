@@ -12,6 +12,17 @@ const AnimatedGradientText: React.FC<AnimatedGradientTextProps> = ({ phrases, co
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 GradientAnimatedText: Cleaning up animations');
+      
+      // Stop all animated values
+      fadeAnim.stopAnimation();
+    };
+  }, []);
+
   // Animation for fading in and out
   useEffect(() => {
     // Start first animation immediately

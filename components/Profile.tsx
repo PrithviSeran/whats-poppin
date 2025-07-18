@@ -14,6 +14,7 @@ import GlobalDataManager, { UserProfile } from '@/lib/GlobalDataManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LegalDocumentViewer from './LegalDocumentViewer';
 import SocialDataManager, { Friend, FriendRequest, Follower, Following, SocialData } from '@/lib/SocialDataManager';
+import OptimizedImage from './OptimizedImage';
 
 type RootStackParamList = {
   '(tabs)': {
@@ -68,6 +69,9 @@ export default memo(function Profile({
   // State for follow counts
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+
+  // Image preloading state
+  const [imagesPreloaded, setImagesPreloaded] = useState(false);
 
   // OFFLINE-FIRST: Load all social data from cache/database with automatic sync
   const loadAllSocialData = async (userId: number, forceRefresh: boolean = false) => {
@@ -179,15 +183,45 @@ export default memo(function Profile({
       console.log('Profile component: Profile fetched successfully for user:', user.email);
       setProfile(user);
       setEditedProfile(user);
+
+      // Preload images if they exist using GlobalDataManager
+      if (user.profileImage || user.bannerImage) {
+        console.log('🖼️ Preloading profile images...');
+        try {
+          await dataManager.preloadProfileImages(user.profileImage, user.bannerImage);
+          console.log('✅ Profile images preloaded successfully');
+          setImagesPreloaded(true);
+        } catch (error) {
+          console.warn('⚠️ Some images failed to preload:', error);
+          setImagesPreloaded(true); // Still set to true to show images
+        }
+      } else {
+        setImagesPreloaded(true);
+      }
     } catch (error) {
       console.error('Profile component: Error in fetchUserProfile:', error);
+      setImagesPreloaded(true); // Set to true even on error to show placeholder
     }
   };
 
   useEffect(() => {
     loadInitialData();
     loadNotificationState();
-  }, []);
+
+    // Listen for profile updates from GlobalDataManager
+    const handleProfileUpdate = (updatedProfile: UserProfile) => {
+      console.log('🔄 Profile: Received profile update from GlobalDataManager');
+      setProfile(updatedProfile);
+      setEditedProfile(updatedProfile);
+    };
+
+    dataManager.on('profileUpdated', handleProfileUpdate);
+
+    // Cleanup listener on unmount
+    return () => {
+      dataManager.off('profileUpdated', handleProfileUpdate);
+    };
+  }, [dataManager]);
 
   // Add periodic refresh for social data every 30 seconds when app is active
   useEffect(() => {
@@ -258,6 +292,19 @@ export default memo(function Profile({
         }),
       ])
     ).start();
+  }, []);
+
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 Profile: Cleaning up animations');
+      
+      // Stop all animated values
+      pulseAnim.stopAnimation();
+      rotateAnim.stopAnimation();
+      scrollY.stopAnimation();
+    };
   }, []);
 
   const handleSignOut = async () => {
@@ -349,9 +396,7 @@ export default memo(function Profile({
   };
 
   const handleSaveImages = async () => {
-    console.log("uyfedycgv")
     if (editedProfile) {
-      console.log("HERE????")
       try {
         // Get the current user
         const { data: { user } } = await supabase.auth.getUser();
@@ -361,14 +406,14 @@ export default memo(function Profile({
           return;
         }
 
-        console.log('Current user:', user.email);
+        console.log('🖼️ Saving profile images for user:', user.email);
         let profileImageUrl = editedProfile.profileImage;
         let bannerImageUrl = editedProfile.bannerImage;
 
         // Upload profile image if it's a new local URI
         if (editedProfile.profileImage?.startsWith('file://')) {
           try {
-            console.log('Uploading profile image...');
+            console.log('📤 Uploading profile image...');
             const profileImagePath = `${user.id}/profile-${Date.now()}.jpg`;
             
             // Convert URI to blob
@@ -387,7 +432,7 @@ export default memo(function Profile({
               throw profileError;
             }
 
-            console.log('Profile image uploaded successfully');
+            console.log('✅ Profile image uploaded successfully');
 
             // Get public URL for profile image
             const { data: { publicUrl: profilePublicUrl } } = supabase.storage
@@ -395,7 +440,7 @@ export default memo(function Profile({
               .getPublicUrl(profileImagePath);
             
             profileImageUrl = profilePublicUrl;
-            console.log('Profile image URL:', profileImageUrl);
+            console.log('🔗 Profile image URL:', profileImageUrl);
           } catch (error) {
             console.error('Error uploading profile image:', error);
             Alert.alert('Error', 'Failed to upload profile image');
@@ -406,14 +451,12 @@ export default memo(function Profile({
         // Upload banner image if it's a new local URI
         if (editedProfile.bannerImage?.startsWith('file://')) {
           try {
-            console.log('Uploading banner image...');
+            console.log('📤 Uploading banner image...');
             const bannerImagePath = `${user.id}/banner-${Date.now()}.jpg`;
             
             // Convert URI to blob
             const response = await fetch(editedProfile.bannerImage);
             const blob = await response.blob();
-
-            console.log("BLOB:  ", blob)
             
             const { data: bannerData, error: bannerError } = await supabase.storage
               .from('user-images')
@@ -427,7 +470,7 @@ export default memo(function Profile({
               throw bannerError;
             }
 
-            console.log('Banner image uploaded successfully');
+            console.log('✅ Banner image uploaded successfully');
 
             // Get public URL for banner image
             const { data: { publicUrl: bannerPublicUrl } } = supabase.storage
@@ -435,7 +478,7 @@ export default memo(function Profile({
               .getPublicUrl(bannerImagePath);
             
             bannerImageUrl = bannerPublicUrl;
-            console.log('Banner image URL:', bannerImageUrl);
+            console.log('🔗 Banner image URL:', bannerImageUrl);
           } catch (error) {
             console.error('Error uploading banner image:', error);
             Alert.alert('Error', 'Failed to upload banner image');
@@ -443,39 +486,20 @@ export default memo(function Profile({
           }
         }
 
-        // Update user profile in database
-        console.log('Updating profile in database...');
-        const { data: updateData, error: updateError } = await supabase
-          .from('all_users')
-          .update({
-            profile_image: profileImageUrl,
-            banner_image: bannerImageUrl,
-          })
-          .eq('email', user.email)
-          .select();
-
-        if (updateError) {
-          console.error('Profile update error:', updateError);
-          throw updateError;
-        }
-
-        console.log('Profile updated successfully:', updateData);
-
-        // Update local state with the returned data
+        // Update local state immediately
         const updatedProfile = {
           ...editedProfile,
           profileImage: profileImageUrl,
-          bannerImage: bannerImageUrl,
+          bannerImage: bannerImageUrl
         };
-
-        // Update both profile states immediately
+        
         setProfile(updatedProfile);
         setEditedProfile(updatedProfile);
         setIsEditMode(false);
 
-        // Refresh GlobalDataManager to update cached data
+        // Refresh GlobalDataManager cache
         await dataManager.refreshAllData();
-
+        console.log('✅ Profile images updated successfully and cache refreshed');
         Alert.alert('Success', 'Profile images updated successfully!');
       } catch (error) {
         console.error('Error saving images:', error);
@@ -531,7 +555,7 @@ export default memo(function Profile({
 
   // Remove collapsible header animations - banner will scroll normally
 
-  if (loading) {
+  if (loading || !imagesPreloaded) {
     const spin = rotateAnim.interpolate({
       inputRange: [0, 1],
       outputRange: ['0deg', '360deg'],
@@ -557,7 +581,7 @@ export default memo(function Profile({
             <View style={styles.innerCircle} />
           </Animated.View>
           <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text, marginTop: 20 }]}>
-            Loading profile and friends...
+            {loading ? 'Loading profile and friends...' : 'Loading images...'}
           </Text>
         </View>
         <View style={styles.footerContainer}>
@@ -577,10 +601,11 @@ export default memo(function Profile({
                   {/* Header moved inside ScrollView to scroll with content */}
         <View style={styles.headerContainer}>
           {editedProfile?.bannerImage && (
-            <Image 
+            <OptimizedImage 
               source={{ uri: editedProfile.bannerImage }} 
               style={styles.bannerImage}
               resizeMode="cover"
+              placeholder={false}
             />
           )}
           <LinearGradient
@@ -603,10 +628,11 @@ export default memo(function Profile({
             <View style={styles.profileImageContainer}>
               <View style={styles.profileImageWrapper}>
                 {editedProfile?.profileImage ? (
-                  <Image 
+                  <OptimizedImage 
                     source={{ uri: editedProfile.profileImage }} 
                     style={styles.profileImage}
                     resizeMode="cover"
+                    placeholder={false}
                   />
                 ) : (
                   <View style={[styles.profileImage, styles.placeholderImage]}>

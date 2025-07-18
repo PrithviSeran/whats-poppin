@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import SocialDataManager from './SocialDataManager';
 import { EventEmitter } from 'events';
 import { Interface } from 'readline';
+import { clearProfileImageCache, clearBannerImageCache } from '@/components/OptimizedImage';
 
 // Distance calculation cache interface
 interface CachedDistance {
@@ -76,6 +77,10 @@ class GlobalDataManager extends EventEmitter {
   private lastApiCallTime: number = 0;
   private readonly API_CALL_DEBOUNCE_MS = 1000; // Prevent API spam
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
+
+  // Image cache for profile and banner images
+  private imageCache: Map<string, { data: string; timestamp: number }> = new Map();
+  private readonly IMAGE_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
   private constructor() {
     super();
@@ -268,23 +273,32 @@ class GlobalDataManager extends EventEmitter {
       console.log('Profile query result:', profile ? 'Found profile' : 'No profile found');
       
       if (profile) {
-        // Create folder path using user's email
-        const userFolder = user.email?.replace(/[^a-zA-Z0-9]/g, '_') || user.id;
+        // Use the profile_image and banner_image fields from the database if they exist
+        let profileImageUrl = profile.profile_image;
+        let bannerImageUrl = profile.banner_image;
 
-        // Get the public URLs for both images
-        const { data: { publicUrl: profileUrl } } = supabase.storage
-          .from('user-images')
-          .getPublicUrl(`${userFolder}/profile.jpg`);
+        // If no custom images are set in the database, fall back to default paths
+        if (!profileImageUrl) {
+          const userFolder = user.email?.replace(/[^a-zA-Z0-9]/g, '_') || user.id;
+          const { data: { publicUrl: defaultProfileUrl } } = supabase.storage
+            .from('user-images')
+            .getPublicUrl(`${userFolder}/profile.jpg`);
+          profileImageUrl = defaultProfileUrl;
+        }
 
-        const { data: { publicUrl: bannerUrl } } = supabase.storage
-          .from('user-images')
-          .getPublicUrl(`${userFolder}/banner.jpg`);
+        if (!bannerImageUrl) {
+          const userFolder = user.email?.replace(/[^a-zA-Z0-9]/g, '_') || user.id;
+          const { data: { publicUrl: defaultBannerUrl } } = supabase.storage
+            .from('user-images')
+            .getPublicUrl(`${userFolder}/banner.jpg`);
+          bannerImageUrl = defaultBannerUrl;
+        }
 
         // Add image URLs to profile object
         const profileWithImages = {
           ...profile,
-          profileImage: profileUrl,
-          bannerImage: bannerUrl
+          profileImage: profileImageUrl,
+          bannerImage: bannerImageUrl
         };
 
         await AsyncStorage.setItem('userProfile', JSON.stringify(profileWithImages));
@@ -559,6 +573,93 @@ class GlobalDataManager extends EventEmitter {
     }
   }
 
+
+
+  // Preload and cache profile images
+  async preloadProfileImages(profileImageUrl?: string, bannerImageUrl?: string) {
+    try {
+      const preloadPromises = [];
+      const now = Date.now();
+
+      if (profileImageUrl && !this.imageCache.has(profileImageUrl)) {
+        console.log('🖼️ Preloading profile image:', profileImageUrl);
+        preloadPromises.push(
+          fetch(profileImageUrl)
+            .then(response => response.blob())
+            .then(blob => {
+              const reader = new FileReader();
+              return new Promise<string>((resolve) => {
+                reader.onloadend = () => {
+                  this.imageCache.set(profileImageUrl, { 
+                    data: reader.result as string, 
+                    timestamp: now 
+                  });
+                  resolve(reader.result as string);
+                };
+                reader.readAsDataURL(blob);
+              });
+            })
+            .catch(error => {
+              console.warn('Failed to preload profile image:', error);
+            })
+        );
+      }
+
+      if (bannerImageUrl && !this.imageCache.has(bannerImageUrl)) {
+        console.log('🖼️ Preloading banner image:', bannerImageUrl);
+        preloadPromises.push(
+          fetch(bannerImageUrl)
+            .then(response => response.blob())
+            .then(blob => {
+              const reader = new FileReader();
+              return new Promise<string>((resolve) => {
+                reader.onloadend = () => {
+                  this.imageCache.set(bannerImageUrl, { 
+                    data: reader.result as string, 
+                    timestamp: now 
+                  });
+                  resolve(reader.result as string);
+                };
+                reader.readAsDataURL(blob);
+              });
+            })
+            .catch(error => {
+              console.warn('Failed to preload banner image:', error);
+            })
+        );
+      }
+
+      if (preloadPromises.length > 0) {
+        await Promise.all(preloadPromises);
+        console.log('✅ Profile images preloaded and cached');
+      }
+
+      // Clean up old cached images
+      this.cleanupImageCache();
+    } catch (error) {
+      console.error('Error preloading profile images:', error);
+    }
+  }
+
+  // Get cached image data
+  getCachedImage(imageUrl: string): string | null {
+    const cached = this.imageCache.get(imageUrl);
+    if (cached && (Date.now() - cached.timestamp) < this.IMAGE_CACHE_DURATION) {
+      return cached.data;
+    }
+    return null;
+  }
+
+  // Clean up expired image cache entries
+  private cleanupImageCache() {
+    const now = Date.now();
+    for (const [url, data] of this.imageCache.entries()) {
+      if ((now - data.timestamp) > this.IMAGE_CACHE_DURATION) {
+        this.imageCache.delete(url);
+      }
+    }
+  }
+
   // Add an event to the saved_events field in AsyncStorage and Supabase
   async addEventToSavedEvents(eventId: number) {
     try {
@@ -825,6 +926,9 @@ class GlobalDataManager extends EventEmitter {
       
       // Clear session cache
       this.sessionCache.clear();
+      
+      // Clear image cache
+      this.imageCache.clear();
       
       // Reset initialization state to force fresh data fetch
       this.isInitialized = false;

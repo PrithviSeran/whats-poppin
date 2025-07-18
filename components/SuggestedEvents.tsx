@@ -514,6 +514,8 @@ export default function SuggestedEvents() {
 
 
   useEffect(() => {
+    let animationLoop: Animated.CompositeAnimation | null = null;
+    
     if (loading || isFetchingActivities) {
       // Start the fade-in animation for loading screen
       Animated.timing(loadingFadeAnim, {
@@ -523,7 +525,7 @@ export default function SuggestedEvents() {
       }).start();
 
       // Start the pulse and rotate animations
-      Animated.loop(
+      animationLoop = Animated.loop(
         Animated.parallel([
           Animated.sequence([
             Animated.timing(pulseAnim, {
@@ -543,7 +545,8 @@ export default function SuggestedEvents() {
             useNativeDriver: true,
           }),
         ])
-      ).start();
+      );
+      animationLoop.start();
     } else {
       // Fade out the loading screen when not loading
       Animated.timing(loadingFadeAnim, {
@@ -552,13 +555,21 @@ export default function SuggestedEvents() {
         useNativeDriver: true,
       }).start();
     }
+
+    return () => {
+      if (animationLoop) {
+        animationLoop.stop();
+      }
+    };
   }, [loading, isFetchingActivities]);
 
   // Start animations for "No Events Found" page
   useEffect(() => {
+    let noEventsAnimationLoop: Animated.CompositeAnimation | null = null;
+    
     if (!loading && !isFetchingActivities && EVENTS.length === 0) {
       // Start subtle animations for the empty state
-      Animated.loop(
+      noEventsAnimationLoop = Animated.loop(
         Animated.parallel([
           Animated.sequence([
             Animated.timing(pulseAnim, {
@@ -585,8 +596,15 @@ export default function SuggestedEvents() {
             }),
           ]),
         ])
-      ).start();
+      );
+      noEventsAnimationLoop.start();
     }
+
+    return () => {
+      if (noEventsAnimationLoop) {
+        noEventsAnimationLoop.stop();
+      }
+    };
   }, [loading, isFetchingActivities, EVENTS.length]);
 
 
@@ -699,6 +717,36 @@ export default function SuggestedEvents() {
       };
     }
   }, [isSwipeInProgress]);
+
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 SuggestedEvents: Cleaning up animations');
+      
+      // Stop all animated values
+      swipeX.stopAnimation();
+      fadeAnim.stopAnimation();
+      scaleAnim.stopAnimation();
+      contentFadeAnim.stopAnimation();
+      pulseAnim.stopAnimation();
+      rotateAnim.stopAnimation();
+      savedActivityFadeAnim.stopAnimation();
+      savedActivityScaleAnim.stopAnimation();
+      savedActivityOpacityAnim.stopAnimation();
+      loadingFadeAnim.stopAnimation();
+      
+      // Clean up any running animation loops
+      if (swiperRef.current) {
+        // Stop any ongoing swiper animations
+        try {
+          swiperRef.current.swipeBack();
+        } catch (e) {
+          // Ignore errors if swiper is already stopped
+        }
+      }
+    };
+  }, []);
 
   const handleSwipedAll = async () => {
     // This function will be called when all cards have been swiped
@@ -1132,8 +1180,8 @@ export default function SuggestedEvents() {
                                   source={{ uri: eventImageUrl }}
                                   style={styles.modernImage} 
                                   onError={(e) => {
-                                    console.log('Image failed to load, trying next image for event:', card.id);
-                                    // Try to find a working image systematically
+                                    console.log('Image failed to load, trying next image for event:', card.id, '(retry once)');
+                                    // Only retry once - try the next image if available
                                     if (card.allImages && card.allImages.length > 0) {
                                       // Get current failed image and find its index
                                       const currentImageUrl = eventImageUrl;
@@ -1144,29 +1192,29 @@ export default function SuggestedEvents() {
                                         currentIndex = card.allImages.findIndex(url => url === currentImageUrl);
                                       }
                                       
-                                      // Determine next image to try
-                                      const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
-                                      let foundWorkingImage = false;
+                                      // Only try the next image (retry once)
+                                      const nextIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
                                       
-                                      // Try up to 3 different images
-                                      for (let i = 0; i < Math.min(3, card.allImages.length); i++) {
-                                        const tryIndex = (startIndex + i) % card.allImages.length;
-                                        const tryImageUrl = card.allImages[tryIndex];
+                                      if (nextIndex < card.allImages.length) {
+                                        const nextImageUrl = card.allImages[nextIndex];
                                         
-                                        // Skip if this is the same image that just failed
-                                        if (tryImageUrl !== currentImageUrl) {
-                                          console.log(`Trying image ${tryIndex} for event ${card.id}`);
+                                        // Only try if it's a different image
+                                        if (nextImageUrl !== currentImageUrl) {
+                                          console.log(`Retrying with image ${nextIndex} for event ${card.id}`);
                                           setEVENTS(prevEvents => 
                                             prevEvents.map(event => 
-                                              event.id === card.id ? { ...event, image: tryImageUrl } : event
+                                              event.id === card.id ? { ...event, image: nextImageUrl } : event
                                             )
                                           );
-                                          foundWorkingImage = true;
-                                          break;
+                                        } else {
+                                          console.log('No different image to try for event:', card.id);
+                                          setEVENTS(prevEvents => 
+                                            prevEvents.map(event => 
+                                              event.id === card.id ? { ...event, image: null } : event
+                                            )
+                                          );
                                         }
-                                      }
-                                      
-                                      if (!foundWorkingImage) {
+                                      } else {
                                         console.log('No more images to try for event:', card.id);
                                         setEVENTS(prevEvents => 
                                           prevEvents.map(event => 
@@ -2741,3 +2789,4 @@ const styles = StyleSheet.create({
     borderRadius: 25,
   },
 });
+

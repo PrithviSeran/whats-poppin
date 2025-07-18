@@ -93,6 +93,19 @@ const CreateAccount = () => {
     }).start();
   };
 
+  // Comprehensive animation cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations to prevent memory leaks
+      console.log('🧹 CreateAccount: Cleaning up animations');
+      
+      // Stop all animated values
+      fadeAnim.stopAnimation();
+      inputScaleAnim.stopAnimation();
+    };
+  }, []);
+
+  // Breathing animation effect
   useEffect(() => {
     const interval = setInterval(() => {
       Animated.timing(fadeAnim, {
