@@ -1234,17 +1234,19 @@ export default function SuggestedEvents() {
                                   }}
                                 />
                               ) : (
-                                <View style={[styles.modernImage, styles.imagePlaceholder]}>
-                                  <LinearGradient
-                                    colors={['#E8E8E8', '#F5F5F5', '#E8E8E8']}
-                                    start={{ x: 0, y: 0 }}
-                                    end={{ x: 1, y: 1 }}
-                                    style={styles.placeholderGradient}
-                                  >
-                                    <Ionicons name="image-outline" size={48} color="#999" />
-                                    <Text style={styles.placeholderText}>No Image Available</Text>
-                                  </LinearGradient>
-                                </View>
+                                <LinearGradient
+                                  colors={colorScheme === 'dark' 
+                                    ? ['#2A2A2A', '#1F1F1F', '#252525'] 
+                                    : ['#FFFFFF', '#F8F9FA', '#FFFFFF']
+                                  }
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 1 }}
+                                  style={[styles.modernImage, styles.imagePlaceholder, styles.placeholderGradient]}
+                                >
+                                  <Ionicons name="image-outline" size={40} color="#B97AFF" style={{ marginTop: -12 }} />
+                                  <Text style={styles.placeholderTitle}>No Event Image</Text>
+                                  <Text style={styles.placeholderText}>But the fun is still on! 🎈</Text>
+                                </LinearGradient>
                               )}
                               
                               {/* Image Overlay for Better Text Readability */}
@@ -2046,11 +2048,20 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    alignSelf: 'stretch', // Ensures it fills the card horizontally
+    width: '100%',
+    minWidth: 0,
+    minHeight: 0,
   },
   placeholderGradient: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    alignSelf: 'stretch', // Ensures it fills the card horizontally
+    width: '100%',
+    minWidth: 0,
+    minHeight: 0,
+    paddingHorizontal: 0, // Remove any default padding
   },
   placeholderText: {
     color: '#999',
@@ -2787,6 +2798,14 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 25,
+  },
+  placeholderTitle: {
+    color: '#B97AFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 8,
+    marginBottom: 2,
+    textAlign: 'center',
   },
 });
 

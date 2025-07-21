@@ -626,10 +626,13 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               }}
             />
           ) : (
-            <View style={[styles.imageExpanded, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-              <Ionicons name="image-outline" size={60} color="#666" />
-              <Text style={{ color: '#666', marginTop: 12, fontSize: 16, textAlign: 'center' }}>
-                No Image Found
+            <View style={[styles.imageExpanded, { justifyContent: 'center', alignItems: 'center' }]}> 
+              <Ionicons name="image-outline" size={40} color="#B97AFF" style={{ marginTop: -12 }} />
+              <Text style={{ color: '#B97AFF', fontSize: 18, fontWeight: 'bold', marginTop: 8, marginBottom: 2, textAlign: 'center' }}>
+                No Event Image
+              </Text>
+              <Text style={{ color: '#999', fontSize: 16, fontWeight: 'bold', marginTop: 8, textAlign: 'center' }}>
+                But the fun is still on! 🎈
               </Text>
             </View>
           )}

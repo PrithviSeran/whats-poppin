@@ -703,13 +703,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
               
               {!isCalendarMode ? (
                 <LinearGradient
-                  colors={[
-                    Colors[colorScheme ?? 'light'].primary,
-                    Colors[colorScheme ?? 'light'].primaryLight,
-                    Colors[colorScheme ?? 'light'].accent,
-                    Colors[colorScheme ?? 'light'].secondary,
-                    Colors[colorScheme ?? 'light'].secondaryLight
-                  ]}
+                  colors={['#F45B5B', '#FF3366', '#FF69E2', '#B97AFF', '#9E95BD']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={styles.dayGradientContainer}
@@ -828,13 +822,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                       }}
                     >
                       <LinearGradient
-                        colors={[
-                          Colors[colorScheme ?? 'light'].primary,
-                          Colors[colorScheme ?? 'light'].primaryLight,
-                          Colors[colorScheme ?? 'light'].accent,
-                          Colors[colorScheme ?? 'light'].secondary,
-                          Colors[colorScheme ?? 'light'].secondaryLight
-                        ]}
+                        colors={['#F45B5B', '#FF3366', '#FF69E2', '#B97AFF', '#9E95BD']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         style={styles.locationGradient}
@@ -1226,8 +1214,8 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   dayCircleButtonSelected: {
-    backgroundColor: 'white',
-    borderColor: Colors.light.primaryLight,
+    backgroundColor: '#F45B5B',
+    borderColor: '#FF3366',
   },
   dayCircleButtonText: {
     fontSize: 14,
@@ -1326,11 +1314,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   calendarDaySelected: {
-    backgroundColor: Colors.light.primary,
+    backgroundColor: '#F45B5B',
   },
   calendarDayToday: {
     borderWidth: 2,
-    borderColor: Colors.light.primary,
+    borderColor: Colors.light.primaryLight,
   },
   calendarDayPast: {
     opacity: 0.3,
@@ -1368,7 +1356,7 @@ const styles = StyleSheet.create({
   selectedDateChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.light.primary,
+    backgroundColor: '#F45B5B',
     borderRadius: 15,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -1402,7 +1390,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   featuredEventsCheckboxSelected: {
-    backgroundColor: Colors.light.primary,
+    backgroundColor: '#F45B5B',
+    borderColor: '#FF3366',
   },
   featuredEventsText: {
     fontSize: 16,

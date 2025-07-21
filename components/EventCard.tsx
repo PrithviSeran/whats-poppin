@@ -85,10 +85,23 @@ const EventCardComponent = memo<EventCardComponentProps>(({
           onError={handleImageError}
         />
       ) : (
-        <View style={[styles.cardImage, styles.placeholderImage]}>
-          <Ionicons name="image-outline" size={32} color="#666" />
-          <Text style={styles.placeholderText}>No Image Found</Text>
-        </View>
+        <LinearGradient
+          colors={colorScheme === 'dark' 
+            ? ['#2A2A2A', '#1F1F1F', '#252525'] 
+            : ['#FFFFFF', '#F8F9FA', '#FFFFFF']
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.cardImage, { justifyContent: 'center', alignItems: 'center' }]}
+        >
+          <Ionicons name="image-outline" size={32} color="#B97AFF" style={{ marginTop: -8 }} />
+          <Text style={{ color: '#B97AFF', fontSize: 14, fontWeight: 'bold', marginTop: 8, marginBottom: 2, textAlign: 'center' }}>
+            No Event Image
+          </Text>
+          <Text style={{ color: '#999', fontSize: 12, fontWeight: 'bold', marginTop: 4, textAlign: 'center' }}>
+            But the fun is still on! 🎈
+          </Text>
+        </LinearGradient>
       )}
       
       {/* Featured Badge */}
@@ -185,17 +198,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: CARD_WIDTH * 0.8,
     resizeMode: 'cover',
-  },
-  placeholderImage: {
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  placeholderText: {
-    color: '#666',
-    marginTop: 8,
-    fontSize: 12,
-    textAlign: 'center',
   },
   featuredBadge: {
     position: 'absolute',

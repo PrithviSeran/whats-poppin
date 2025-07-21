@@ -236,6 +236,9 @@ export default function Discover() {
   // User item animation refs
   const userItemAnimations = useRef<{ [key: number]: Animated.Value }>({}).current;
 
+  // Ref to store the modal close timeout
+  const modalCloseTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const colorScheme = useColorScheme();
   const dataManager = GlobalDataManager.getInstance();
 
@@ -995,6 +998,11 @@ export default function Discover() {
   };
 
   const openModal = (event: ExtendedEventCard, layout: LayoutRectangle) => {
+    // Clear any pending close timeout before opening
+    if (modalCloseTimeout.current) {
+      clearTimeout(modalCloseTimeout.current);
+      modalCloseTimeout.current = null;
+    }
     setSelectedEvent(event);
     setCardLayout(layout);
     setHiddenCardId(event.id);
@@ -1095,6 +1103,11 @@ export default function Discover() {
   };
 
   const handleEventPress = (event: ExtendedEventCard, layout: LayoutRectangle) => {
+    // Clear any pending close timeout before opening
+    if (modalCloseTimeout.current) {
+      clearTimeout(modalCloseTimeout.current);
+      modalCloseTimeout.current = null;
+    }
     setSelectedEvent(event);
     setCardLayout(layout);
     setHiddenCardId(event.id);
@@ -1122,17 +1135,19 @@ export default function Discover() {
     }
 
     setModalVisible(false);
-    
     // Clear the hidden card immediately to prevent flickering
     setHiddenCardId(null);
-    
     // Ensure opacity is reset as a fallback
     cardOpacity.setValue(1);
-    
+
     // Don't clear the selected event immediately to allow for smooth animation
-    setTimeout(() => {
+    if (modalCloseTimeout.current) {
+      clearTimeout(modalCloseTimeout.current);
+    }
+    modalCloseTimeout.current = setTimeout(() => {
       setSelectedEvent(null);
       setCardLayout(null);
+      modalCloseTimeout.current = null;
     }, 300); // Match the animation duration
   };
 
