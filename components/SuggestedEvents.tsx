@@ -15,7 +15,7 @@ import SavedActivities from './SavedActivities';
 import EventDetailModal from './EventDetailModal';
 import { EventCard } from '../lib/GlobalDataManager';
 import { supabase } from '@/lib/supabase';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useFocusEffect } from '@react-navigation/native';
 
 
 const { width, height } = Dimensions.get('window');
@@ -122,6 +122,9 @@ export default function SuggestedEvents() {
   const [loading, setLoading] = useState(true);
   const [isFetchingActivities, setIsFetchingActivities] = useState(false);
   const [EVENTS, setEVENTS] = useState<EventCard[]>([]);
+  const [cachedEvents, setCachedEvents] = useState<EventCard[]>([]);
+  const [lastFetchTimestamp, setLastFetchTimestamp] = useState<number>(0);
+  const [hasInitializedFromCache, setHasInitializedFromCache] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -134,6 +137,59 @@ export default function SuggestedEvents() {
   const [profileImageStates, setProfileImageStates] = useState<{ [eventId: number]: boolean }>({});
 
   const dataManager = GlobalDataManager.getInstance();
+
+  // Cache management functions
+  const saveEventsToCache = useCallback(async (events: EventCard[]) => {
+    try {
+      const cacheData = {
+        events: events,
+        timestamp: Date.now(),
+        cardIndex: cardIndex
+      };
+      await AsyncStorage.setItem('suggestedEventsCache', JSON.stringify(cacheData));
+      console.log('💾 Saved events to cache:', events.length, 'events');
+    } catch (error) {
+      console.error('❌ Error saving events to cache:', error);
+    }
+  }, [cardIndex]);
+
+  const loadEventsFromCache = useCallback(async () => {
+    try {
+      const cachedData = await AsyncStorage.getItem('suggestedEventsCache');
+      if (cachedData) {
+        const parsed = JSON.parse(cachedData);
+        const cacheAge = Date.now() - parsed.timestamp;
+        const maxCacheAge = 30 * 60 * 1000; // 30 minutes
+        
+        if (cacheAge < maxCacheAge && parsed.events && parsed.events.length > 0) {
+          console.log('📦 Loading events from cache:', parsed.events.length, 'events');
+          setCachedEvents(parsed.events);
+          setEVENTS(parsed.events);
+          setCardIndex(parsed.cardIndex || 0);
+          setLastFetchTimestamp(parsed.timestamp);
+          setHasInitializedFromCache(true);
+          setLoading(false);
+          return true;
+        } else {
+          console.log('⏰ Cache expired or empty, will fetch fresh data');
+          await AsyncStorage.removeItem('suggestedEventsCache');
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('❌ Error loading events from cache:', error);
+      return false;
+    }
+  }, []);
+
+  const clearEventsCache = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem('suggestedEventsCache');
+      console.log('🗑️ Cleared events cache');
+    } catch (error) {
+      console.error('❌ Error clearing events cache:', error);
+    }
+  }, []);
 
   // Memoized expensive calculations
   const processedEventsRef = useRef<EventCard[]>([]);
@@ -513,13 +569,17 @@ export default function SuggestedEvents() {
       setEVENTS(processedEvents);
       processedEventsRef.current = processedEvents;
       
+      // Save events to cache
+      await saveEventsToCache(processedEvents);
+      setLastFetchTimestamp(Date.now());
+      
     } catch (error) {
       console.error('Error fetching recommendations:', error);
     } finally {
       setLoading(false);
       setIsFetchingActivities(false);
     }
-  }, [userLocation, dataManager, processEvents]);
+  }, [userLocation, dataManager, processEvents, saveEventsToCache]);
 
   const route = useRoute();
 
@@ -567,18 +627,55 @@ export default function SuggestedEvents() {
   }, [(route.params as any)?.sharedEventId]);
 
   useEffect(() => {
-    //fetchUserEvents(); // Consider if this should be here or after filters are loaded
-    fetchTokenAndCallBackend();
-    requestLocationPermission(); // Request and get user location
-  }, []);
+    const initializeEvents = async () => {
+      setLoading(true);
+      
+      // Try to load from cache first
+      const loadedFromCache = await loadEventsFromCache();
+      
+      if (!loadedFromCache) {
+        // If no cache or cache expired, fetch from backend
+        console.log('🔄 No valid cache found, fetching from backend...');
+        await fetchTokenAndCallBackend();
+      } else {
+        console.log('✅ Loaded events from cache successfully');
+      }
+      
+      // Always request location permission
+      await requestLocationPermission();
+    };
+    
+    initializeEvents();
+  }, [loadEventsFromCache, fetchTokenAndCallBackend, requestLocationPermission]);
+
+  // Handle tab focus - restore events from cache if available
+  useFocusEffect(
+    useCallback(() => {
+      const handleTabFocus = async () => {
+        // Only restore from cache if we haven't initialized yet or if we have cached events
+        if (!hasInitializedFromCache && cachedEvents.length > 0) {
+          console.log('🔄 Tab focused, restoring events from cache...');
+          setEVENTS(cachedEvents);
+          setLoading(false);
+        }
+      };
+      
+      handleTabFocus();
+    }, [hasInitializedFromCache, cachedEvents])
+  );
 
   // Cleanup effect to handle component unmount
   useEffect(() => {
     return () => {
       // Clear any pending operations on unmount
       setPendingOperations(new Set());
+      
+      // Save current state to cache before unmounting
+      if (EVENTS.length > 0) {
+        saveEventsToCache(EVENTS);
+      }
     };
-  }, []);
+  }, [EVENTS, saveEventsToCache]);
 
   // Debug effect to track pending operations
   useEffect(() => {
@@ -766,6 +863,11 @@ export default function SuggestedEvents() {
         // Refresh data to ensure everything is in sync
         await GlobalDataManager.getInstance().refreshAllData();
         
+        // Update cache to remove the liked event from the stack
+        const updatedEvents = EVENTS.filter(event => event.id !== likedEvent.id);
+        setEVENTS(updatedEvents);
+        await saveEventsToCache(updatedEvents);
+        
       } catch (error) {
         console.error('Error saving event:', error);
       } finally {
@@ -889,6 +991,9 @@ export default function SuggestedEvents() {
       setLoading(true);
       setIsFetchingActivities(true);
       
+      // Clear the cache since all events have been swiped
+      await clearEventsCache();
+      
       // Now call backend with fully updated data
       await fetchTokenAndCallBackend();
       
@@ -1007,6 +1112,11 @@ export default function SuggestedEvents() {
       const rejectedEvents = await dataManager.getRejectedEvents();
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString());
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
+      
+      // Update cache to remove the rejected event from the stack
+      const updatedEvents = EVENTS.filter(event => event.id !== rejectedEvent.id);
+      setEVENTS(updatedEvents);
+      await saveEventsToCache(updatedEvents);
       
       // Clear the failsafe timer since we completed successfully
       clearTimeout(failsafeTimer);
@@ -1609,8 +1719,9 @@ export default function SuggestedEvents() {
                 {/* Reload Button */}
                 <TouchableOpacity
                   style={[styles.actionButton, styles.reloadButton]}
-                  onPress={() => {
+                  onPress={async () => {
                     setLoading(true);
+                    await clearEventsCache();
                     fetchTokenAndCallBackend();
                   }}
                 >
@@ -1696,8 +1807,9 @@ export default function SuggestedEvents() {
                 {/* Refresh Card */}
                 <TouchableOpacity
                   style={styles.actionCard}
-                  onPress={() => {
+                  onPress={async () => {
                     setLoading(true);
+                    await clearEventsCache();
                     fetchTokenAndCallBackend();
                   }}
                   activeOpacity={0.8}
@@ -1745,9 +1857,11 @@ export default function SuggestedEvents() {
           setIsFilterVisible(false);
         }}
         setLoading={setLoading}
-        fetchTokenAndCallBackend={fetchTokenAndCallBackend}
+        fetchTokenAndCallBackend={async () => {
+          await clearEventsCache();
+          fetchTokenAndCallBackend();
+        }}
         onStartLoading={() => setLoading(true)}
-
       />
 
 

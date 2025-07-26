@@ -876,7 +876,11 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                   style={[
                     styles.locationModeButton,
                     locationMode === 'current' && styles.locationModeButtonActive,
-                    { backgroundColor: locationMode === 'current' ? '#F45B5B' : 'transparent' }
+                    { 
+                      backgroundColor: locationMode === 'current' ? '#FF69E2' : 'transparent',
+                      borderWidth: locationMode === 'current' ? 1 : 0,
+                      borderColor: locationMode === 'current' ? '#FF3366' : 'transparent'
+                    }
                   ]}
                   onPress={async () => {
                     setLocationMode('current');
@@ -906,7 +910,11 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                   style={[
                     styles.locationModeButton,
                     locationMode === 'custom' && styles.locationModeButtonActive,
-                    { backgroundColor: locationMode === 'custom' ? '#F45B5B' : 'transparent' }
+                    { 
+                      backgroundColor: locationMode === 'custom' ? '#FF69E2' : 'transparent',
+                      borderWidth: locationMode === 'custom' ? 1 : 0,
+                      borderColor: locationMode === 'custom' ? '#FF3366' : 'transparent'
+                    }
                   ]}
                   onPress={async () => {
                     setLocationMode('custom');
@@ -936,7 +944,11 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                   style={[
                     styles.locationModeButton,
                     locationMode === 'none' && styles.locationModeButtonActive,
-                    { backgroundColor: locationMode === 'none' ? '#F45B5B' : 'transparent' }
+                    { 
+                      backgroundColor: locationMode === 'none' ? '#FF69E2' : 'transparent',
+                      borderWidth: locationMode === 'none' ? 1 : 0,
+                      borderColor: locationMode === 'none' ? '#FF3366' : 'transparent'
+                    }
                   ]}
                   onPress={async () => {
                     setLocationMode('none');
@@ -1645,6 +1657,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   locationModeButtonActive: {
+    backgroundColor: '#FF69E2',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

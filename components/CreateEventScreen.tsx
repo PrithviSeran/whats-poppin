@@ -73,10 +73,9 @@ const GradientPill: React.FC<GradientPillProps> = ({ text, isSelected, onPress, 
     >
       {isSelected ? (
         <LinearGradient
-          colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+          colors={['#FF69E2', '#FF3366']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          locations={[0, 0.25, 0.5, 0.75, 1]}
           style={styles.gradientPill}
         >
           <Text style={styles.selectedPillText}>{text}</Text>
@@ -407,6 +406,11 @@ export default function CreateEventScreen() {
         Alert.alert('Error', 'Please select at least one day for weekly events');
         return;
       }
+      // Validate link when reservation is required
+      if (eventForm.reservation === 'yes' && !eventForm.link.trim()) {
+        Alert.alert('Error', 'Website/Link is required when reservation is needed');
+        return;
+      }
       // Get current user's email
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -709,13 +713,10 @@ export default function CreateEventScreen() {
           {/* Simple header that scrolls with content */}
           <View style={styles.simpleHeader}>
             <TouchableOpacity 
-              style={styles.modernBackButton}
+              style={styles.backButton}
               onPress={() => navigation.goBack()}
-              activeOpacity={0.8}
             >
-              <View style={styles.backButtonInner}>
-                <Ionicons name="arrow-back" size={24} color="#FF0005" />
-              </View>
+              <Ionicons name="chevron-back" size={28} color="#9E95BD" />
             </TouchableOpacity>
           </View>
 
@@ -736,19 +737,6 @@ export default function CreateEventScreen() {
             </View>
 
             {/* Organization */}
-            <View style={styles.formGroup}>
-              <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Organization *</Text>
-              <TextInput
-                style={[styles.formInput, { 
-                  color: Colors[colorScheme ?? 'light'].text,
-                  backgroundColor: Colors[colorScheme ?? 'light'].card
-                }]}
-                placeholder="Enter organization name"
-                placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
-                value={eventForm.organization}
-                onChangeText={(text) => setEventForm({ ...eventForm, organization: text })}
-              />
-            </View>
 
             {/* Location */}
             <View style={styles.formGroup}>
@@ -823,10 +811,9 @@ export default function CreateEventScreen() {
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Days of Week *</Text>
                 <LinearGradient
-                  colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                  colors={['#FF69E2', '#FF3366']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  locations={[0, 0.25, 0.5, 0.75, 1]}
                   style={styles.dayGradientContainer}
                 >
                   <View style={styles.dayButtonContainer}>
@@ -862,7 +849,6 @@ export default function CreateEventScreen() {
             {/* Times (for Weekly events) */}
             {eventForm.occurrence === 'Weekly' && (
               <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Operating Hours</Text>
                 {eventForm.days_of_the_week.map(renderTimeInput)}
               </View>
             )}
@@ -962,7 +948,9 @@ export default function CreateEventScreen() {
 
             {/* Link */}
             <View style={styles.formGroup}>
-              <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Website/Link</Text>
+              <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Website/Link{eventForm.reservation === 'yes' ? ' *' : ''}
+              </Text>
               <TextInput
                 style={[styles.formInput, { 
                   color: Colors[colorScheme ?? 'light'].text,
@@ -1071,10 +1059,9 @@ export default function CreateEventScreen() {
               disabled={isCreating}
             >
               <LinearGradient
-                colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                colors={['#FF69E2', '#FF3366']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                locations={[0, 0.25, 0.5, 0.75, 1]}
                 style={styles.createButtonGradient}
               >
                 {isCreating ? (
@@ -1121,10 +1108,9 @@ export default function CreateEventScreen() {
                 ]}
               >
                 <LinearGradient
-                  colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                  colors={['#FF69E2', '#FF3366']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  locations={[0, 0.25, 0.5, 0.75, 1]}
                   style={styles.timePickerHeaderGradient}
                 >
                   <View style={styles.timePickerHeaderContent}>
@@ -1177,10 +1163,9 @@ export default function CreateEventScreen() {
                       onPress={closeTimePicker}
                     >
                       <LinearGradient
-                        colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                        colors={['#FF69E2', '#FF3366']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        locations={[0, 0.25, 0.5, 0.75, 1]}
                         style={styles.timePickerConfirmGradient}
                       >
                         <Ionicons name="checkmark" size={20} color="white" style={{ marginRight: 8 }} />
@@ -1237,10 +1222,9 @@ export default function CreateEventScreen() {
                 ]}
               >
                 <LinearGradient
-                  colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                  colors={['#FF69E2', '#FF3366']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  locations={[0, 0.25, 0.5, 0.75, 1]}
                   style={styles.timePickerHeaderGradient}
                 >
                   <View style={styles.timePickerHeaderContent}>
@@ -1283,10 +1267,9 @@ export default function CreateEventScreen() {
                       onPress={closeDatePicker}
                     >
                       <LinearGradient
-                        colors={['#FF0005', '#FF4D9D', '#FF69E2', '#B97AFF', '#9E95BD']}
+                        colors={['#FF69E2', '#FF3366']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        locations={[0, 0.25, 0.5, 0.75, 1]}
                         style={styles.timePickerConfirmGradient}
                       >
                         <Ionicons name="checkmark" size={20} color="white" style={{ marginRight: 8 }} />
@@ -1354,22 +1337,13 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     zIndex: 10,
   },
-  modernBackButton: {
-    padding: 4,
-    zIndex: 10,
-  },
-  backButtonInner: {
+  backButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 6,
   },
   headerTitleContainer: {
     flex: 1,
@@ -1450,15 +1424,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 20,
   },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(158, 149, 189, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 15,
-  },
+
   screenTitle: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -1469,6 +1435,7 @@ const styles = StyleSheet.create({
   },
   form: {
     padding: 20,
+    paddingTop: 20,
   },
   formGroup: {
     marginBottom: 24,
@@ -1526,7 +1493,7 @@ const styles = StyleSheet.create({
   },
   unselectedPillText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '400',
     textAlign: 'center',
     lineHeight: 16,
   },

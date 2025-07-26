@@ -942,6 +942,37 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
               </View>
             </View>
 
+            {/* Modern Description Section - Only show if content is more than 2 lines */}
+            {event.description && (() => {
+              // Calculate if description is more than 2 lines
+              const descriptionText = event.description;
+              const estimatedLineHeight = 20; // Approximate line height for the text style
+              const containerWidth = width - 80; // Account for padding and margins
+              const fontSize = 16; // Approximate font size
+              const charactersPerLine = Math.floor(containerWidth / (fontSize * 0.6)); // Rough estimate
+              const lines = Math.ceil(descriptionText.length / charactersPerLine);
+              
+              // Only show section if more than 2 lines
+              if (lines > 2) {
+                return (
+                  <View style={[styles.modernDescriptionCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                    <View style={styles.modernDescriptionHeader}>
+                      <View style={[styles.modernInfoIconBadge, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
+                        <Ionicons name="document-text" size={18} color="#9E95BD" />
+                      </View>
+                      <Text style={[styles.modernDescriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        About this event
+                      </Text>
+                    </View>
+                    <Text style={[styles.modernDescriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {event.description}
+                    </Text>
+                  </View>
+                );
+              }
+              return null;
+            })()}
+
             {/* Modern Opening Hours Section - Right after friends and buttons */}
             {event.times && Object.keys(event.times).length > 0 && (
               <View style={[styles.modernHoursCard, { backgroundColor: Colors[colorScheme ?? 'light'].card, margin: 20 }]}>
@@ -1122,37 +1153,6 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 </View>
               </View>
             </View>
-
-            {/* Modern Description Section - Only show if content is more than 2 lines */}
-            {event.description && (() => {
-              // Calculate if description is more than 2 lines
-              const descriptionText = event.description;
-              const estimatedLineHeight = 20; // Approximate line height for the text style
-              const containerWidth = width - 80; // Account for padding and margins
-              const fontSize = 16; // Approximate font size
-              const charactersPerLine = Math.floor(containerWidth / (fontSize * 0.6)); // Rough estimate
-              const lines = Math.ceil(descriptionText.length / charactersPerLine);
-              
-              // Only show section if more than 2 lines
-              if (lines > 2) {
-                return (
-                  <View style={[styles.modernDescriptionCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                    <View style={styles.modernDescriptionHeader}>
-                      <View style={[styles.modernInfoIconBadge, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
-                        <Ionicons name="document-text" size={18} color="#9E95BD" />
-                      </View>
-                      <Text style={[styles.modernDescriptionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        About this event
-                      </Text>
-                    </View>
-                    <Text style={[styles.modernDescriptionText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                      {event.description}
-                    </Text>
-                  </View>
-                );
-              }
-              return null;
-            })()}
 
             {/* Google Map */}
             <View style={styles.mapContainer}>
