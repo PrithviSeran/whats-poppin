@@ -262,46 +262,122 @@ export default function SuggestedEvents() {
       console.log('🔄 Force refreshing data before backend call...');
       await dataManager.refreshAllData();
       
-      // Get location only if not cached
-      let userLat = userLocation?.latitude;
-      let userLon = userLocation?.longitude;
+      // Check location mode from AsyncStorage to determine which location to use
+      const [locationMode, customAddress] = await Promise.all([
+        AsyncStorage.getItem('userLocationMode'),
+        AsyncStorage.getItem('userLocation')
+      ]);
       
-      if (!userLat || !userLon) {
+      console.log('📍 Location mode from AsyncStorage:', locationMode);
+      console.log('📍 Custom address from AsyncStorage:', customAddress);
+      
+      let userLat = null;
+      let userLon = null;
+      
+      if (locationMode === 'custom' && customAddress?.trim()) {
+        // Use custom address - geocode it to get coordinates
+        console.log('📍 Using custom address:', customAddress);
         try {
-          // Check permissions before getting location
-          const { status } = await Location.getForegroundPermissionsAsync();
-          if (status === 'granted') {
-            const location = await Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Balanced,
-            });
-            userLat = location.coords.latitude;
-            userLon = location.coords.longitude;
-            setUserLocation({ latitude: userLat, longitude: userLon });
+          const geocodedLocation = await Location.geocodeAsync(customAddress.trim());
+          if (geocodedLocation && geocodedLocation.length > 0) {
+            userLat = geocodedLocation[0].latitude;
+            userLon = geocodedLocation[0].longitude;
+            console.log('✅ Successfully geocoded custom address to coordinates:', { userLat, userLon });
           } else {
-            console.log('Location permission not granted, using manual location from profile');
-            // Try to use manual location from user profile
-            const userProfile = await dataManager.getUserProfile();
-            if (userProfile?.location) {
-              console.log('Using manual location from profile:', userProfile.location);
-              try {
-                // Geocode the manual address to get coordinates
-                const geocodedLocation = await Location.geocodeAsync(userProfile.location);
-                if (geocodedLocation && geocodedLocation.length > 0) {
-                  userLat = geocodedLocation[0].latitude;
-                  userLon = geocodedLocation[0].longitude;
-                  setUserLocation({ latitude: userLat, longitude: userLon });
-                  console.log('Successfully geocoded manual address to coordinates:', { userLat, userLon });
-                } else {
-                  console.log('Could not geocode manual address:', userProfile.location);
+            console.log('❌ Could not geocode custom address:', customAddress);
+          }
+        } catch (geocodeError) {
+          console.error('❌ Error geocoding custom address:', geocodeError);
+        }
+      } else if (locationMode === 'current') {
+        // Use current GPS location
+        console.log('📍 Using current GPS location');
+        userLat = userLocation?.latitude;
+        userLon = userLocation?.longitude;
+        
+        if (!userLat || !userLon) {
+          try {
+            // Check permissions before getting location
+            const { status } = await Location.getForegroundPermissionsAsync();
+            if (status === 'granted') {
+              const location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+              });
+              userLat = location.coords.latitude;
+              userLon = location.coords.longitude;
+              setUserLocation({ latitude: userLat, longitude: userLon });
+              console.log('✅ Got current GPS location:', { userLat, userLon });
+            } else {
+              console.log('⚠️ Location permission not granted, falling back to profile location');
+              // Try to use manual location from user profile as fallback
+              const userProfile = await dataManager.getUserProfile();
+              if (userProfile?.location) {
+                console.log('📍 Using manual location from profile as fallback:', userProfile.location);
+                try {
+                  const geocodedLocation = await Location.geocodeAsync(userProfile.location);
+                  if (geocodedLocation && geocodedLocation.length > 0) {
+                    userLat = geocodedLocation[0].latitude;
+                    userLon = geocodedLocation[0].longitude;
+                    setUserLocation({ latitude: userLat, longitude: userLon });
+                    console.log('✅ Successfully geocoded profile address to coordinates:', { userLat, userLon });
+                  } else {
+                    console.log('❌ Could not geocode profile address:', userProfile.location);
+                  }
+                } catch (geocodeError) {
+                  console.error('❌ Error geocoding profile address:', geocodeError);
                 }
-              } catch (geocodeError) {
-                console.error('Error geocoding manual address:', geocodeError);
               }
             }
+          } catch (locationError) {
+            console.error('❌ Error getting location in fetchTokenAndCallBackend:', locationError);
+            // Continue without location - backend should handle missing coordinates
           }
-        } catch (locationError) {
-          console.error('Error getting location in fetchTokenAndCallBackend:', locationError);
-          // Continue without location - backend should handle missing coordinates
+        }
+      } else if (locationMode === 'none') {
+        // No location filtering - but still send coordinates for distance calculation
+        console.log('📍 No location filtering selected - but still getting coordinates for distance display');
+        userLat = userLocation?.latitude;
+        userLon = userLocation?.longitude;
+        
+        if (!userLat || !userLon) {
+          try {
+            // Check permissions before getting location for distance calculation
+            const { status } = await Location.getForegroundPermissionsAsync();
+            if (status === 'granted') {
+              const location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+              });
+              userLat = location.coords.latitude;
+              userLon = location.coords.longitude;
+              setUserLocation({ latitude: userLat, longitude: userLon });
+              console.log('✅ Got location for distance calculation:', { userLat, userLon });
+            } else {
+              console.log('⚠️ Location permission not granted for distance calculation');
+            }
+          } catch (locationError) {
+            console.error('❌ Error getting location for distance calculation:', locationError);
+          }
+        }
+      } else {
+        // Default to current location if no mode is set
+        console.log('📍 No location mode set, defaulting to current location');
+        userLat = userLocation?.latitude;
+        userLon = userLocation?.longitude;
+        
+        if (!userLat || !userLon) {
+          try {
+            const { status } = await Location.getForegroundPermissionsAsync();
+            if (status === 'granted') {
+              const location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+              });
+              userLat = location.coords.latitude;
+              userLon = location.coords.longitude;
+              setUserLocation({ latitude: userLat, longitude: userLon });
+            }
+          } catch (locationError) {
+            console.error('❌ Error getting default location:', locationError);
+          }
         }
       }
 

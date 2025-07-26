@@ -13,6 +13,7 @@ import {
   Animated,
   Modal,
   Switch,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -81,6 +82,12 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const slideAnim = React.useRef(new Animated.Value(0)).current;
   const [isAnimating, setIsAnimating] = useState(false);
   const [filterByDistance, setFilterByDistance] = useState(true);
+  const [locationMode, setLocationMode] = useState<'current' | 'custom' | 'none'>('current');
+  const [addressValidation, setAddressValidation] = useState<{
+    status: 'idle' | 'validating' | 'valid' | 'invalid';
+    message?: string;
+  }>({ status: 'idle' });
+  const [validationTimeout, setValidationTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [locationBubbleAnim] = useState(new Animated.Value(filterByDistance ? 1 : 0));
   const [bubbleHeight, setBubbleHeight] = useState(0);
   const scrollViewRef = React.useRef<ScrollView>(null);
@@ -143,6 +150,10 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       // Load location preference
       const savedLocation = await AsyncStorage.getItem('userLocation') || '';
       setManualLocation(savedLocation);
+      
+      // Load location mode preference
+      const savedLocationMode = await AsyncStorage.getItem('userLocationMode') || 'current';
+      setLocationMode(savedLocationMode as 'current' | 'custom' | 'none');
       
       // Load travel distance preference
       const savedTravelDistance = await AsyncStorage.getItem('userTravelDistance');
@@ -429,6 +440,9 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       // Save location preference
       await AsyncStorage.setItem('userLocation', manualLocation);
       
+      // Save location mode preference
+      await AsyncStorage.setItem('userLocationMode', locationMode);
+      
       // Save travel distance preference
       await AsyncStorage.setItem('userTravelDistance', travelDistance.toString());
       
@@ -452,6 +466,23 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       await dataManager.setIsFilterByDistance(filterByDistance);
       
       console.log('✅ OFFLINE-FIRST: All preferences saved to AsyncStorage successfully');
+      
+      // Prepare location data for backend
+      let locationData = null;
+      if (locationMode === 'current') {
+        locationData = { type: 'current', distance: travelDistance };
+      } else if (locationMode === 'custom' && manualLocation.trim()) {
+        locationData = { 
+          type: 'custom', 
+          address: manualLocation.trim(),
+          distance: travelDistance 
+        };
+      } else if (locationMode === 'none') {
+        locationData = { type: 'none' };
+      }
+      
+      // Log the location data being sent to backend
+      console.log('📍 Location data for backend:', locationData);
       
     } catch (error) {
       console.error('❌ Error saving preferences to AsyncStorage:', error);
@@ -497,12 +528,17 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     setIsCalendarMode(false);
     setSelectedDates([]);
     
+    // Reset location preferences
+    setLocationMode('current');
+    setFilterByDistance(true);
+    
     try {
       // OFFLINE-FIRST: Clear all preferences from AsyncStorage
       await AsyncStorage.setItem('userPreferences', JSON.stringify([]));
       await AsyncStorage.setItem('userStartTime', '21:00');
       await AsyncStorage.setItem('userEndTime', '03:00');
       await AsyncStorage.setItem('userLocation', '');
+      await AsyncStorage.setItem('userLocationMode', 'current'); // Reset location mode
       await AsyncStorage.setItem('userTravelDistance', '8');
       await AsyncStorage.setItem('userPreferredDays', JSON.stringify([]));
       await AsyncStorage.setItem('isCalendarMode', 'false');
@@ -554,6 +590,70 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
+  };
+
+  // Function to validate address using geocoding
+  const validateAddress = async (address: string) => {
+    if (!address.trim()) {
+      setAddressValidation({ status: 'idle' });
+      return;
+    }
+
+    setAddressValidation({ status: 'validating', message: 'Checking address...' });
+
+    try {
+      // Use a simple geocoding service to validate the address
+      const encodedAddress = encodeURIComponent(address.trim());
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&limit=1&addressdetails=1`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Geocoding service unavailable');
+      }
+
+      const data = await response.json();
+      
+      if (data && data.length > 0) {
+        const result = data[0];
+        const displayName = result.display_name;
+        setAddressValidation({ 
+          status: 'valid', 
+          message: `✓ Found: ${displayName.length > 50 ? displayName.substring(0, 50) + '...' : displayName}` 
+        });
+      } else {
+        setAddressValidation({ 
+          status: 'invalid', 
+          message: 'Address not found. Please check spelling and try again.' 
+        });
+      }
+    } catch (error) {
+      console.error('Address validation error:', error);
+      setAddressValidation({ 
+        status: 'invalid', 
+        message: 'Unable to validate address. Please check your internet connection.' 
+      });
+    }
+  };
+
+  // Debounced address validation
+  const handleAddressChange = (text: string) => {
+    setManualLocation(text);
+    
+    // Clear existing timeout
+    if (validationTimeout) {
+      clearTimeout(validationTimeout);
+    }
+    
+    // Set new timeout for validation
+    if (text.trim()) {
+      const timeout = setTimeout(() => {
+        validateAddress(text);
+      }, 1000); // Wait 1 second after user stops typing
+      setValidationTimeout(timeout);
+    } else {
+      setAddressValidation({ status: 'idle' });
+    }
   };
 
   if (!visible && !isAnimating) return null;
@@ -721,7 +821,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                         <Text
                           style={[
                             styles.dayCircleButtonText,
-                            { color: selectedDayPreferences.includes(day) ? Colors[colorScheme ?? 'light'].primary : 'white' }
+                            { color: selectedDayPreferences.includes(day) ? '#F45B5B' : 'white' }
                           ]}
                         >
                           {day.slice(0, 1)}
@@ -769,101 +869,229 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
 
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
-              <View style={styles.locationToggleContainer}>
-                <Text style={[styles.locationToggleLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  Filter by travel distance
-                </Text>
-                <Switch
-                  value={filterByDistance}
-                  onValueChange={handleToggleLocation}
-                  trackColor={{ false: '#767577', true: Colors[colorScheme ?? 'light'].primary }}
-                  thumbColor={'#fff'}
-                />
+              
+              {/* Location Mode Selection */}
+              <View style={styles.locationModeContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.locationModeButton,
+                    locationMode === 'current' && styles.locationModeButtonActive,
+                    { backgroundColor: locationMode === 'current' ? '#F45B5B' : 'transparent' }
+                  ]}
+                  onPress={async () => {
+                    setLocationMode('current');
+                    setFilterByDistance(true);
+                    // Save location mode to AsyncStorage
+                    try {
+                      await AsyncStorage.setItem('userLocationMode', 'current');
+                    } catch (error) {
+                      console.error('Error saving location mode:', error);
+                    }
+                  }}
+                >
+                  <Ionicons 
+                    name="location" 
+                    size={18} 
+                    color={locationMode === 'current' ? 'white' : Colors[colorScheme ?? 'light'].text} 
+                  />
+                  <Text style={[
+                    styles.locationModeButtonText,
+                    { color: locationMode === 'current' ? 'white' : Colors[colorScheme ?? 'light'].text }
+                  ]}>
+                    Current Location
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.locationModeButton,
+                    locationMode === 'custom' && styles.locationModeButtonActive,
+                    { backgroundColor: locationMode === 'custom' ? '#F45B5B' : 'transparent' }
+                  ]}
+                  onPress={async () => {
+                    setLocationMode('custom');
+                    setFilterByDistance(true);
+                    // Save location mode to AsyncStorage
+                    try {
+                      await AsyncStorage.setItem('userLocationMode', 'custom');
+                    } catch (error) {
+                      console.error('Error saving location mode:', error);
+                    }
+                  }}
+                >
+                  <Ionicons 
+                    name="home" 
+                    size={18} 
+                    color={locationMode === 'custom' ? 'white' : Colors[colorScheme ?? 'light'].text} 
+                  />
+                  <Text style={[
+                    styles.locationModeButtonText,
+                    { color: locationMode === 'custom' ? 'white' : Colors[colorScheme ?? 'light'].text }
+                  ]}>
+                    Custom Address
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.locationModeButton,
+                    locationMode === 'none' && styles.locationModeButtonActive,
+                    { backgroundColor: locationMode === 'none' ? '#F45B5B' : 'transparent' }
+                  ]}
+                  onPress={async () => {
+                    setLocationMode('none');
+                    setFilterByDistance(false);
+                    // Save location mode to AsyncStorage
+                    try {
+                      await AsyncStorage.setItem('userLocationMode', 'none');
+                    } catch (error) {
+                      console.error('Error saving location mode:', error);
+                    }
+                  }}
+                >
+                  <Ionicons 
+                    name="globe-outline" 
+                    size={18} 
+                    color={locationMode === 'none' ? 'white' : Colors[colorScheme ?? 'light'].text} 
+                  />
+                  <Text style={[
+                    styles.locationModeButtonText,
+                    { color: locationMode === 'none' ? 'white' : Colors[colorScheme ?? 'light'].text }
+                  ]}>
+                    No Filter
+                  </Text>
+                </TouchableOpacity>
               </View>
-                            {filterByDistance && (
-                locationPermission === false ? (
+
+              {/* Location Content Based on Mode */}
+              {locationMode === 'current' && locationPermission !== false && (
+                <View style={styles.locationContainer}>
+                  <Animated.View
+                    style={{
+                      opacity: locationBubbleAnim,
+                      transform: [{
+                        scale: locationBubbleAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.95, 1]
+                        })
+                      }],
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <LinearGradient
+                      colors={['#F45B5B', '#FF3366', '#FF69E2', '#B97AFF', '#9E95BD']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.locationGradient}
+                    >
+                      <View style={styles.locationContent}>
+                        <Ionicons name="location" size={24} color="white" />
+                        <View style={styles.locationTextContainer}>
+                          <Text style={styles.locationTitle}>Using your current location</Text>
+                        </View>
+                      </View>
+                    </LinearGradient>
+                  </Animated.View>
+                </View>
+              )}
+              
+              {locationMode === 'custom' && (
                   <View style={styles.locationInputContainer}>
                     <Text style={[styles.locationLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
                       Enter your location
                     </Text>
-                    <TextInput
-                      style={[
-                        styles.locationInput,
-                        { 
-                          backgroundColor: Colors[colorScheme ?? 'light'].card,
-                          color: Colors[colorScheme ?? 'light'].text,
-                          borderColor: Colors[colorScheme ?? 'light'].secondary
-                        }
-                      ]}
-                      placeholder="Enter your city or address (e.g., New York, NY)"
-                      placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
-                      value={manualLocation}
-                      onChangeText={setManualLocation}
-                      onFocus={handleLocationInputFocus}
-                      returnKeyType="done"
-                      autoCapitalize="words"
-                      autoCorrect={false}
-                      clearButtonMode="while-editing"
-                      blurOnSubmit={true}
-                    />
-                  </View>
-                ) : (
-                  <View style={styles.locationContainer}>
-                    <Animated.View
-                      style={{
-                        opacity: locationBubbleAnim,
-                        transform: [{
-                          scale: locationBubbleAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.95, 1]
-                          })
-                        }],
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <LinearGradient
-                        colors={['#F45B5B', '#FF3366', '#FF69E2', '#B97AFF', '#9E95BD']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.locationGradient}
-                      >
-                        <View style={styles.locationContent}>
-                          <Ionicons name="location" size={24} color="white" />
-                          <View style={styles.locationTextContainer}>
-                            <Text style={styles.locationTitle}>Using your current location</Text>
-                          </View>
+                    <View style={styles.addressInputWrapper}>
+                      <TextInput
+                        style={[
+                          styles.locationInput,
+                          { 
+                            backgroundColor: Colors[colorScheme ?? 'light'].card,
+                            color: Colors[colorScheme ?? 'light'].text,
+                            borderColor: addressValidation.status === 'valid' ? '#22C55E' : 
+                                        addressValidation.status === 'invalid' ? '#EF4444' : 
+                                        Colors[colorScheme ?? 'light'].secondary
+                          }
+                        ]}
+                        placeholder="Enter your city or address (e.g., New York, NY)"
+                        placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
+                        value={manualLocation}
+                        onChangeText={handleAddressChange}
+                        onFocus={handleLocationInputFocus}
+                        returnKeyType="done"
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                        clearButtonMode="while-editing"
+                        blurOnSubmit={true}
+                      />
+                      {addressValidation.status === 'validating' && (
+                        <View style={styles.validationIndicator}>
+                          <ActivityIndicator size="small" color="#9E95BD" />
                         </View>
-                      </LinearGradient>
-                    </Animated.View>
+                      )}
+                      {addressValidation.status === 'valid' && (
+                        <View style={styles.validationIndicator}>
+                          <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
+                        </View>
+                      )}
+                      {addressValidation.status === 'invalid' && (
+                        <View style={styles.validationIndicator}>
+                          <Ionicons name="close-circle" size={20} color="#EF4444" />
+                        </View>
+                      )}
+                    </View>
+                    {addressValidation.message && (
+                      <Text style={[
+                        styles.validationMessage,
+                        { 
+                          color: addressValidation.status === 'valid' ? '#22C55E' : 
+                                addressValidation.status === 'invalid' ? '#EF4444' : 
+                                Colors[colorScheme ?? 'light'].text 
+                        }
+                      ]}>
+                        {addressValidation.message}
+                      </Text>
+                    )}
                   </View>
-                )
+              )}
+              
+              {locationMode === 'none' && (
+                <View style={styles.noLocationContainer}>
+                  <Ionicons name="globe-outline" size={48} color={Colors[colorScheme ?? 'light'].text} style={{ opacity: 0.5 }} />
+                  <Text style={[styles.noLocationText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Location filtering is disabled
+                  </Text>
+                  <Text style={[styles.noLocationSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    You'll see events from all locations
+                  </Text>
+                </View>
               )}
             </View>
 
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Travel Distance</Text>
-              <View style={styles.distanceContainer}>
-                <Text style={[styles.distanceLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  Travel Distance: {travelDistance} km
-                </Text>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={1}
-                  maximumValue={40}
-                  step={1}
-                  value={travelDistance}
-                  onValueChange={setTravelDistance}
-                  minimumTrackTintColor={Colors[colorScheme ?? 'light'].primary}
-                  maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
-                  thumbTintColor={Colors[colorScheme ?? 'light'].primary}
-                />
-                <View style={styles.distanceMarkers}>
-                  <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
-                  <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>20 km</Text>
-                  <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>40 km</Text>
+            {filterByDistance && (
+              <View style={styles.section}>
+                <View style={styles.distanceContainer}>
+                  <Text style={[styles.distanceLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Travel Distance: {travelDistance} km
+                  </Text>
+                  <Slider
+                    style={styles.slider}
+                    minimumValue={1}
+                    maximumValue={40}
+                    step={1}
+                    value={travelDistance}
+                    onValueChange={setTravelDistance}
+                    minimumTrackTintColor={Colors[colorScheme ?? 'light'].primary}
+                    maximumTrackTintColor={Colors[colorScheme ?? 'light'].card}
+                    thumbTintColor={Colors[colorScheme ?? 'light'].primary}
+                  />
+                  <View style={styles.distanceMarkers}>
+                    <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>1 km</Text>
+                    <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>20 km</Text>
+                    <Text style={[styles.distanceMarker, { color: Colors[colorScheme ?? 'light'].text }]}>40 km</Text>
+                  </View>
                 </View>
               </View>
-            </View>
+            )}
           </ScrollView>
 
           <View style={styles.footer}>
@@ -1047,6 +1275,8 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
     textAlign: 'left',
+    width: '100%',
+    paddingRight: 50, // Add padding to make room for validation icon
   },
   sectionSubtitle: {
     fontSize: 16,
@@ -1214,7 +1444,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   dayCircleButtonSelected: {
-    backgroundColor: '#F45B5B',
+    backgroundColor: 'white',
     borderColor: '#FF3366',
   },
   dayCircleButtonText: {
@@ -1395,6 +1625,69 @@ const styles = StyleSheet.create({
   },
   featuredEventsText: {
     fontSize: 16,
+    fontWeight: '500',
+  },
+  locationModeContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 15,
+  },
+  locationModeButton: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    gap: 4,
+  },
+  locationModeButtonActive: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  locationModeButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  noLocationContainer: {
+    alignItems: 'center',
+    paddingVertical: 30,
+    paddingHorizontal: 20,
+  },
+  noLocationText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  noLocationSubtext: {
+    fontSize: 14,
+    marginTop: 4,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  addressInputWrapper: {
+    position: 'relative',
+    width: '100%',
+  },
+  validationIndicator: {
+    position: 'absolute',
+    right: 16,
+    top: 18, // Center vertically in the input field
+    zIndex: 1,
+  },
+  validationMessage: {
+    fontSize: 14,
+    marginTop: 8,
+    paddingHorizontal: 4,
     fontWeight: '500',
   },
 }); 
