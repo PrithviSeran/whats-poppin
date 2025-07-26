@@ -121,10 +121,10 @@ export default function SuggestedEvents() {
   const colorScheme = useColorScheme();
   const [loading, setLoading] = useState(true);
   const [isFetchingActivities, setIsFetchingActivities] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
   const [EVENTS, setEVENTS] = useState<EventCard[]>([]);
   const [cachedEvents, setCachedEvents] = useState<EventCard[]>([]);
-  const [lastFetchTimestamp, setLastFetchTimestamp] = useState<number>(0);
-  const [hasInitializedFromCache, setHasInitializedFromCache] = useState(false);
+  const [swipedEventIds, setSwipedEventIds] = useState<Set<number>>(new Set());
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -135,49 +135,80 @@ export default function SuggestedEvents() {
   const savedActivityOpacityAnim = useRef(new Animated.Value(0)).current;
   const loadingFadeAnim = useRef(new Animated.Value(0)).current;
   const [profileImageStates, setProfileImageStates] = useState<{ [eventId: number]: boolean }>({});
+  const [isHandlingSwipedAll, setIsHandlingSwipedAll] = useState(false);
+  const [backendReturnedEmpty, setBackendReturnedEmpty] = useState(false);
 
   const dataManager = GlobalDataManager.getInstance();
 
-  // Cache management functions
+  // Simple cache functions
   const saveEventsToCache = useCallback(async (events: EventCard[]) => {
     try {
+      // Don't save empty events to cache to prevent infinite loops
+      if (!events || events.length === 0) {
+        console.log('⚠️ Not saving empty events to cache');
+        return;
+      }
+      
+      // Filter out swiped events before saving to cache
+      const filteredEvents = events.filter(event => !swipedEventIds.has(event.id));
+      
       const cacheData = {
-        events: events,
-        timestamp: Date.now(),
-        cardIndex: cardIndex
+        events: filteredEvents,
+        swipedEventIds: Array.from(swipedEventIds)
       };
       await AsyncStorage.setItem('suggestedEventsCache', JSON.stringify(cacheData));
-      console.log('💾 Saved events to cache:', events.length, 'events');
+      console.log('💾 Saved events to cache:', filteredEvents.length, 'events, swiped:', swipedEventIds.size);
     } catch (error) {
       console.error('❌ Error saving events to cache:', error);
     }
-  }, [cardIndex]);
+  }, [swipedEventIds]);
 
   const loadEventsFromCache = useCallback(async () => {
     try {
       const cachedData = await AsyncStorage.getItem('suggestedEventsCache');
       if (cachedData) {
         const parsed = JSON.parse(cachedData);
-        const cacheAge = Date.now() - parsed.timestamp;
-        const maxCacheAge = 30 * 60 * 1000; // 30 minutes
-        
-        if (cacheAge < maxCacheAge && parsed.events && parsed.events.length > 0) {
+        if (parsed.events && parsed.events.length > 0) {
           console.log('📦 Loading events from cache:', parsed.events.length, 'events');
-          setCachedEvents(parsed.events);
-          setEVENTS(parsed.events);
-          setCardIndex(parsed.cardIndex || 0);
-          setLastFetchTimestamp(parsed.timestamp);
-          setHasInitializedFromCache(true);
+          
+          // Filter out any null/undefined events from cache
+          const validEvents = parsed.events.filter((event: EventCard) => event != null);
+          
+          if (validEvents.length === 0) {
+            console.log('📦 Cache contains no valid events, clearing cache');
+            await AsyncStorage.removeItem('suggestedEventsCache');
+            return false;
+          }
+          
+          // Load swiped event IDs if available
+          if (parsed.swipedEventIds && Array.isArray(parsed.swipedEventIds)) {
+            setSwipedEventIds(new Set(parsed.swipedEventIds));
+            console.log('📦 Loaded swiped event IDs from cache:', parsed.swipedEventIds.length);
+          }
+          
+          // Events in cache are already filtered (no swiped events)
+          setEVENTS(validEvents);
+          
+          // Clear backend empty flag since we loaded events from cache
+          setBackendReturnedEmpty(false);
+          
           setLoading(false);
           return true;
         } else {
-          console.log('⏰ Cache expired or empty, will fetch fresh data');
+          console.log('📦 Cache exists but has no events, clearing cache');
+          // Clear invalid cache to prevent future issues
           await AsyncStorage.removeItem('suggestedEventsCache');
         }
       }
       return false;
     } catch (error) {
       console.error('❌ Error loading events from cache:', error);
+      // Clear corrupted cache
+      try {
+        await AsyncStorage.removeItem('suggestedEventsCache');
+      } catch (clearError) {
+        console.error('❌ Error clearing corrupted cache:', clearError);
+      }
       return false;
     }
   }, []);
@@ -185,7 +216,8 @@ export default function SuggestedEvents() {
   const clearEventsCache = useCallback(async () => {
     try {
       await AsyncStorage.removeItem('suggestedEventsCache');
-      console.log('🗑️ Cleared events cache');
+      setSwipedEventIds(new Set());
+      console.log('🗑️ Cleared events cache and swiped events');
     } catch (error) {
       console.error('❌ Error clearing events cache:', error);
     }
@@ -193,6 +225,13 @@ export default function SuggestedEvents() {
 
   // Memoized expensive calculations
   const processedEventsRef = useRef<EventCard[]>([]);
+
+  // No longer need displayEvents - swiper uses EVENTS directly
+  // Swiped events are handled in renderCard by returning null
+
+
+
+
 
   // Optimized image URL generation with caching
   const getEventImageUrls = useCallback((eventId: number) => {
@@ -221,9 +260,12 @@ export default function SuggestedEvents() {
   const processEvents = useCallback(async (events: EventCard[]) => {
     console.log('🔄 Processing events with friends data...');
     
+    // Filter out any undefined events first
+    const validEvents = events.filter(event => event != null);
+    
     // Process events with image URLs and friends data in parallel
     const processedEvents = await Promise.all(
-      events.map(async (event) => {
+      validEvents.map(async (event) => {
       const urls = getEventImageUrls(event.id);
         
         // Fetch friends who saved this event
@@ -311,8 +353,15 @@ export default function SuggestedEvents() {
       return;
     }
 
+    // Prevent multiple simultaneous calls
+    if (isFetchingActivities) {
+      console.log('⚠️ Already fetching activities, skipping duplicate call');
+      return;
+    }
+
     try {
       setLoading(true);
+      setIsFetchingActivities(true);
       
       // CRITICAL: Force immediate refresh to get absolutely latest data (not debounced)
       console.log('🔄 Force refreshing data before backend call...');
@@ -561,20 +610,51 @@ export default function SuggestedEvents() {
       }
 
       const eventsData = await response.json();
+      
+      // Check if we got events from the backend
+      if (!eventsData.events || eventsData.events.length === 0) {
+        console.log('⚠️ No events returned from backend - this is a legitimate empty response');
+        setEVENTS([]);
+        setCardIndex(0);
+        setBackendReturnedEmpty(true); // Mark that backend legitimately returned empty
+        // Don't save empty events to cache to prevent infinite loops
+        return;
+      }
+      
+      // If we got events, clear the backend empty flag
+      setBackendReturnedEmpty(false);
+      
       const processedEvents = await processEvents(eventsData.events);
 
-      
       // Update state efficiently
       setCardIndex(0);
       setEVENTS(processedEvents);
       processedEventsRef.current = processedEvents;
       
-      // Save events to cache
-      await saveEventsToCache(processedEvents);
-      setLastFetchTimestamp(Date.now());
+      // Ensure swipedEventIds is clean for new events (should already be cleared in handleSwipedAll)
+      console.log('🔄 Loading new events - swipedEventIds size should be 0:', swipedEventIds.size);
+      if (swipedEventIds.size > 0) {
+        console.log('⚠️ Warning: swipedEventIds not properly cleared, clearing now');
+        setSwipedEventIds(new Set());
+      }
+      
+      // Save events to cache only if we have events
+      if (processedEvents.length > 0) {
+        // Save all events to main state (using stable array approach)
+        console.log('📊 New events loaded after swiping all - count:', processedEvents.length);
+        console.log('🎯 STABLE ARRAY: Events will remain in EVENTS array, swiped events hidden via renderCard');
+        
+        await saveEventsToCache(processedEvents);
+        console.log('✅ Backend fetch complete - new events loaded and cached:', processedEvents.length);
+      } else {
+        console.log('📊 Backend initialization complete - no events returned');
+      }
       
     } catch (error) {
       console.error('Error fetching recommendations:', error);
+      // Set empty events to prevent infinite loops
+      setEVENTS([]);
+      setCardIndex(0);
     } finally {
       setLoading(false);
       setIsFetchingActivities(false);
@@ -627,42 +707,77 @@ export default function SuggestedEvents() {
   }, [(route.params as any)?.sharedEventId]);
 
   useEffect(() => {
+    let isMounted = true;
+    
     const initializeEvents = async () => {
+      if (!isMounted) return;
+      
+      // Don't initialize if we already have events, have already initialized, or are currently fetching
+      if (EVENTS.length > 0 || hasInitialized || isFetchingActivities) {
+        console.log('📦 Already have events, initialized, or fetching, skipping initialization', {
+          eventsLength: EVENTS.length,
+          hasInitialized,
+          isFetchingActivities
+        });
+        return;
+      }
+      
       setLoading(true);
       
       // Try to load from cache first
       const loadedFromCache = await loadEventsFromCache();
       
+      if (!isMounted) return;
+      
       if (!loadedFromCache) {
-        // If no cache or cache expired, fetch from backend
-        console.log('🔄 No valid cache found, fetching from backend...');
-        await fetchTokenAndCallBackend();
+        // If no cache, fetch from backend
+        console.log('🔄 No cache found, fetching from backend...');
+        try {
+          await fetchTokenAndCallBackend();
+        } catch (error) {
+          console.error('❌ Failed to fetch from backend:', error);
+          // Set loading to false even if backend call fails
+          if (isMounted) {
+            setLoading(false);
+            setIsFetchingActivities(false);
+          }
+        }
       } else {
-        console.log('✅ Loaded events from cache successfully');
+              console.log('✅ Loaded events from cache successfully');
+      if (isMounted) {
+        setLoading(false);
+        setHasInitialized(true);
+        console.log('📊 Cache initialization complete - events:', EVENTS.length, 'hasInitialized:', true);
+      }
       }
       
       // Always request location permission
-      await requestLocationPermission();
+      if (isMounted) {
+        await requestLocationPermission();
+        setHasInitialized(true);
+        console.log('📊 Location permission requested, initialization complete');
+      }
     };
     
+    // Add a timeout to prevent infinite initialization
+    const timeoutId = setTimeout(() => {
+      if (isMounted && loading) {
+        console.log('⚠️ Initialization timeout, stopping loading');
+        setLoading(false);
+        setIsFetchingActivities(false);
+        setHasInitialized(true);
+      }
+    }, 10000); // 10 second timeout
+    
     initializeEvents();
+    
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
   }, [loadEventsFromCache, fetchTokenAndCallBackend, requestLocationPermission]);
 
-  // Handle tab focus - restore events from cache if available
-  useFocusEffect(
-    useCallback(() => {
-      const handleTabFocus = async () => {
-        // Only restore from cache if we haven't initialized yet or if we have cached events
-        if (!hasInitializedFromCache && cachedEvents.length > 0) {
-          console.log('🔄 Tab focused, restoring events from cache...');
-          setEVENTS(cachedEvents);
-          setLoading(false);
-        }
-      };
-      
-      handleTabFocus();
-    }, [hasInitializedFromCache, cachedEvents])
-  );
+
 
   // Cleanup effect to handle component unmount
   useEffect(() => {
@@ -670,12 +785,10 @@ export default function SuggestedEvents() {
       // Clear any pending operations on unmount
       setPendingOperations(new Set());
       
-      // Save current state to cache before unmounting
-      if (EVENTS.length > 0) {
-        saveEventsToCache(EVENTS);
-      }
+      // Don't save cache on unmount to prevent infinite loops
+      // Cache is already being saved by the swipe tracking useEffect
     };
-  }, [EVENTS, saveEventsToCache]);
+  }, []);
 
   // Debug effect to track pending operations
   useEffect(() => {
@@ -683,6 +796,22 @@ export default function SuggestedEvents() {
       console.log(`📊 Pending operations: ${Array.from(pendingOperations).join(', ')}`);
     }
   }, [pendingOperations]);
+
+  // Effect to automatically fetch new events when all current events are swiped
+  useEffect(() => {
+    // Only check if we have events and are not currently loading or handling swipedAll
+    if (EVENTS.length > 0 && !loading && !isFetchingActivities && !isHandlingSwipedAll && hasInitialized) {
+      const remainingEvents = EVENTS.filter(event => event != null && !swipedEventIds.has(event.id));
+      console.log('🔍 Checking if all events swiped - remaining:', remainingEvents.length, 'total:', EVENTS.length, 'swiped:', swipedEventIds.size);
+      
+      if (remainingEvents.length === 0) {
+        console.log('🚀 All events swiped! Automatically triggering backend fetch...');
+        handleSwipedAll();
+      }
+    }
+  }, [EVENTS.length, swipedEventIds.size, loading, isFetchingActivities, isHandlingSwipedAll, hasInitialized]);
+
+
 
 
 
@@ -825,6 +954,15 @@ export default function SuggestedEvents() {
     }, 1000); // Much shorter since we unblock immediately anyway
     
     const likedEvent = EVENTS[cardIndex];
+    
+    // Safety check for undefined event
+    if (!likedEvent) {
+      console.warn('handleSwipeRight: No event found at cardIndex', cardIndex, 'EVENTS length:', EVENTS.length);
+      setIsSwipeInProgress(false);
+      clearTimeout(failsafeTimer);
+      return;
+    }
+    
     const operationId = `save-${likedEvent.id}-${Date.now()}`;
     
     // Track this operation
@@ -863,10 +1001,25 @@ export default function SuggestedEvents() {
         // Refresh data to ensure everything is in sync
         await GlobalDataManager.getInstance().refreshAllData();
         
-        // Update cache to remove the liked event from the stack
-        const updatedEvents = EVENTS.filter(event => event.id !== likedEvent.id);
-        setEVENTS(updatedEvents);
-        await saveEventsToCache(updatedEvents);
+        // Track the swiped event
+        setSwipedEventIds(prev => new Set(prev).add(likedEvent.id));
+        console.log('💾 Added liked event to swiped list:', likedEvent.id, 'Total swiped:', swipedEventIds.size + 1);
+        
+        // Update cache ONLY - keep EVENTS array stable for swiper
+        setTimeout(async () => {
+          // Explicitly filter out this specific event and all previously swiped events
+          const currentSwipedIds = new Set(swipedEventIds);
+          currentSwipedIds.add(likedEvent.id); // Add the current event
+          const filteredEvents = EVENTS.filter(event => event && !currentSwipedIds.has(event.id));
+          
+          const cacheData = {
+            events: filteredEvents,
+            swipedEventIds: Array.from(currentSwipedIds)
+          };
+          await AsyncStorage.setItem('suggestedEventsCache', JSON.stringify(cacheData));
+          console.log('💾 Updated cache after liking event, removed event from cache:', likedEvent.id);
+          console.log('📊 Cache updated with', filteredEvents.length, 'events, EVENTS array remains stable, size:', EVENTS.length);
+        }, 300);
         
       } catch (error) {
         console.error('Error saving event:', error);
@@ -927,9 +1080,22 @@ export default function SuggestedEvents() {
   }, []);
 
   const handleSwipedAll = async () => {
-    // This function will be called when all cards have been swiped
+    // Prevent multiple simultaneous calls
+    if (isHandlingSwipedAll) {
+      console.log('⚠️ handleSwipedAll already in progress, skipping...');
+      return;
+    }
     
-    console.log('🔄 All cards swiped, waiting for pending operations to complete...');
+    setIsHandlingSwipedAll(true);
+    
+    console.log('🚀 HANDLESWIPEDALL TRIGGERED - All cards swiped, starting fetch process...');
+    console.log('📊 Current state before handleSwipedAll:', {
+      eventsLength: EVENTS.length,
+      swipedCount: swipedEventIds.size,
+      loading,
+      isFetchingActivities,
+      hasInitialized
+    });
     
     // Wait for all pending save/reject operations to complete
     const waitForPendingOperations = () => {
@@ -987,21 +1153,46 @@ export default function SuggestedEvents() {
       // Update both rejected and saved events in Supabase to ensure backend has latest data
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
       
-      // Set loading states
+      console.log('🔄 Setting loading states and clearing old data...');
+      
+      // Set loading states EARLY to show loading UI
       setLoading(true);
       setIsFetchingActivities(true);
       
-      // Clear the cache since all events have been swiped
+      // Clear the backend empty flag since we're about to fetch new data
+      setBackendReturnedEmpty(false);
+      
+      // Clear the cache and swiped events since all events have been swiped
       await clearEventsCache();
+      setSwipedEventIds(new Set());
+      
+      // Clear current EVENTS to prevent showing old events during loading
+      setEVENTS([]);
+      
+      console.log('✅ Loading states set, cache cleared, ready to fetch backend...');
+      
+      // Reset initialization flag to allow new events to be loaded
+      setHasInitialized(false);
       
       // Now call backend with fully updated data
-      await fetchTokenAndCallBackend();
+      try {
+        await fetchTokenAndCallBackend();
+        console.log('✅ Successfully fetched new events after swiping all');
+      } catch (error) {
+        console.error('❌ Error in handleSwipedAll backend call:', error);
+        // Don't retry to prevent infinite loops, but ensure loading stops
+        setLoading(false);
+        setIsFetchingActivities(false);
+      }
       
       setCardIndex(0);
     } catch (error) {
       console.error('Error in handleSwipedAll:', error);
       setLoading(false);
       setIsFetchingActivities(false);
+    } finally {
+      setIsHandlingSwipedAll(false);
+      console.log('✅ handleSwipedAll completed, guard reset');
     }
   };
 
@@ -1098,6 +1289,15 @@ export default function SuggestedEvents() {
     }, 5000); // Reset after 5 seconds maximum
     
     const rejectedEvent = EVENTS[cardIndex];
+    
+    // Safety check for undefined event
+    if (!rejectedEvent) {
+      console.warn('handleSwipedLeft: No event found at cardIndex', cardIndex, 'EVENTS length:', EVENTS.length);
+      setIsSwipeInProgress(false);
+      clearTimeout(failsafeTimer);
+      return;
+    }
+    
     const operationId = `reject-${rejectedEvent.id}-${Date.now()}`;
     
     // Track this operation
@@ -1113,10 +1313,25 @@ export default function SuggestedEvents() {
       const rejectedEventIds = rejectedEvents.map((e: any) => e.id.toString());
       await dataManager.updateRejectedEventsInSupabase(rejectedEventIds);
       
-      // Update cache to remove the rejected event from the stack
-      const updatedEvents = EVENTS.filter(event => event.id !== rejectedEvent.id);
-      setEVENTS(updatedEvents);
-      await saveEventsToCache(updatedEvents);
+      // Track the swiped event
+      setSwipedEventIds(prev => new Set(prev).add(rejectedEvent.id));
+      console.log('💾 Added rejected event to swiped list:', rejectedEvent.id, 'Total swiped:', swipedEventIds.size + 1);
+      
+      // Update cache ONLY - keep EVENTS array stable for swiper
+      setTimeout(async () => {
+        // Explicitly filter out this specific event and all previously swiped events
+        const currentSwipedIds = new Set(swipedEventIds);
+        currentSwipedIds.add(rejectedEvent.id); // Add the current event
+        const filteredEvents = EVENTS.filter(event => event && !currentSwipedIds.has(event.id));
+        
+        const cacheData = {
+          events: filteredEvents,
+          swipedEventIds: Array.from(currentSwipedIds)
+        };
+        await AsyncStorage.setItem('suggestedEventsCache', JSON.stringify(cacheData));
+        console.log('💾 Updated cache after rejecting event, removed event from cache:', rejectedEvent.id);
+        console.log('📊 Cache updated with', filteredEvents.length, 'events, EVENTS array remains stable, size:', EVENTS.length);
+      }, 300);
       
       // Clear the failsafe timer since we completed successfully
       clearTimeout(failsafeTimer);
@@ -1141,7 +1356,7 @@ export default function SuggestedEvents() {
     setExpandedCard(null);
     setCardPosition(null);
 
-    setCardIndex((i) => i + 1);
+    // Don't manually increment card index - let Swiper handle it automatically
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -1324,14 +1539,50 @@ export default function SuggestedEvents() {
             { opacity: contentFadeAnim }
           ]}
         >
-          {EVENTS.length > 0 ? (
+          {(() => {
+            const hasUnswipedEvents = EVENTS.length > 0 && EVENTS.some(event => event != null && !swipedEventIds.has(event.id));
+            const isLoading = loading || isFetchingActivities;
+            const hasEventsLocally = EVENTS.length > 0; // Even if all swiped, we have events locally
+            const isHandlingSwipedAllProcess = isHandlingSwipedAll;
+            
+            // Show swiper/loading if:
+            // 1. We have unswipped events, OR
+            // 2. We're currently loading, OR  
+            // 3. We have events locally (even if all swiped) AND backend hasn't returned empty, OR
+            // 4. We're handling the swipedAll process
+            const shouldShowSwiper = hasUnswipedEvents || isLoading || (hasEventsLocally && !backendReturnedEmpty) || isHandlingSwipedAllProcess;
+            
+            console.log('🎯 Render decision:', {
+              eventsLength: EVENTS.length,
+              swipedCount: swipedEventIds.size,
+              hasUnswipedEvents,
+              hasEventsLocally,
+              backendReturnedEmpty,
+              isLoading,
+              isHandlingSwipedAllProcess,
+              shouldShowSwiper
+            });
+            
+            return shouldShowSwiper;
+          })() ? (
             <>
               <View style={styles.swiperContainer}>
                 <Swiper
                   ref={swiperRef}
                   cards={EVENTS}
-                  cardIndex={cardIndex}
+                  cardIndex={Math.min(cardIndex, EVENTS.length - 1)}
                   renderCard={(card: EventCard, index: number) => {
+                    // Add safety check for undefined card
+                    if (!card) {
+                      console.warn('SuggestedEvents: Received undefined card at index', index);
+                      return null;
+                    }
+                    
+                    // If this event has been swiped, don't render it
+                    if (swipedEventIds.has(card.id)) {
+                      return null;
+                    }
+                    
                     const isTopCard = index === cardIndex;
                       // Use the first image URL for all cards if available
                       const eventImageUrl = card.image;
@@ -1669,9 +1920,25 @@ export default function SuggestedEvents() {
                       </TouchableOpacity>
                     );
                   }}
-                  onSwipedLeft={(cardIndex) => handleSwipedLeft(cardIndex)}
-                  onSwipedRight={(cardIndex) => handleSwipeRight(cardIndex)}
-                    onSwipedAll={handleSwipedAll}
+                  onSwipedLeft={(cardIndex) => {
+                    console.log('🔄 Swiper onSwipedLeft called with cardIndex:', cardIndex, 'Total cards:', EVENTS.length);
+                    handleSwipedLeft(cardIndex);
+                  }}
+                  onSwipedRight={(cardIndex) => {
+                    console.log('🔄 Swiper onSwipedRight called with cardIndex:', cardIndex, 'Total cards:', EVENTS.length);
+                    handleSwipeRight(cardIndex);
+                  }}
+                    onSwipedAll={() => {
+                      // Only handle swipedAll if we've actually swiped all non-null events
+                      const remainingEvents = EVENTS.filter(event => event != null && !swipedEventIds.has(event.id));
+                      console.log('🔄 onSwipedAll triggered: remaining events =', remainingEvents.length, 'total events =', EVENTS.length, 'swiped =', swipedEventIds.size);
+                      if (remainingEvents.length === 0) {
+                        console.log('✅ All events swiped, triggering handleSwipedAll');
+                        handleSwipedAll();
+                      } else {
+                        console.log('⏳ Still have', remainingEvents.length, 'events remaining, not fetching new ones yet');
+                      }
+                    }}
                   onSwiping={(x) => swipeX.setValue(x)}
                   backgroundColor="transparent"
                   stackSize={3}
