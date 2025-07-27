@@ -138,6 +138,7 @@ export default function SuggestedEvents() {
   const [isHandlingSwipedAll, setIsHandlingSwipedAll] = useState(false);
   const [backendReturnedEmpty, setBackendReturnedEmpty] = useState(false);
 
+
   const dataManager = GlobalDataManager.getInstance();
 
   // Simple cache functions
@@ -1608,8 +1609,27 @@ export default function SuggestedEvents() {
                             }
                             start={{ x: 0, y: 0 }}
                             end={{ x: 1, y: 1 }}
-                            style={[styles.card]}
+                            style={styles.card}
                           >
+                            {/* Color Overlay - Applied only to the top card */}
+                            {index === cardIndex && (
+                              <Animated.View 
+                                style={[
+                                  styles.colorOverlay,
+                                  {
+                                    backgroundColor: swipeX.interpolate({
+                                      inputRange: [-200, 0, 200],
+                                      outputRange: [
+                                        'rgba(255, 68, 68, 0.2)', // Red overlay for left swipe
+                                        'transparent', // No overlay for center
+                                        'rgba(68, 255, 68, 0.2)' // Green overlay for right swipe
+                                      ],
+                                      extrapolate: 'clamp'
+                                    })
+                                  }
+                                ]}
+                              />
+                            )}
                             {/* Image Container with Overlay */}
                             <View style={styles.imageContainer}>
                               {eventImageUrl ? (
@@ -1939,7 +1959,9 @@ export default function SuggestedEvents() {
                         console.log('⏳ Still have', remainingEvents.length, 'events remaining, not fetching new ones yet');
                       }
                     }}
-                  onSwiping={(x) => swipeX.setValue(x)}
+                  onSwiping={(x) => {
+                    swipeX.setValue(x);
+                  }}
                   backgroundColor="transparent"
                   stackSize={3}
                   stackSeparation={15}
@@ -3263,6 +3285,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 2,
     textAlign: 'center',
+  },
+  colorOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+    pointerEvents: 'none',
   },
 });
 

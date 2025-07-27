@@ -460,6 +460,16 @@ export default function EditImages() {
             </Text>
           </View>
         )}
+
+        {/* Information about image update timing */}
+        <View style={styles.infoContainer}>
+          <View style={styles.infoRow}>
+            <Ionicons name="information-circle-outline" size={20} color="#9E95BD" />
+            <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
+              It may take a few moments for your images to update across the app after saving.
+            </Text>
+          </View>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -564,5 +574,24 @@ const styles = StyleSheet.create({
   uploadingText: {
     fontSize: 16,
     fontStyle: 'italic',
+  },
+  infoContainer: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.2)',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  infoText: {
+    fontSize: 14,
+    lineHeight: 20,
+    flex: 1,
+    opacity: 0.8,
   },
 });

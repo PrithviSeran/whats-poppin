@@ -1,5 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Alert, SafeAreaView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  Dimensions,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -7,11 +19,15 @@ import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import GlobalDataManager from '@/lib/GlobalDataManager';
 import SocialDataManager from '@/lib/SocialDataManager';
+import * as Location from 'expo-location';
+import EventDetailModal from './EventDetailModal';
+import { EventCard } from '@/lib/GlobalDataManager';
 
 interface UserProfile {
   id: number;
   created_at: string;
   name: string;
+  username?: string;
   email: string;
   birthday: string;
   gender: string;
@@ -20,6 +36,31 @@ interface UserProfile {
   profileImage?: string;
   bannerImage?: string;
   location?: string;
+}
+
+interface Event {
+  id: number;
+  created_at: string;
+  name: string;
+  organization: string;
+  event_type: string;
+  location: string;
+  cost: number;
+  age_restriction: number;
+  reservation: string;
+  description: string;
+  image: any;
+  start_date: string;
+  end_date: string;
+  occurrence: string;
+  latitude?: number;
+  longitude?: number;
+  posted_by: string;
+  link?: string;
+  featured?: boolean;
+  days_of_the_week?: string;
+  times?: any; // jsonb field
+  allImages?: string[]; // Array of all possible image URLs
 }
 
 interface UserProfileModalProps {
@@ -45,8 +86,174 @@ export default function UserProfileModal({
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [friendshipStatus, setFriendshipStatus] = useState<'accepted' | 'pending' | 'incoming' | 'none'>('none');
   const [isFollowing, setIsFollowing] = useState(false);
+  const [userEvents, setUserEvents] = useState<Event[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const colorScheme = useColorScheme();
   const dataManager = GlobalDataManager.getInstance();
+
+  // Add new state for tracking image loading per event
+  const [eventImageStates, setEventImageStates] = useState<{ [eventId: number]: { currentImageIndex: number; hasError: boolean } }>({});
+  
+  // State for EventDetailModal
+  const [expandedCard, setExpandedCard] = useState<EventCard | null>(null);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  // Function to get event image URLs (similar to SuggestedEvents)
+  const getEventImageUrls = useCallback((eventId: number) => {
+    if (!eventId) return { imageUrl: null, allImages: [] };
+
+    const baseUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${eventId}`;
+    const allImages = Array.from({ length: 5 }, (_, i) => `${baseUrl}/${i}.jpg`);
+    
+    return { imageUrl: allImages[0], allImages };
+  }, []);
+
+  // Location permission request function (similar to SuggestedEvents)
+  const requestLocationPermission = useCallback(async () => {
+    if (userLocation) {
+      console.log('⚡ Location already cached');
+      return;
+    }
+
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.error('Permission to access location was denied');
+        return;
+      }
+
+      let location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      setUserLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+    } catch (err) {
+      console.error('Error getting user location:', err);
+      // Try to get manual location from user profile as fallback
+      try {
+        const userProfile = await dataManager.getUserProfile();
+        if (userProfile?.location) {
+          console.log('Using manual location as fallback:', userProfile.location);
+          try {
+            const geocodedLocation = await Location.geocodeAsync(userProfile.location);
+            if (geocodedLocation && geocodedLocation.length > 0) {
+              setUserLocation({
+                latitude: geocodedLocation[0].latitude,
+                longitude: geocodedLocation[0].longitude,
+              });
+              console.log('Successfully geocoded manual address:', geocodedLocation[0]);
+            } else {
+              console.log('Could not geocode manual address:', userProfile.location);
+            }
+          } catch (geocodeError) {
+            console.error('Error geocoding manual address:', geocodeError);
+          }
+        }
+      } catch (profileError) {
+        console.error('Error getting user profile for fallback location:', profileError);
+      }
+    }
+  }, [userLocation, dataManager]);
+
+  // Function to handle image error and try next image
+  const handleEventImageError = useCallback((eventId: number) => {
+    console.log('Image failed to load for event:', eventId);
+    
+    const { allImages } = getEventImageUrls(eventId);
+    const currentState = eventImageStates[eventId] || { currentImageIndex: 0, hasError: false };
+    const nextIndex = currentState.currentImageIndex + 1;
+    
+    if (nextIndex < allImages.length) {
+      console.log(`Retrying with image ${nextIndex} for event ${eventId}`);
+      setEventImageStates(prev => ({
+        ...prev,
+        [eventId]: { currentImageIndex: nextIndex, hasError: false }
+      }));
+      
+      // Update the event's image URL to the next one
+      setUserEvents(prevEvents => 
+        prevEvents.map(event => 
+          event.id === eventId ? { ...event, image: allImages[nextIndex] } : event
+        )
+      );
+    } else {
+      console.log('No more images to try for event:', eventId);
+      setEventImageStates(prev => ({
+        ...prev,
+        [eventId]: { currentImageIndex: nextIndex, hasError: true }
+      }));
+      
+      // Set image to null to show placeholder
+      setUserEvents(prevEvents => 
+        prevEvents.map(event => 
+          event.id === eventId ? { ...event, image: null } : event
+        )
+      );
+    }
+  }, [eventImageStates, getEventImageUrls]);
+
+  // Function to get current image URL for an event
+  const getCurrentEventImageUrl = useCallback((event: Event) => {
+    const eventState = eventImageStates[event.id];
+    
+    if (eventState?.hasError) {
+      return null; // Show placeholder
+    }
+    
+    // If we have a custom image state, use it
+    if (eventState) {
+      const { allImages } = getEventImageUrls(event.id);
+      return allImages[eventState.currentImageIndex] || null;
+    }
+    
+    // Otherwise, use the event's image or generate the first one
+    if (event.image) {
+      return event.image;
+    }
+    
+    const { imageUrl } = getEventImageUrls(event.id);
+    return imageUrl;
+  }, [eventImageStates, getEventImageUrls]);
+
+  // Function to handle event card press
+  const handleEventCardPress = useCallback((event: Event) => {
+    console.log('🎯 Event card pressed:', event.name);
+    // Convert Event to EventCard format for EventDetailModal
+    const eventCard: EventCard = {
+      ...event,
+      // Handle days_of_the_week conversion from string to string[]
+      days_of_the_week: event.days_of_the_week ? 
+        (typeof event.days_of_the_week === 'string' ? 
+          event.days_of_the_week.split(',').map(d => d.trim()) : 
+          event.days_of_the_week) : 
+        undefined,
+      // Use actual data or provide sensible defaults
+      latitude: event.latitude || 0,
+      longitude: event.longitude || 0,
+      distance: undefined,
+      featured: event.featured || false,
+      age_restriction: event.age_restriction || 0,
+      reservation: event.reservation || 'no',
+      times: event.times || {},
+      allImages: event.allImages || []
+    };
+    setExpandedCard(eventCard);
+  }, []);
+
+  // Function to close EventDetailModal
+  const handleCloseEventDetail = useCallback(() => {
+    setExpandedCard(null);
+  }, []);
+
+  // Request location permission when component mounts
+  useEffect(() => {
+    if (visible) {
+      requestLocationPermission();
+    }
+  }, [visible, requestLocationPermission]);
 
   const fetchUserProfile = async () => {
     try {
@@ -75,6 +282,51 @@ export default function UserProfileModal({
       Alert.alert('Error', 'Failed to load user profile');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUserEvents = async () => {
+    try {
+      setEventsLoading(true);
+      
+      // Fetch events posted by this user - get ALL fields
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('all_events')
+        .select('*')
+        .eq('posted_by', userEmail)
+        .order('created_at', { ascending: false });
+
+      if (eventsError) {
+        console.error('Error fetching user events:', eventsError);
+        setUserEvents([]);
+      } else {
+        const events = eventsData || [];
+        
+        // Initialize event images using the same logic as SuggestedEvents
+        const eventsWithImages = events.map(event => {
+          const { imageUrl, allImages } = getEventImageUrls(event.id);
+          return {
+            ...event,
+            image: event.image || imageUrl, // Use existing image or generate first one
+            allImages // Add allImages array for fallback logic
+          };
+        });
+        
+        setUserEvents(eventsWithImages);
+        
+        // Initialize image states for all events
+        const initialImageStates: { [eventId: number]: { currentImageIndex: number; hasError: boolean } } = {};
+        events.forEach(event => {
+          initialImageStates[event.id] = { currentImageIndex: 0, hasError: false };
+        });
+        setEventImageStates(initialImageStates);
+      }
+
+    } catch (error) {
+      console.error('Error fetching user events:', error);
+      setUserEvents([]);
+    } finally {
+      setEventsLoading(false);
     }
   };
 
@@ -506,6 +758,7 @@ export default function UserProfileModal({
     if (visible && userId) {
       fetchUserProfile();
       fetchCurrentUserProfile();
+      fetchUserEvents();
     }
   }, [visible, userId]);
 
@@ -596,13 +849,11 @@ export default function UserProfileModal({
               {/* User Info */}
               <View style={styles.userInfo}>
                 <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  @{userProfile?.username || 'username'}
+                </Text>
+                <Text style={[styles.userRealName, { color: Colors[colorScheme ?? 'light'].text }]}>
                   {userProfile?.name || userName}
                 </Text>
-                <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {userProfile?.email || userEmail}
-                </Text>
-                
-                
               </View>
 
 
@@ -695,62 +946,134 @@ export default function UserProfileModal({
               </View>
             </View>
 
-            {/* Additional Info */}
-            {userProfile && (
-              <View style={[styles.infoSection, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                <Text style={[styles.infoSectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  About
-                </Text>
-                {userProfile.birthday && (
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoIconContainer}>
-                      <Ionicons name="calendar-outline" size={20} color="#9E95BD" />
-                    </View>
-                    <View style={styles.infoTextContainer}>
-                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Birthday
-                      </Text>
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {userProfile.birthday}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-                {userProfile.gender && (
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoIconContainer}>
-                      <Ionicons name="person-outline" size={20} color="#9E95BD" />
-                    </View>
-                    <View style={styles.infoTextContainer}>
-                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Gender
-                      </Text>
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {userProfile.gender}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-                {userProfile.location && (
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoIconContainer}>
-                      <Ionicons name="location-outline" size={20} color="#9E95BD" />
-                    </View>
-                    <View style={styles.infoTextContainer}>
-                      <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        Location
-                      </Text>
-                      <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                        {userProfile.location}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
-            )}
+            {/* User's Events */}
+            <View style={[styles.eventsSection, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <Text style={[styles.eventsSectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Events Created ({userEvents.length})
+              </Text>
+              
+              {eventsLoading ? (
+                <View style={styles.eventsLoadingContainer}>
+                  <ActivityIndicator size="small" color={Colors[colorScheme ?? 'light'].accent} />
+                  <Text style={[styles.eventsLoadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Loading events...
+                  </Text>
+                </View>
+              ) : userEvents.length === 0 ? (
+                <View style={styles.noEventsContainer}>
+                  <Ionicons name="calendar-outline" size={40} color="#ccc" />
+                  <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    No events created yet
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.eventsList}>
+                  {userEvents.map((event) => (
+                    <TouchableOpacity 
+                      key={event.id} 
+                      style={[styles.eventCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}
+                      onPress={() => handleEventCardPress(event)}
+                      activeOpacity={0.7}
+                    >
+                      {/* Event Image with sophisticated fallback logic */}
+                      {(() => {
+                        const currentImageUrl = getCurrentEventImageUrl(event);
+                        const eventState = eventImageStates[event.id];
+                        
+                        return currentImageUrl && !eventState?.hasError ? (
+                          <Image 
+                            source={{ uri: currentImageUrl }}
+                            style={styles.eventImage}
+                            onError={() => handleEventImageError(event.id)}
+                            onLoad={() => {
+                              // Mark that this image loaded successfully
+                              setEventImageStates(prev => ({
+                                ...prev,
+                                [event.id]: { 
+                                  ...prev[event.id], 
+                                  hasError: false 
+                                }
+                              }));
+                            }}
+                          />
+                        ) : (
+                          <LinearGradient
+                            colors={colorScheme === 'dark' 
+                              ? ['#2A2A2A', '#1F1F1F', '#252525'] 
+                              : ['#FFFFFF', '#F8F9FA', '#FFFFFF']
+                            }
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={[styles.eventImage, { justifyContent: 'center', alignItems: 'center' }]}
+                          >
+                            <Ionicons name="image-outline" size={28} color="#B97AFF" style={{ marginTop: -6 }} />
+                            <Text style={{ color: '#B97AFF', fontSize: 12, fontWeight: 'bold', marginTop: 6, marginBottom: 2, textAlign: 'center' }}>
+                              No Event Image
+                            </Text>
+                            <Text style={{ color: '#999', fontSize: 10, fontWeight: 'bold', marginTop: 2, textAlign: 'center' }}>
+                              But the fun is still on! 🎈
+                            </Text>
+                          </LinearGradient>
+                        );
+                      })()}
+                      
+                      {/* Event Info */}
+                      <View style={styles.eventInfo}>
+                        <Text style={[styles.eventName, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          {event.name}
+                        </Text>
+                        
+                        {event.location && (
+                          <View style={styles.eventDetail}>
+                            <Ionicons name="location-outline" size={14} color="#9E95BD" />
+                            <Text style={[styles.eventDetailText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                              {event.location}
+                            </Text>
+                          </View>
+                        )}
+                        
+                        {event.start_date && (
+                          <View style={styles.eventDetail}>
+                            <Ionicons name="calendar-outline" size={14} color="#9E95BD" />
+                            <Text style={[styles.eventDetailText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                              {new Date(event.start_date).toLocaleDateString()}
+                            </Text>
+                          </View>
+                        )}
+                        
+                        {event.cost !== undefined && event.cost !== null && (
+                          <View style={styles.eventDetail}>
+                            <Ionicons name="cash-outline" size={14} color="#9E95BD" />
+                            <Text style={[styles.eventDetailText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                              {event.cost === 0 ? 'FREE' : `$${event.cost}`}
+                            </Text>
+                          </View>
+                        )}
+                        
+                        {event.event_type && (
+                          <View style={styles.eventTypeContainer}>
+                            <Text style={styles.eventType}>
+                              {event.event_type}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
           </ScrollView>
         )}
       </SafeAreaView>
+             {expandedCard && (
+         <EventDetailModal
+           visible={!!expandedCard}
+           event={expandedCard}
+           onClose={handleCloseEventDetail}
+           userLocation={userLocation}
+         />
+       )}
     </Modal>
   );
 }
@@ -831,9 +1154,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 5,
   },
-  userEmail: {
-    fontSize: 16,
-    opacity: 0.7,
+  userRealName: {
+    fontSize: 18,
+    fontWeight: '600',
+    opacity: 0.8,
+    marginBottom: 5,
   },
 
   actionButtonsContainer: {
@@ -867,47 +1192,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flex: 1,
   },
-  infoSection: {
-    margin: 20,
-    padding: 20,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  infoSectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  infoIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(158, 149, 189, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  infoTextContainer: {
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: 14,
-    opacity: 0.7,
-    marginBottom: 2,
-  },
-  infoValue: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
+
 
   friendsContainer: {
     alignItems: 'center',
@@ -919,5 +1204,92 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.8,
     fontStyle: 'italic',
+  },
+
+  // Events section styles
+  eventsSection: {
+    margin: 20,
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  eventsSectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+  },
+  eventsLoadingContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  eventsLoadingText: {
+    marginLeft: 10,
+    fontSize: 16,
+  },
+  noEventsContainer: {
+    alignItems: 'center',
+    paddingVertical: 30,
+  },
+  noEventsText: {
+    fontSize: 16,
+    marginTop: 10,
+    opacity: 0.6,
+  },
+  eventsList: {
+    gap: 12,
+  },
+  eventCard: {
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 8,
+  },
+  eventImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 12,
+    resizeMode: 'cover',
+  },
+  eventInfo: {
+    gap: 8,
+  },
+  eventName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  eventDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  eventDetailText: {
+    fontSize: 14,
+    marginLeft: 6,
+    opacity: 0.8,
+  },
+  eventTypeContainer: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#9E95BD',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 4,
+  },
+  eventType: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 

@@ -12,69 +12,141 @@ import {
   Image,
   KeyboardAvoidingView,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import 'react-native-url-polyfill/auto';
-import MaskedView from '@react-native-masked-view/masked-view';
 import CreateAccountProgressBar from './CreateAccountProgressBar';
-import LegalDocumentViewer from './LegalDocumentViewer';
+import { supabase } from '@/lib/supabase';
 
 type RootStackParamList = {
-  'social-sign-in': undefined;
+  'create-account-email': { userData: string };
   'create-account-username': { userData: string };
   'create-account': { userData: string };
 };
 
+type CreateAccountUsernameRouteProp = RouteProp<RootStackParamList, 'create-account-username'>;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+interface CreateAccountUsernameProps {
+  route: CreateAccountUsernameRouteProp;
+}
+
 const { width } = Dimensions.get('window');
 
 const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
 const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
-const CreateAccount = () => {
+const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) => {
   const navigation = useNavigation<NavigationProp>();
   const colorScheme = useColorScheme();
-  const [name, setName] = useState('');
-  const [nameError, setNameError] = useState('');
+  const [username, setUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+  const [usernameValid, setUsernameValid] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
-  const [showTermsModal, setShowTermsModal] = useState(false);
-  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
 
-  const validateName = (text: string) => {
-    if (text.trim().length < 2) {
-      setNameError('Name must be at least 2 characters long');
+  const validateUsernameFormat = (text: string) => {
+    // Username requirements: 3-20 characters, alphanumeric and underscores only, no spaces
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    
+    if (!text.trim()) {
+      setUsernameError('Username is required');
       return false;
     }
-    setNameError('');
+    if (text.length < 3) {
+      setUsernameError('Username must be at least 3 characters');
+      return false;
+    }
+    if (text.length > 20) {
+      setUsernameError('Username must be 20 characters or less');
+      return false;
+    }
+    if (!usernameRegex.test(text)) {
+      setUsernameError('Username can only contain letters, numbers, and underscores');
+      return false;
+    }
+    
     return true;
   };
 
-  const handleNext = () => {
-    if (validateName(name)) {
-      const userDataToSend = { name };
-      console.log('CreateAccount - name value:', name);
-      console.log('CreateAccount - userDataToSend:', userDataToSend);
-      console.log('CreateAccount - stringified userData:', JSON.stringify(userDataToSend));
+  const checkUsernameAvailability = async (text: string) => {
+    if (!validateUsernameFormat(text)) {
+      setUsernameValid(false);
+      return;
+    }
 
-      navigation.navigate('create-account-username', {
-        userData: JSON.stringify(userDataToSend),
-      });
+    setIsCheckingUsername(true);
+    setUsernameError('');
+
+    try {
+      // Check if username already exists
+      const { data, error } = await supabase
+        .from('all_users')
+        .select('username')
+        .eq('username', text.toLowerCase())
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 is "not found" which is what we want
+        console.error('Error checking username:', error);
+        setUsernameError('Error checking username availability');
+        setUsernameValid(false);
+        return;
+      }
+
+      if (data) {
+        // Username already exists
+        setUsernameError('This username is already taken');
+        setUsernameValid(false);
+      } else {
+        // Username is available
+        setUsernameError('');
+        setUsernameValid(true);
+      }
+    } catch (error) {
+      console.error('Error checking username:', error);
+      setUsernameError('Error checking username availability');
+      setUsernameValid(false);
+    } finally {
+      setIsCheckingUsername(false);
     }
   };
 
-  const handleOpenTerms = () => {
-    setShowTermsModal(true);
-  };
+  // Debounced username checking
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (username.trim()) {
+        checkUsernameAvailability(username.trim().toLowerCase());
+      } else {
+        setUsernameValid(false);
+        setUsernameError('');
+      }
+    }, 500);
 
-  const handleOpenPrivacyPolicy = () => {
-    setShowPrivacyModal(true);
+    return () => clearTimeout(timeoutId);
+  }, [username]);
+
+  const handleNext = () => {
+    if (usernameValid && !isCheckingUsername) {
+      const userDataToSend = { 
+        ...userData, 
+        username: username.trim().toLowerCase() 
+      };
+      console.log('CreateAccountUsername - userDataToSend:', userDataToSend);
+
+      navigation.navigate('create-account-email', {
+        userData: JSON.stringify(userDataToSend),
+      });
+    }
   };
 
   const handleInputFocus = () => {
@@ -97,7 +169,7 @@ const CreateAccount = () => {
   useEffect(() => {
     return () => {
       // Stop all animations to prevent memory leaks
-      console.log('🧹 CreateAccount: Cleaning up animations');
+      console.log('🧹 CreateAccountUsername: Cleaning up animations');
       
       // Stop all animated values
       fadeAnim.stopAnimation();
@@ -124,6 +196,19 @@ const CreateAccount = () => {
     return () => clearInterval(interval);
   }, []);
 
+  const getValidationIcon = () => {
+    if (isCheckingUsername) {
+      return <ActivityIndicator size="small" color="#9E95BD" />;
+    }
+    if (usernameValid) {
+      return <Ionicons name="checkmark-circle" size={20} color="#22C55E" />;
+    }
+    if (usernameError && username.trim()) {
+      return <Ionicons name="close-circle" size={20} color="#FF3B30" />;
+    }
+    return null;
+  };
+
   return (
     <SafeAreaView
       style={[
@@ -139,7 +224,7 @@ const CreateAccount = () => {
       </TouchableOpacity>
 
       <CreateAccountProgressBar
-        currentStep={1}
+        currentStep={2}
         totalSteps={7}
         stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
       />
@@ -172,7 +257,7 @@ const CreateAccount = () => {
                   { color: Colors[colorScheme ?? 'light'].text },
                 ]}
               >
-                What's your name?
+                Choose a username
               </Text>
               <Text
                 style={[
@@ -180,7 +265,7 @@ const CreateAccount = () => {
                   { color: Colors[colorScheme ?? 'light'].text },
                 ]}
               >
-                This is how you'll appear to others
+                This is how others will find and mention you
               </Text>
             </View>
 
@@ -194,68 +279,88 @@ const CreateAccount = () => {
                 styles.inputWrapper,
                 {
                   backgroundColor: Colors[colorScheme ?? 'light'].card,
-                  borderColor: nameError 
+                  borderColor: usernameError 
                     ? '#FF3B30' 
-                    : isFocused 
-                      ? '#9E95BD' 
-                      : colorScheme === 'dark' ? '#333' : '#E5E5E7',
+                    : usernameValid
+                      ? '#22C55E'
+                      : isFocused 
+                        ? '#9E95BD' 
+                        : colorScheme === 'dark' ? '#333' : '#E5E5E7',
                   shadowColor: isFocused ? '#9E95BD' : '#000',
                   shadowOpacity: isFocused ? 0.2 : 0.1,
                 }
               ]}>
-                <Ionicons 
-                  name="person-outline" 
-                  size={22} 
-                  color={isFocused ? '#9E95BD' : Colors[colorScheme ?? 'light'].icon} 
-                  style={styles.inputIcon}
-                />
+                <Text style={[styles.atSymbol, { color: Colors[colorScheme ?? 'light'].text }]}>@</Text>
                 <TextInput
                   style={[
                     styles.input,
                     { color: Colors[colorScheme ?? 'light'].text },
                   ]}
-                  value={name}
+                  value={username}
                   onChangeText={(text) => {
-                    setName(text);
-                    validateName(text);
+                    // Remove spaces and convert to lowercase as user types
+                    const cleanText = text.replace(/\s/g, '').toLowerCase();
+                    setUsername(cleanText);
                   }}
                   onFocus={handleInputFocus}
                   onBlur={handleInputBlur}
-                  placeholder="Enter your full name"
+                  placeholder="username"
                   placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
-                  autoCapitalize="words"
+                  autoCapitalize="none"
                   autoCorrect={false}
                   returnKeyType="next"
                   onSubmitEditing={handleNext}
+                  maxLength={20}
                 />
+                <View style={styles.validationIcon}>
+                  {getValidationIcon()}
+                </View>
               </View>
-              {nameError ? (
+              {usernameError ? (
                 <View style={styles.errorContainer}>
                   <Ionicons name="alert-circle" size={16} color="#FF3B30" />
-                  <Text style={styles.errorText}>{nameError}</Text>
+                  <Text style={styles.errorText}>{usernameError}</Text>
+                </View>
+              ) : usernameValid ? (
+                <View style={styles.successContainer}>
+                  <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+                  <Text style={styles.successText}>Great! This username is available</Text>
                 </View>
               ) : null}
             </Animated.View>
-          </View>
 
-          {/* Legal Agreement Section */}
-          <View style={styles.legalContainer}>
-            <Text style={[styles.legalText, { color: Colors[colorScheme ?? 'light'].text }]}>
-              By continuing, you agree to our{' '}
-              <Text style={styles.legalLink} onPress={handleOpenTerms}>
-                Terms & Conditions
+            {/* Username tips */}
+            <View style={styles.tipsContainer}>
+              <Text style={[styles.tipsTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Username tips:
               </Text>
-              {' '}and{' '}
-              <Text style={styles.legalLink} onPress={handleOpenPrivacyPolicy}>
-                Privacy Policy
-              </Text>
-            </Text>
+              <View style={styles.tipsList}>
+                <View style={styles.tipRow}>
+                  <Ionicons name="checkmark" size={14} color="#9E95BD" />
+                  <Text style={[styles.tipText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    3-20 characters long
+                  </Text>
+                </View>
+                <View style={styles.tipRow}>
+                  <Ionicons name="checkmark" size={14} color="#9E95BD" />
+                  <Text style={[styles.tipText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Letters, numbers, and underscores only
+                  </Text>
+                </View>
+                <View style={styles.tipRow}>
+                  <Ionicons name="checkmark" size={14} color="#9E95BD" />
+                  <Text style={[styles.tipText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    No spaces allowed
+                  </Text>
+                </View>
+              </View>
+            </View>
           </View>
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               onPress={handleNext}
-              disabled={!name.trim() || !!nameError}
+              disabled={!usernameValid || isCheckingUsername}
               style={styles.buttonWrapper}
             >
               <LinearGradient
@@ -265,29 +370,22 @@ const CreateAccount = () => {
                 locations={[0, 0.25, 0.5, 0.75, 1]}
                 style={[
                   styles.nextButton,
-                  (!name.trim() || !!nameError) && styles.disabledButton,
+                  (!usernameValid || isCheckingUsername) && styles.disabledButton,
                 ]}
               >
-                <Text style={styles.nextButtonText}>Continue</Text>
-                <Ionicons name="chevron-forward" size={20} color="white" style={styles.buttonIcon} />
+                {isCheckingUsername ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Text style={styles.nextButtonText}>Continue</Text>
+                    <Ionicons name="chevron-forward" size={20} color="white" style={styles.buttonIcon} />
+                  </>
+                )}
               </LinearGradient>
             </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* Legal Document Modals */}
-      <LegalDocumentViewer
-        visible={showTermsModal}
-        onClose={() => setShowTermsModal(false)}
-        documentType="terms"
-      />
-
-      <LegalDocumentViewer
-        visible={showPrivacyModal}
-        onClose={() => setShowPrivacyModal(false)}
-        documentType="privacy"
-      />
     </SafeAreaView>
   );
 };
@@ -370,14 +468,22 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  inputIcon: {
-    marginRight: 12,
+  atSymbol: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginRight: 4,
+    opacity: 0.7,
   },
   input: {
     flex: 1,
     fontSize: 18,
     fontWeight: '500',
     paddingVertical: 16,
+  },
+  validationIcon: {
+    marginLeft: 8,
+    width: 20,
+    alignItems: 'center',
   },
   errorContainer: {
     flexDirection: 'row',
@@ -390,6 +496,44 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 6,
     fontWeight: '500',
+  },
+  successContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingHorizontal: 16,
+  },
+  successText: {
+    color: '#22C55E',
+    fontSize: 14,
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  tipsContainer: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+  },
+  tipsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 12,
+    opacity: 0.8,
+  },
+  tipsList: {
+    gap: 8,
+  },
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tipText: {
+    fontSize: 13,
+    opacity: 0.7,
   },
   buttonContainer: {
     marginTop: 40,
@@ -422,26 +566,6 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.5,
   },
-  legalContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 24,
-    backgroundColor: 'rgba(158, 149, 189, 0.05)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(158, 149, 189, 0.1)',
-  },
-  legalText: {
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: 'center',
-    opacity: 0.8,
-  },
-  legalLink: {
-    color: '#9E95BD',
-    fontWeight: '600',
-    textDecorationLine: 'underline',
-  },
 });
 
-export default CreateAccount;
+export default CreateAccountUsername; 

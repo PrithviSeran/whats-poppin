@@ -348,9 +348,9 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
       </TouchableOpacity>
 
       <CreateAccountProgressBar
-        currentStep={2}
-        totalSteps={6}
-        stepLabels={['Name', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+        currentStep={3}
+        totalSteps={7}
+        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
       />
 
       <KeyboardAvoidingView

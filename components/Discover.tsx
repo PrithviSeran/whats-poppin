@@ -23,6 +23,7 @@ const ITEMS_PER_PAGE = 10;
 interface SearchUser {
   user_id: number; // This handles BIGINT from PostgreSQL
   name: string;
+  username?: string; // Add username field
   email: string;
   friendship_status: 'pending' | 'accepted' | 'blocked' | 'declined' | 'incoming' | null;
   following_status: boolean; // Whether current user is following this user
@@ -73,7 +74,7 @@ interface ExtendedEventCard extends EventCard {
   isLiked?: boolean;
 }
 
-// Memoized user item component
+// Memoized user item component with optimized animations
 const UserItem = React.memo(({ 
   user, 
   index, 
@@ -85,32 +86,46 @@ const UserItem = React.memo(({
   colorScheme: 'light' | 'dark';
   onUserPress: (userId: number, userName: string, userEmail: string, friendshipStatus?: 'pending' | 'accepted' | 'blocked' | 'declined' | 'incoming' | null) => void;
 }) => {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.8)).current;
-  const translateX = useRef(new Animated.Value(50)).current;
+  // Lazy initialization of animations - only create when actually needed
+  const [animationsCreated, setAnimationsCreated] = useState(false);
+  const opacity = useRef<Animated.Value | null>(null);
+  const scale = useRef<Animated.Value | null>(null);
+  const translateX = useRef<Animated.Value | null>(null);
 
-  // Animate in with staggered delay
+  // Initialize animations only when component becomes visible
+  const initializeAnimations = () => {
+    if (animationsCreated) return;
+    
+    opacity.current = new Animated.Value(0);
+    scale.current = new Animated.Value(0.95);
+    translateX.current = new Animated.Value(20);
+    setAnimationsCreated(true);
+    
+    // Simple, fast animation
+    Animated.parallel([
+      Animated.timing(opacity.current, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale.current, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateX.current, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // Initialize animations on mount with reduced delay
   useEffect(() => {
     const timer = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(scale, {
-          toValue: 1,
-          tension: 100,
-          friction: 8,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateX, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, index * 50);
+      initializeAnimations();
+    }, Math.min(index * 25, 100)); // Reduce stagger and cap at 100ms
     
     return () => clearTimeout(timer);
   }, [user.user_id, index]);
@@ -124,10 +139,10 @@ const UserItem = React.memo(({
           height: 72, 
           marginBottom: 3,
           overflow: 'hidden',
-          opacity,
+          opacity: opacity.current || 1,
           transform: [
-            { scale },
-            { translateX }
+            { scale: scale.current || 1 },
+            { translateX: translateX.current || 0 }
           ],
         }
       ]}
@@ -166,10 +181,10 @@ const UserItem = React.memo(({
           </View>
           <View style={styles.userDetails}>
             <Text style={[styles.userName, { color: Colors[colorScheme ?? 'light'].text }]}>
-              {user.name}
+              {user.username ? `@${user.username}` : '<testing account>'}
             </Text>
             <Text style={[styles.userEmail, { color: Colors[colorScheme ?? 'light'].text }]}>
-              {user.email}
+              {user.name}
             </Text>
           </View>
         </TouchableOpacity>
@@ -183,6 +198,7 @@ const UserItem = React.memo(({
     prevProps.index === nextProps.index &&
     prevProps.colorScheme === nextProps.colorScheme &&
     prevProps.user.name === nextProps.user.name &&
+    prevProps.user.username === nextProps.user.username &&
     prevProps.user.email === nextProps.user.email
   );
 });
@@ -211,11 +227,14 @@ export default function Discover() {
 
   // Search mode state
   const [searchMode, setSearchMode] = useState<'events' | 'users'>('events');
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [showTransitionLoader, setShowTransitionLoader] = useState(false);
   
   // User search states
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
   const [userLoading, setUserLoading] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   
   // UserProfileModal state
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false);
@@ -245,6 +264,51 @@ export default function Discover() {
   // Add cardRefs at the top of the component
   const cardRefs = useRef<{ [key: number]: any }>({});
 
+  // Recent searches functions
+  const loadRecentSearches = async () => {
+    try {
+      const savedSearches = await AsyncStorage.getItem('recentUserSearches');
+      if (savedSearches) {
+        const searches = JSON.parse(savedSearches);
+        setRecentSearches(searches);
+      }
+    } catch (error) {
+      console.error('Error loading recent searches:', error);
+    }
+  };
+
+  const saveRecentSearch = async (query: string) => {
+    if (!query.trim()) return;
+    
+    try {
+      const trimmedQuery = query.trim();
+      const updatedSearches = [trimmedQuery, ...recentSearches.filter(search => search !== trimmedQuery)].slice(0, 5);
+      setRecentSearches(updatedSearches);
+      await AsyncStorage.setItem('recentUserSearches', JSON.stringify(updatedSearches));
+    } catch (error) {
+      console.error('Error saving recent search:', error);
+    }
+  };
+
+  const clearRecentSearches = async () => {
+    try {
+      setRecentSearches([]);
+      await AsyncStorage.removeItem('recentUserSearches');
+    } catch (error) {
+      console.error('Error clearing recent searches:', error);
+    }
+  };
+
+  const removeRecentSearch = async (searchToRemove: string) => {
+    try {
+      const updatedSearches = recentSearches.filter(search => search !== searchToRemove);
+      setRecentSearches(updatedSearches);
+      await AsyncStorage.setItem('recentUserSearches', JSON.stringify(updatedSearches));
+    } catch (error) {
+      console.error('Error removing recent search:', error);
+    }
+  };
+
   // User search functions
   const searchUsers = async (query: string) => {
     if (!userProfile?.id || query.trim().length < 2) {
@@ -255,13 +319,40 @@ export default function Discover() {
     try {
       setUserLoading(true);
       
-      // Search users by name or email, excluding current user
-      const { data: users, error: searchError } = await supabase
+      // First, search by username if query doesn't start with @ (prioritize username search)
+      let users: any[] = [];
+      let searchError: any = null;
+      
+      // Search by username first (prioritized)
+      const { data: usernameUsers, error: usernameError } = await supabase
         .from('all_users')
-        .select('id, name, email')
-        .or(`name.ilike.%${query.trim()}%,email.ilike.%${query.trim()}%`)
+        .select('id, name, username, email')
+        .ilike('username', `%${query.trim()}%`)
         .neq('id', userProfile.id)
+        .not('username', 'is', null)
         .limit(10);
+
+      if (usernameError) {
+        console.error('Error searching by username:', usernameError);
+      } else if (usernameUsers && usernameUsers.length > 0) {
+        users = usernameUsers;
+      }
+
+      // If no username matches found, search by name
+      if (users.length === 0) {
+        const { data: nameUsers, error: nameError } = await supabase
+          .from('all_users')
+          .select('id, name, username, email')
+          .ilike('name', `%${query.trim()}%`)
+          .neq('id', userProfile.id)
+          .limit(10);
+
+        if (nameError) {
+          searchError = nameError;
+        } else if (nameUsers) {
+          users = nameUsers;
+        }
+      }
 
       if (searchError) throw searchError;
 
@@ -328,6 +419,7 @@ export default function Discover() {
         return {
           user_id: user.id,
           name: user.name,
+          username: user.username,
           email: user.email,
           friendship_status: friendshipStatus,
           following_status: isFollowing
@@ -492,6 +584,11 @@ export default function Discover() {
     setSelectedUserName(userName);
     setSelectedUserEmail(userEmail);
     
+    // Save the current search query to recent searches when user clicks on a user
+    if (searchQuery.trim().length >= 2) {
+      await saveRecentSearch(searchQuery);
+    }
+    
     // CRITICAL FIX: The RPC function returns "pending" incorrectly for both sent and received requests
     // We need to determine the correct direction by checking who is the sender vs receiver
     let correctedFriendshipStatus = friendshipStatus;
@@ -564,6 +661,9 @@ export default function Discover() {
           // Get user profile for user search functionality
           const profile = await dataManager.getUserProfile();
           setUserProfile(profile);
+
+          // Load recent searches
+          await loadRecentSearches();
 
           // Get user location
           const { data: userData } = await supabase.auth.getUser();
@@ -757,14 +857,38 @@ export default function Discover() {
     };
   }, []);
 
-  // Use useFocusEffect to handle tab switching
+  // Use useFocusEffect to handle tab switching with debouncing
+  const lastFocusTime = useRef(0);
+  
   useFocusEffect(
     React.useCallback(() => {
-      // Only sync liked status when returning to the tab
+      const now = Date.now();
+      // Debounce rapid tab switches (prevent execution if less than 500ms since last focus)
+      if (now - lastFocusTime.current < 500) {
+        return;
+      }
+      lastFocusTime.current = now;
+
+      // Only sync if we're in events mode and have events to update, and not currently transitioning
+      if (searchMode !== 'events' || events.length === 0 || isTransitioning) {
+        return;
+      }
+
+      // Lightweight sync - only update if actually needed
       const syncLikedStatus = async () => {
         try {
           const savedEvents = await dataManager.getSavedEvents();
           const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
+          
+          // Check if any events actually need updating before triggering re-render
+          const needsUpdate = events.some(event => 
+            event.isLiked !== savedEventIds.has(event.id)
+          );
+          
+          if (!needsUpdate) {
+            return; // Skip update if nothing changed
+          }
+          
           setEvents(prevEvents =>
             prevEvents.map(event => ({
               ...event,
@@ -775,8 +899,14 @@ export default function Discover() {
           console.error('Error syncing liked status:', error);
         }
       };
-      syncLikedStatus();
-    }, [dataManager])
+      
+      // Add small delay to ensure smooth transition
+      const timeoutId = setTimeout(() => {
+        syncLikedStatus();
+      }, 100);
+      
+             return () => clearTimeout(timeoutId);
+     }, [dataManager, searchMode, events.length, isTransitioning])
   );
 
   const loadLikedEvents = async () => {
@@ -1223,7 +1353,7 @@ export default function Discover() {
               {searchQuery.trim().length >= 2 ? `No users found for "${searchQuery}"` : 'Search for friends'}
             </Text>
             <Text style={[styles.noResultsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
-              {searchQuery.trim().length >= 2 ? 'Try different keywords' : 'Type at least 2 characters to search'}
+              {searchQuery.trim().length >= 2 ? 'Try different keywords or search by username' : 'Search by username or name (2+ characters)'}
             </Text>
           </View>
         );
@@ -1238,35 +1368,120 @@ export default function Discover() {
                 Searching users...
               </Text>
             </View>
-          ) : searchResults.length === 0 ? (
-            <View style={styles.noResultsContainer}>
-              <Ionicons name="people-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
-              <Text style={[styles.noResultsText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {searchQuery.trim().length >= 2 ? 'No users found' : 'Search for friends'}
-              </Text>
-              <Text style={[styles.noResultsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {searchQuery.trim().length >= 2 ? 'Try different keywords' : 'Type at least 2 characters to search'}
-              </Text>
-            </View>
+          ) : searchQuery.trim().length >= 2 ? (
+            // Show search results
+            searchResults.length === 0 ? (
+              <View style={styles.noResultsContainer}>
+                <Ionicons name="people-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
+                <Text style={[styles.noResultsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  No users found
+                </Text>
+                <Text style={[styles.noResultsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Try different keywords or search by username
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.userResultsContainer}>
+                {searchResults.map((user, index) => (
+                  <UserItem
+                    key={user.user_id}
+                    user={user}
+                    index={index}
+                    colorScheme={colorScheme ?? 'light'}
+                    onUserPress={handleUserProfileNavigation}
+                  />
+                ))}
+              </View>
+            )
           ) : (
-            <View style={styles.userResultsContainer}>
-              {searchResults.map((user, index) => (
-                <UserItem
-                  key={user.user_id}
-                  user={user}
-                  index={index}
-                  colorScheme={colorScheme ?? 'light'}
-                  onUserPress={handleUserProfileNavigation}
-                />
-              ))}
+            // Show recent searches or empty state
+            <View style={styles.recentSearchesContainer}>
+              {recentSearches.length > 0 ? (
+                <>
+                  <View style={styles.recentSearchesHeader}>
+                    <Text style={[styles.recentSearchesTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Recent Searches
+                    </Text>
+                    <TouchableOpacity onPress={clearRecentSearches}>
+                      <Text style={[styles.clearRecentText, { color: Colors[colorScheme ?? 'light'].accent }]}>
+                        Clear All
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {recentSearches.map((search, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[styles.recentSearchItem, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
+                      onPress={() => {
+                        setSearchQuery(search);
+                        searchUsers(search);
+                      }}
+                    >
+                      <View style={styles.recentSearchContent}>
+                        <Ionicons name="time-outline" size={20} color={Colors[colorScheme ?? 'light'].text} />
+                        <Text style={[styles.recentSearchText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                          {search}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => removeRecentSearch(search)}
+                        style={styles.removeSearchButton}
+                      >
+                        <Ionicons name="close" size={16} color={Colors[colorScheme ?? 'light'].text} />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                </>
+              ) : (
+                <View style={styles.noRecentSearchesContainer}>
+                  <Ionicons name="search-outline" size={64} color={Colors[colorScheme ?? 'light'].text} />
+                  <Text style={[styles.noRecentSearchesText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    No Recent Searches
+                  </Text>
+                  <Text style={[styles.noRecentSearchesSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    Start searching for friends by username or name
+                  </Text>
+                </View>
+              )}
             </View>
           )}
         </ScrollView>
       );
     }
 
+    // Show transition loader for events mode
+    if (showTransitionLoader && searchMode === 'events') {
+      return (
+        <View style={styles.transitionLoadingContainer}>
+          <Animated.View
+            style={[
+              styles.loadingCircle,
+              {
+                transform: [
+                  { scale: pulseAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.8, 1.2],
+                  })}, 
+                  { rotate: rotateAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0deg', '360deg'],
+                  })}
+                ],
+                borderColor: Colors[colorScheme ?? 'light'].accent,
+              },
+            ]}
+          >
+            <View style={[styles.innerCircle, { backgroundColor: `${Colors[colorScheme ?? 'light'].accent}20` }]} />
+          </Animated.View>
+          <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
+            Loading events...
+          </Text>
+        </View>
+      );
+    }
+
     // Event search mode (existing code)
-    if (searchQuery && events.length === 0) {
+    if (searchQuery && events.length === 0 && searchMode === 'events') {
       return (
         <View style={styles.noResultsContainer}>
           <Ionicons name="search-outline" size={48} color={Colors[colorScheme].text} />
@@ -1409,7 +1624,7 @@ export default function Discover() {
             <Ionicons name="search" size={20} color="#000" />
             <TextInput
               style={[styles.searchInput, { color: '#000' }]}
-              placeholder={searchMode === 'events' ? 'Search events...' : 'Search users...'}
+              placeholder={searchMode === 'events' ? 'Search events...' : 'Search by username or name...'}
               placeholderTextColor="#666"
               value={searchQuery}
               onChangeText={handleSearch}
@@ -1434,31 +1649,80 @@ export default function Discover() {
           <TouchableOpacity
             style={[
               styles.toggleButton,
-              searchMode === 'events' && styles.toggleButtonActive
+              searchMode === 'events' && styles.toggleButtonActive,
+              isTransitioning && searchMode === 'events' && styles.toggleButtonTransitioning
             ]}
             onPress={() => {
-              setSearchMode('events');
-              setSearchQuery('');
-              setSearchResults([]);
+              if (isTransitioning) return; // Prevent double-taps during transition
+              
+              // Show loading if we need to restore events from allEvents
+              const needsEventRestore = events.length === 0 && allEvents.length > 0;
+              if (needsEventRestore) {
+                setShowTransitionLoader(true);
+              }
+              
+              // Defer UI state changes slightly to prevent flickering
+              requestAnimationFrame(() => {
+                setIsTransitioning(true);
+                setSearchMode('events');
+                setSearchQuery('');
+                setSearchResults([]);
+                
+                // Defer heavy operations further for smooth transition
+                setTimeout(() => {
+                  if (needsEventRestore) {
+                    setEvents(allEvents.slice(0, ITEMS_PER_PAGE));
+                    setShowTransitionLoader(false);
+                  }
+                  setIsTransitioning(false);
+                }, needsEventRestore ? 150 : 50); // Consistent timing
+              });
             }}
+            activeOpacity={0.7}
+            disabled={isTransitioning}
           >
-            <Text style={[
-              styles.toggleButtonText,
-              { color: searchMode === 'events' ? '#fff' : Colors[colorScheme ?? 'light'].text }
-            ]}>
-              Events
-            </Text>
+            <View style={styles.toggleButtonContent}>
+              <Text style={[
+                styles.toggleButtonText,
+                { color: searchMode === 'events' ? '#fff' : Colors[colorScheme ?? 'light'].text }
+              ]}>
+                Events
+              </Text>
+              {isTransitioning && searchMode === 'events' && (
+                <ActivityIndicator 
+                  size="small" 
+                  color="#fff"
+                  style={styles.buttonLoader}
+                />
+              )}
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.toggleButton,
-              searchMode === 'users' && styles.toggleButtonActive
+              searchMode === 'users' && styles.toggleButtonActive,
+              isTransitioning && searchMode === 'users' && styles.toggleButtonTransitioning
             ]}
             onPress={() => {
-              setSearchMode('users');
-              setSearchQuery('');
-              setEvents(allEvents);
+              if (isTransitioning) return; // Prevent double-taps during transition
+              
+              // Defer UI state changes slightly to prevent flickering
+              requestAnimationFrame(() => {
+                setIsTransitioning(true);
+                setSearchMode('users');
+                setSearchQuery('');
+                
+                // Load recent searches when switching to users mode
+                loadRecentSearches();
+                
+                // For users mode, quick transition
+                setTimeout(() => {
+                  setIsTransitioning(false);
+                }, 50); // Consistent timing
+              });
             }}
+            activeOpacity={0.7}
+            disabled={isTransitioning}
           >
             <Text style={[
               styles.toggleButtonText,
@@ -1631,6 +1895,12 @@ const styles = StyleSheet.create({
     transform: [{ translateY: -50 }],
     alignItems: 'center',
   },
+  transitionLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 50,
+  },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1741,9 +2011,21 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  toggleButtonTransitioning: {
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
+  },
+  toggleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   toggleButtonText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  buttonLoader: {
+    marginLeft: 8,
   },
   userResultsContainer: {
     paddingHorizontal: 20,
@@ -1794,8 +2076,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   userEmail: {
-    fontSize: 14,
-    opacity: 0.8,
+    fontSize: 13,
+    opacity: 0.7,
     fontWeight: '400',
   },
   userStatusContainer: {
@@ -1855,5 +2137,69 @@ const styles = StyleSheet.create({
   userActionButtons: {
     flexDirection: 'row',
     gap: 8,
+  },
+  recentSearchesContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 40,
+  },
+  recentSearchesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  recentSearchesTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  clearRecentText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  recentSearchItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  recentSearchContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  recentSearchText: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 12,
+  },
+  removeSearchButton: {
+    padding: 4,
+  },
+  noRecentSearchesContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    marginTop: 100,
+  },
+  noRecentSearchesText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  noRecentSearchesSubtext: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    opacity: 0.7,
   },
 }); 

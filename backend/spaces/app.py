@@ -1015,13 +1015,13 @@ class EventRecommendationSystem:
             # Generate recommendations - OPTIMIZED: Only get top 5 since that's what we return
             liked_and_rejected_ids = set(saved_events) | set(rejected_events)
             recommendations = self.rec.recommend_for_user(
-                email, top_n=5, filter_liked=True, liked_event_ids=list(liked_and_rejected_ids)
+                email, top_n=10, filter_liked=True, liked_event_ids=list(liked_and_rejected_ids)
             )
             
             print(f"🎯 ML model generated {len(recommendations)} recommendations")
             if recommendations:
-                rec_event_ids = [eid for eid, score in recommendations[:5]]
-                print(f"🔢 Top 5 recommended event IDs: {rec_event_ids}")
+                rec_event_ids = [eid for eid, score in recommendations[:10]]
+                print(f"🔢 Top 10 recommended event IDs: {rec_event_ids}")
 
             # Get the full event objects for the recommended events - OPTIMIZED with lookup dict
             recommended_events = []
@@ -1050,7 +1050,7 @@ class EventRecommendationSystem:
             print(f"🚀 OPTIMIZATION: Skipping redundant filtering - using ML recommendations directly")
                 
             # DEBUG: Check final event types being returned to user
-            final_events_to_return = events_filtered[:5]
+            final_events_to_return = events_filtered[:10]
             if final_events_to_return:
                 final_event_type_counts = {}
                 for event in final_events_to_return:
@@ -1066,7 +1066,7 @@ class EventRecommendationSystem:
 
             return {
                 "summary": f"Found {len(events_filtered)} recommended events for {email}",
-                "events": events_filtered[:5],  # Return top 5
+                "events": events_filtered[:10],  # Return top 10
                 "total_found": len(all_events_filtered)
             }
         except Exception as e:
@@ -1398,7 +1398,7 @@ async def test_event_type_filter(request: Request):
         }
         
         # Get sample of filtered events
-        sample_events = filtered_events[:5]
+        sample_events = filtered_events[:10]
         sample_event_ids = [event.get("id") for event in sample_events if event.get("id")]
         
         # DEMO: Efficient batch featured lookup vs individual lookups

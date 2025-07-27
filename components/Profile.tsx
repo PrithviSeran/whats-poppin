@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Animated, Easing, ScrollView, RefreshControl, StatusBar, Modal, FlatList, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as ImagePicker from 'expo-image-picker';
+
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors, gradients } from '@/constants/Colors';
 import MainFooter from './MainFooter';
@@ -23,14 +23,12 @@ type RootStackParamList = {
       updatedProfile?: UserProfile;
     };
   };
-  'edit-profile': { currentProfile: UserProfile };
+
   'edit-images': { currentProfile: UserProfile };
   'create-event': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-// Social interfaces now imported from SocialDataManager
 
 interface ProfileProps {
   dataManager?: GlobalDataManager;
@@ -42,8 +40,8 @@ export default memo(function Profile({
   socialDataManager = SocialDataManager.getInstance() 
 }: ProfileProps = {}) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
+
+
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   
@@ -182,7 +180,6 @@ export default memo(function Profile({
 
       console.log('Profile component: Profile fetched successfully for user:', user.email);
       setProfile(user);
-      setEditedProfile(user);
 
       // Preload images if they exist using GlobalDataManager
       if (user.profileImage || user.bannerImage) {
@@ -212,7 +209,6 @@ export default memo(function Profile({
     const handleProfileUpdate = (updatedProfile: UserProfile) => {
       console.log('🔄 Profile: Received profile update from GlobalDataManager');
       setProfile(updatedProfile);
-      setEditedProfile(updatedProfile);
     };
 
     dataManager.on('profileUpdated', handleProfileUpdate);
@@ -252,7 +248,6 @@ export default memo(function Profile({
           if (updatedProfile) {
             console.log('✅ Profile: Updated profile data loaded from cache');
             setProfile(updatedProfile);
-            setEditedProfile(updatedProfile);
           }
         }).catch(error => {
           console.error('🚨 Profile: Error loading updated profile:', error);
@@ -340,17 +335,112 @@ export default memo(function Profile({
     );
   };
 
+  const handleDeleteAccount = async () => {
+    if (!profile?.email) {
+      Alert.alert('Error', 'Unable to identify your account. Please try again.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Account',
+      'Are you absolutely sure you want to delete your account? This action cannot be undone and will permanently remove:\n\n• Your profile and all personal data\n• All events you have posted\n• Your friends and social connections\n• All saved events and preferences',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete Account',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('🗑️ Starting account deletion process for:', profile.email);
+              
+              // Step 1: Delete all events posted by this user
+              console.log('📝 Deleting user\'s posted events...');
+              const { error: eventsError } = await supabase
+                .from('all_events')
+                .delete()
+                .eq('posted_by', profile.email);
+              
+              if (eventsError) {
+                console.error('❌ Error deleting user events:', eventsError);
+                throw new Error(`Failed to delete events: ${eventsError.message}`);
+              }
+              
+              console.log('✅ User events deleted successfully');
+              
+              // Step 2: Delete user from all_users table
+              console.log('👤 Deleting user from all_users table...');
+              const { error: userError } = await supabase
+                .from('all_users')
+                .delete()
+                .eq('email', profile.email);
+              
+              if (userError) {
+                console.error('❌ Error deleting user from all_users:', userError);
+                throw new Error(`Failed to delete user profile: ${userError.message}`);
+              }
+              
+              console.log('✅ User deleted from all_users successfully');
+              
+              // Step 3: Delete user from Supabase auth
+              console.log('🔐 Deleting user from Supabase auth...');
+              const { error: authError } = await supabase.auth.admin.deleteUser(
+                (await supabase.auth.getUser()).data.user?.id || ''
+              );
+              
+              if (authError) {
+                console.error('❌ Error deleting user from auth:', authError);
+                throw new Error(`Failed to delete authentication: ${authError.message}`);
+              }
+              
+              console.log('✅ User deleted from auth successfully');
+              
+              // Step 4: Sign out and redirect
+              console.log('🚪 Signing out and redirecting...');
+              await supabase.auth.signOut();
+              
+              // Reset navigation and show success message
+              Alert.alert(
+                'Account Deleted',
+                'Your account has been successfully deleted. Thank you for using our app.',
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => {
+                      navigation.reset({
+                        index: 0,
+                        routes: [{ name: '(tabs)' }],
+                      });
+                    },
+                  },
+                ]
+              );
+              
+            } catch (error) {
+              console.error('❌ Error during account deletion:', error);
+              Alert.alert(
+                'Deletion Failed',
+                `Failed to delete your account: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or contact support.`
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+
+
   const handleEditImages = () => {
-    if (editedProfile) {
-      navigation.navigate('edit-images', { currentProfile: editedProfile });
+    if (profile) {
+      // Navigate to dedicated EditImages screen instead of inline editing
+      navigation.navigate('edit-images', { currentProfile: profile });
     }
   };
 
-  const handleEditProfile = () => {
-    if (editedProfile) {
-      navigation.navigate('edit-profile', { currentProfile: editedProfile });
-    }
-  };
+
 
   const handleCreateEvent = () => {
     navigation.navigate('create-event');
@@ -395,166 +485,6 @@ export default memo(function Profile({
     }
   };
 
-  const handleSaveImages = async () => {
-    if (editedProfile) {
-      try {
-        // Get the current user
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          console.error('No authenticated user found');
-          Alert.alert('Error', 'You must be logged in to update your profile');
-          return;
-        }
-
-        console.log('🖼️ Saving profile images for user:', user.email);
-        let profileImageUrl = editedProfile.profileImage;
-        let bannerImageUrl = editedProfile.bannerImage;
-
-        // Upload profile image if it's a new local URI
-        if (editedProfile.profileImage?.startsWith('file://')) {
-          try {
-            console.log('📤 Uploading profile image...');
-            const profileImagePath = `${user.id}/profile-${Date.now()}.jpg`;
-            
-            // Convert URI to blob
-            const response = await fetch(editedProfile.profileImage);
-            const blob = await response.blob();
-            
-            const { data: profileData, error: profileError } = await supabase.storage
-              .from('user-images')
-              .upload(profileImagePath, blob, {
-                contentType: 'image/jpeg',
-                upsert: true
-              });
-
-            if (profileError) {
-              console.error('Profile image upload error:', profileError);
-              throw profileError;
-            }
-
-            console.log('✅ Profile image uploaded successfully');
-
-            // Get public URL for profile image
-            const { data: { publicUrl: profilePublicUrl } } = supabase.storage
-              .from('user-images')
-              .getPublicUrl(profileImagePath);
-            
-            profileImageUrl = profilePublicUrl;
-            console.log('🔗 Profile image URL:', profileImageUrl);
-          } catch (error) {
-            console.error('Error uploading profile image:', error);
-            Alert.alert('Error', 'Failed to upload profile image');
-            return;
-          }
-        }
-
-        // Upload banner image if it's a new local URI
-        if (editedProfile.bannerImage?.startsWith('file://')) {
-          try {
-            console.log('📤 Uploading banner image...');
-            const bannerImagePath = `${user.id}/banner-${Date.now()}.jpg`;
-            
-            // Convert URI to blob
-            const response = await fetch(editedProfile.bannerImage);
-            const blob = await response.blob();
-            
-            const { data: bannerData, error: bannerError } = await supabase.storage
-              .from('user-images')
-              .upload(bannerImagePath, blob, {
-                contentType: 'image/jpeg',
-                upsert: true
-              });
-
-            if (bannerError) {
-              console.error('Banner image upload error:', bannerError);
-              throw bannerError;
-            }
-
-            console.log('✅ Banner image uploaded successfully');
-
-            // Get public URL for banner image
-            const { data: { publicUrl: bannerPublicUrl } } = supabase.storage
-              .from('user-images')
-              .getPublicUrl(bannerImagePath);
-            
-            bannerImageUrl = bannerPublicUrl;
-            console.log('🔗 Banner image URL:', bannerImageUrl);
-          } catch (error) {
-            console.error('Error uploading banner image:', error);
-            Alert.alert('Error', 'Failed to upload banner image');
-            return;
-          }
-        }
-
-        // Update local state immediately
-        const updatedProfile = {
-          ...editedProfile,
-          profileImage: profileImageUrl,
-          bannerImage: bannerImageUrl
-        };
-        
-        setProfile(updatedProfile);
-        setEditedProfile(updatedProfile);
-        setIsEditMode(false);
-
-        // Refresh GlobalDataManager cache
-        await dataManager.refreshAllData();
-        console.log('✅ Profile images updated successfully and cache refreshed');
-        Alert.alert('Success', 'Profile images updated successfully!');
-      } catch (error) {
-        console.error('Error saving images:', error);
-        Alert.alert('Error', 'Failed to save images. Please try again.');
-      }
-    }
-  };
-
-  const handleCancelImages = () => {
-    setEditedProfile(profile);
-    setIsEditMode(false);
-  };
-
-  const pickImage = async (type: 'profile' | 'banner') => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: type === 'profile' ? [1, 1] : [16, 9],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const imageUri = result.assets[0].uri;
-        console.log(`Selected ${type} image:`, imageUri);
-        if (editedProfile) {
-          setEditedProfile({
-            ...editedProfile,
-            [type === 'profile' ? 'profileImage' : 'bannerImage']: imageUri
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image. Please try again.');
-    }
-  };
-
-  const renderInfoRow = (icon: string, label: string, value: string, showEditButton: boolean = false) => (
-    <View style={styles.infoRow}>
-      <Ionicons name={icon as any} size={24} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-      <View style={styles.infoContent}>
-        <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>{label}</Text>
-        <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{value}</Text>
-      </View>
-      {showEditButton && (
-        <TouchableOpacity onPress={handleEditProfile} style={styles.editInfoButton}>
-          <Ionicons name="pencil" size={20} color={Colors[colorScheme ?? 'light'].text} />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-
-  // Remove collapsible header animations - banner will scroll normally
-
   if (loading || !imagesPreloaded) {
     const spin = rotateAnim.interpolate({
       inputRange: [0, 1],
@@ -598,11 +528,11 @@ export default memo(function Profile({
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-                  {/* Header moved inside ScrollView to scroll with content */}
+        {/* Header moved inside ScrollView to scroll with content */}
         <View style={styles.headerContainer}>
-          {editedProfile?.bannerImage && (
+          {profile?.bannerImage && (
             <OptimizedImage 
-              source={{ uri: editedProfile.bannerImage }} 
+              source={{ uri: profile?.bannerImage || '' }} 
               style={styles.bannerImage}
               resizeMode="cover"
               placeholder={false}
@@ -620,16 +550,11 @@ export default memo(function Profile({
             <TouchableOpacity style={styles.editButton} onPress={handleEditImages}>
               <Ionicons name="images" size={24} color="#fff" />
             </TouchableOpacity>
-            {isEditMode && (
-              <TouchableOpacity style={styles.bannerEditButton} onPress={() => pickImage('banner')}>
-                <Ionicons name="image" size={24} color="#fff" />
-              </TouchableOpacity>
-            )}
             <View style={styles.profileImageContainer}>
               <View style={styles.profileImageWrapper}>
-                {editedProfile?.profileImage ? (
+                {profile?.profileImage ? (
                   <OptimizedImage 
-                    source={{ uri: editedProfile.profileImage }} 
+                    source={{ uri: profile?.profileImage || '' }} 
                     style={styles.profileImage}
                     resizeMode="cover"
                     placeholder={false}
@@ -639,14 +564,15 @@ export default memo(function Profile({
                     <Ionicons name="person" size={50} color="#fff" />
                   </View>
                 )}
-                {isEditMode && (
-                  <TouchableOpacity style={styles.uploadButton} onPress={() => pickImage('profile')}>
-                    <Ionicons name="camera" size={24} color="#fff" />
-                  </TouchableOpacity>
-                )}
               </View>
             </View>
-            <Text style={styles.name}>{editedProfile?.name}</Text>
+            
+            {/* Username display */}
+            <View style={styles.nameContainer}>
+              <View style={styles.nameDisplayContainer}>
+                <Text style={styles.name}>@{profile?.username || 'username'}</Text>
+              </View>
+            </View>
           </LinearGradient>
         </View>
 
@@ -713,36 +639,36 @@ export default memo(function Profile({
           <View style={styles.actionCardsGrid}>
             {/* Friends Card */}
             <TouchableOpacity style={styles.actionCard} onPress={handleOpenFriendsModal}>
-            <LinearGradient
+              <LinearGradient
                 colors={[Colors[colorScheme ?? 'light'].secondary, Colors[colorScheme ?? 'light'].secondaryLight]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.actionCardGradient}
-            >
+              >
                 <View style={styles.actionCardHeader}>
                   <Ionicons name="people" size={32} color="#fff" />
                   {(hasNewFriends || hasNewRequests) && (
                     <View style={styles.actionCardBadge}>
                       <View style={styles.actionCardBadgeDot} />
-        </View>
+                    </View>
                   )}
-          </View>
+                </View>
                 <Text style={styles.actionCardTitle}>Friends</Text>
                 <Text style={styles.actionCardSubtitle}>Manage your connections</Text>
                 <View style={styles.actionCardStats}>
                   <Text style={styles.actionCardStatsText}>{friends.length} friends • {friendRequests.length} requests</Text>
-        </View>
+                </View>
               </LinearGradient>
             </TouchableOpacity>
 
             {/* Create Event Card */}
             <TouchableOpacity style={styles.actionCard} onPress={handleCreateEvent}>
-            <LinearGradient
+              <LinearGradient
                 colors={[Colors[colorScheme ?? 'light'].primary, Colors[colorScheme ?? 'light'].accent]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.actionCardGradient}
-            >
+              >
                 <View style={styles.actionCardHeader}>
                   <Ionicons name="add-circle" size={32} color="#fff" />
                 </View>
@@ -751,88 +677,66 @@ export default memo(function Profile({
                 <View style={styles.actionCardStats}>
                   <Text style={styles.actionCardStatsText}>Host your next gathering</Text>
                 </View>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-                     {/* Profile Information Card */}
-           <View style={[styles.profileInfoCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-             <View style={[styles.profileInfoHeader, { borderBottomColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]}>
-               <Text style={[styles.profileInfoTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Profile Information</Text>
-               <TouchableOpacity style={styles.profileEditButton} onPress={handleEditProfile}>
-                 <Ionicons name="pencil" size={20} color={Colors[colorScheme ?? 'light'].secondary} />
+              </LinearGradient>
             </TouchableOpacity>
           </View>
 
-             <View style={styles.profileInfoContent}>
-                              <View style={styles.profileInfoRow}>
+          {/* Profile Information Card */}
+          <View style={[styles.profileInfoCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+            <View style={[styles.profileInfoHeader, { borderBottomColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]}>
+              <Text style={[styles.profileInfoTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Profile Information (Only visible to you)</Text>
+            </View>
+
+            <View style={styles.profileInfoContent}>
+              <View style={styles.profileInfoRow}>
+                <View style={styles.profileInfoIconContainer}>
+                  <Ionicons name="person-outline" size={20} color={Colors[colorScheme ?? 'light'].primary} />
+                </View>
+                <View style={styles.profileInfoDetails}>
+                  <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Name</Text>
+                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.name || 'Not provided'}</Text>
+                </View>
+              </View>
+
+              <View style={[styles.profileInfoDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
+
+              <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
                   <Ionicons name="mail-outline" size={20} color={Colors[colorScheme ?? 'light'].secondary} />
-                  </View>
+                </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Email</Text>
-                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{editedProfile?.email || 'Not provided'}</Text>
+                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.email || 'Not provided'}</Text>
+                </View>
               </View>
-                  </View>
 
               <View style={[styles.profileInfoDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
 
               <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
                   <Ionicons name="calendar-outline" size={20} color={Colors[colorScheme ?? 'light'].accent} />
-                  </View>
+                </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Birthday</Text>
-                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{editedProfile?.birthday || 'Not provided'}</Text>
+                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.birthday || 'Not provided'}</Text>
+                </View>
               </View>
-          </View>
 
               <View style={[styles.profileInfoDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
 
               <View style={styles.profileInfoRow}>
                 <View style={styles.profileInfoIconContainer}>
                   <Ionicons name="person-outline" size={20} color={Colors[colorScheme ?? 'light'].info} />
-                  </View>
+                </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Gender</Text>
-                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{editedProfile?.gender || 'Not provided'}</Text>
-                        </View>
-                        </View>
-                      </View>
-                    </View>
+                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.gender || 'Not provided'}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
 
-          {/* Edit Mode Actions */}
-          {isEditMode && (
-            <View style={styles.editModeCard}>
-              <View style={styles.editModeHeader}>
-                <Text style={[styles.editModeTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Edit Images</Text>
-                  </View>
-              <View style={styles.editModeActions}>
-                <TouchableOpacity style={styles.modernSaveButton} onPress={handleSaveImages}>
-                  <LinearGradient
-                    colors={['#4CAF50', '#45a049']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.modernSaveButtonGradient}
-                  >
-                    <Ionicons name="checkmark" size={24} color="#fff" style={styles.modernButtonIcon} />
-                    <Text style={styles.modernSaveButtonText}>Save Changes</Text>
-                  </LinearGradient>
-                        </TouchableOpacity>
-                <TouchableOpacity style={styles.modernCancelButton} onPress={handleCancelImages}>
-                  <LinearGradient
-                    colors={['#f44336', '#e53935']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.modernCancelButtonGradient}
-                        >
-                    <Ionicons name="close" size={24} color="#fff" style={styles.modernButtonIcon} />
-                    <Text style={styles.modernCancelButtonText}>Cancel</Text>
-                  </LinearGradient>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-          )}
+
 
           {/* Legal Documents Section */}
           <View style={[styles.settingsSection, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
@@ -880,12 +784,31 @@ export default memo(function Profile({
               <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ opacity: 0.5 }} />
             </TouchableOpacity>
           </View>
+
+          {/* Danger Zone - Delete Account */}
+          <View style={[styles.dangerZoneSection, { backgroundColor: Colors[colorScheme ?? 'light'].card, marginTop: 16 }]}>
+            <View style={styles.dangerZoneHeader}>
+              <Text style={[styles.dangerZoneTitle, { color: Colors[colorScheme ?? 'light'].error }]}>Danger Zone</Text>
+            </View>
+            <TouchableOpacity style={styles.dangerZoneItem} onPress={handleDeleteAccount}>
+              <View style={styles.dangerZoneItemContent}>
+                <View style={[styles.dangerZoneIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                  <Ionicons name="trash" size={24} color={Colors[colorScheme ?? 'light'].error} />
+                </View>
+                <View style={styles.dangerZoneItemDetails}>
+                  <Text style={[styles.dangerZoneItemTitle, { color: Colors[colorScheme ?? 'light'].error }]}>Delete Account</Text>
+                  <Text style={[styles.dangerZoneItemSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>Permanently remove your account and all data</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors[colorScheme ?? 'light'].error} style={{ opacity: 0.5 }} />
+            </TouchableOpacity>
+          </View>
         </View>
-                </ScrollView>
+      </ScrollView>
 
       <View style={styles.footerContainer}>
         <MainFooter activeTab="me" />
-              </View>
+      </View>
 
       {/* Friends Modal */}
       <FriendsModal
@@ -955,28 +878,6 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 0,
   },
-  editButton: {
-    position: 'absolute',
-    top: 80,
-    right: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bannerEditButton: {
-    position: 'absolute',
-    top: 20,
-    right: 70,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   profileImageContainer: {
     marginTop: 60,
     marginBottom: 20,
@@ -999,135 +900,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  uploadButton: {
-    position: 'absolute',
-    bottom: -10,
-    right: -10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-    padding: 8,
-    zIndex: 1,
+  nameContainer: {
+    alignItems: 'center',
+    minHeight: 40,
+  },
+  nameDisplayContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   name: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-  },
-  content: {
-    paddingBottom: 100, // Extra padding for footer
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 10,
-  },
-  infoContent: {
-    marginLeft: 15,
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: 14,
-    opacity: 0.7,
-  },
-  infoValue: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  editInfoButton: {
-    padding: 8,
-  },
-  editActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 10,
-    paddingHorizontal: 20,
-  },
-  saveButton: {
-    flex: 1,
-    marginRight: 10,
-    borderRadius: 25,
-    overflow: 'hidden',
-    elevation: 3,
-  },
-  saveButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    marginLeft: 10,
-    borderRadius: 25,
-    overflow: 'hidden',
-    elevation: 3,
-  },
-  cancelButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-  },
-  buttonIcon: {
     marginRight: 8,
   },
-  saveButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  cancelButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  createEventButton: {
-    marginTop: 10,
-    marginBottom: 20,
-    borderRadius: 25,
-    overflow: 'hidden',
-    shadowColor: '#FF0005',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  createEventGradient: {
-    flexDirection: 'row',
+
+  editButton: {
+    position: 'absolute',
+    top: 80,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
   },
-  createEventText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 18,
-    letterSpacing: 0.5,
-  },
-  signOutButton: {
-    marginTop: 5,
-    borderRadius: 25,
-    overflow: 'hidden',
-    shadowColor: '#FF0005',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  signOutGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-  },
-  signOutText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-    letterSpacing: 0.3,
+
+  content: {
+    paddingBottom: 100, // Extra padding for footer
   },
   footerContainer: {
     position: 'absolute',
@@ -1162,50 +963,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  // Friends styles
-  friendsButton: {
-    marginTop: 20,
-    borderRadius: 25,
-    overflow: 'hidden',
-    shadowColor: '#4CAF50',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  friendsGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    position: 'relative',
-  },
-  friendsText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-    letterSpacing: 0.3,
-  },
-  friendRequestBadge: {
-    position: 'absolute',
-    top: -5,
-    right: 10,
-    backgroundColor: '#ff4444',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  friendRequestBadgeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-
-
-
   modernContentContainer: {
     padding: 20,
   },
@@ -1364,9 +1121,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.1)',
     marginVertical: 12,
   },
-  profileEditButton: {
-    padding: 8,
-  },
   settingsSection: {
     marginTop: 20,
     padding: 20,
@@ -1410,90 +1164,53 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     marginHorizontal: 16,
   },
-  // Edit Mode Styles
-  editModeCard: {
+  dangerZoneSection: {
     marginTop: 20,
-    backgroundColor: 'rgba(244, 91, 91, 0.1)',
+    padding: 20,
     borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#f45b5b',
+    shadowColor: '#9E95BD',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
     borderWidth: 1,
-    borderColor: 'rgba(244, 91, 91, 0.2)',
+    borderColor: 'rgba(244, 67, 54, 0.2)',
   },
-  editModeHeader: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(244, 91, 91, 0.2)',
+  dangerZoneHeader: {
+    marginBottom: 16,
   },
-  editModeTitle: {
+  dangerZoneTitle: {
     fontSize: 18,
     fontWeight: 'bold',
   },
-  editModeActions: {
+  dangerZoneItem: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    padding: 20,
-    gap: 15,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    backgroundColor: 'rgba(244, 67, 54, 0.05)',
+    borderRadius: 12,
   },
-  modernSaveButton: {
+  dangerZoneItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dangerZoneIconContainer: {
+    borderRadius: 12,
+    padding: 8,
+    marginRight: 12,
+  },
+  dangerZoneItemDetails: {
     flex: 1,
-    borderRadius: 25,
-    overflow: 'hidden',
-    elevation: 3,
   },
-  modernSaveButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-  },
-  modernCancelButton: {
-    flex: 1,
-    borderRadius: 25,
-    overflow: 'hidden',
-    elevation: 3,
-  },
-  modernCancelButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-  },
-  modernButtonIcon: {
-    marginRight: 8,
-  },
-  modernSaveButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+  dangerZoneItemTitle: {
     fontSize: 16,
-  },
-  modernCancelButtonText: {
-    color: '#fff',
     fontWeight: 'bold',
-    fontSize: 16,
   },
-  
-  // Friend Avatar Image Styles
-  friendAvatarImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 24,
+  dangerZoneItemSubtitle: {
+    fontSize: 14,
+    opacity: 0.9,
   },
-  friendAvatarFallback: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(158, 149, 189, 0.8)',
-    borderRadius: 24,
-  },
+
 }); 

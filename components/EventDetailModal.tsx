@@ -19,6 +19,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { EventCard } from '../lib/GlobalDataManager';
+import GlobalDataManager from '../lib/GlobalDataManager';
 import { supabase } from '@/lib/supabase';
 import UserProfileModal from './UserProfileModal';
 
@@ -93,6 +94,57 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
     email: string;
   } | null>(null);
   const [creatorLoading, setCreatorLoading] = useState(false);
+
+  // Like/Save state
+  const [isLiked, setIsLiked] = useState(false);
+  const [likeLoading, setLikeLoading] = useState(false);
+  const dataManager = GlobalDataManager.getInstance();
+
+  // Check if event is already saved when modal opens
+  useEffect(() => {
+    const checkIfEventIsSaved = async () => {
+      if (!event?.id) return;
+      
+      try {
+        const savedEvents = await dataManager.getSavedEvents();
+        const isEventSaved = savedEvents.some(savedEvent => savedEvent.id === event.id);
+        setIsLiked(isEventSaved);
+      } catch (error) {
+        console.error('Error checking if event is saved:', error);
+      }
+    };
+
+    if (visible && event) {
+      checkIfEventIsSaved();
+    }
+  }, [visible, event, dataManager]);
+
+  // Function to handle like/unlike
+  const handleLike = async () => {
+    if (!event?.id || likeLoading) return;
+
+    setLikeLoading(true);
+    try {
+      if (isLiked) {
+        // Unlike the event (remove from saved events)
+        await dataManager.removeEventFromSavedEvents(event.id);
+        setIsLiked(false);
+        console.log('✅ Event unliked:', event.id);
+      } else {
+        // Like the event (add to saved events)
+        await dataManager.addEventToSavedEvents(event.id);
+        setIsLiked(true);
+        console.log('✅ Event liked:', event.id);
+        
+        // Refresh data to ensure everything is in sync
+        await GlobalDataManager.getInstance().refreshAllData();
+      }
+    } catch (error) {
+      console.error('Error toggling like status:', error);
+    } finally {
+      setLikeLoading(false);
+    }
+  };
 
   // Helper function to get current day name
   const getCurrentDayName = () => {
@@ -1239,6 +1291,34 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             </View>
           </ScrollView>
         </Animated.View>
+
+        {/* Floating Like Button - Bottom Left Corner */}
+        <TouchableOpacity
+          style={styles.floatingLikeButton}
+          onPress={handleLike}
+          activeOpacity={0.8}
+          disabled={likeLoading}
+        >
+          <LinearGradient
+            colors={isLiked ? 
+              ['#FF1493', '#FF69B4', '#FFB6C1'] : 
+              [Colors.light.accent, Colors.light.primaryLight]
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.floatingLikeButtonGradient}
+          >
+            {likeLoading ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Ionicons 
+                name={isLiked ? "heart" : "heart-outline"} 
+                size={24} 
+                color="white" 
+              />
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
       </Animated.View>
       
       {/* User Profile Modal for Creator */}
@@ -1502,6 +1582,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 16,
     alignItems: 'center',
+  },
+  floatingLikeButton: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 1000,
+  },
+  floatingLikeButtonGradient: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   linkButton: {
     flex: 1,

@@ -149,9 +149,9 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
       </TouchableOpacity>
 
       <CreateAccountProgressBar
-        currentStep={6}
-        totalSteps={6}
-        stepLabels={['Name', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+        currentStep={7}
+        totalSteps={7}
+        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
       />
 
       <KeyboardAvoidingView

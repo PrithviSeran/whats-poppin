@@ -82,7 +82,8 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         options: {
           emailRedirectTo: undefined,
           data: {
-            username: userData.name || undefined,
+            username: userData.username || undefined,
+            name: userData.name || undefined,
             gender: userData.gender || undefined,
             birthday: userData.birthday || undefined,
             preferences: userData.preferences || undefined,
@@ -176,6 +177,7 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
           .from('all_users')
           .insert([{
             name: userData.name,
+            username: userData.username,
             email: userData.email,
             birthday: userData.birthday,
             gender: userData.gender,

@@ -29,7 +29,11 @@ const SavedEventCard = React.memo(({
   cardRef, 
   translateX, 
   panHandlers, 
-  colorScheme 
+  colorScheme,
+  isMultiSelectMode,
+  isSelected,
+  onToggleSelect,
+  multiSelectSlideAnim
 }: {
   event: EventCard;
   index: number;
@@ -40,6 +44,10 @@ const SavedEventCard = React.memo(({
   translateX: RNAnimated.Value;
   panHandlers: any;
   colorScheme: 'light' | 'dark' | null;
+  isMultiSelectMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+  multiSelectSlideAnim?: RNAnimated.Value;
 }) => {
   const formatDaysOfWeek = useCallback((days: string[] | null | undefined): string => {
     if (!days || days.length === 0) return '';
@@ -65,39 +73,103 @@ const SavedEventCard = React.memo(({
     return days.join(', ');
   }, []);
 
+  const slideTranslateX = isMultiSelectMode ? 60 : 0;
+
   return (
     <View style={{ position: 'relative', width: '100%', height: 70, marginBottom: 2 }}>
-      {/* Bin icon background revealed as card is dragged */}
-      <View style={{
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        bottom: 0,
-        width: '100%',
-        justifyContent: 'center',
-        alignItems: 'flex-start',
-        zIndex: 0,
-        height: 70,
-      }} pointerEvents="none">
+      {/* Selection checkbox area - shown when in multi-select mode */}
+      {isMultiSelectMode && (
+        <RNAnimated.View 
+          style={[
+            styles.checkboxArea,
+            {
+              opacity: multiSelectSlideAnim ? 
+                multiSelectSlideAnim.interpolate({
+                  inputRange: [0.8, 1],
+                  outputRange: [0, 1],
+                  extrapolate: 'clamp'
+                }) : 
+                0
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.checkboxContainer}
+            onPress={onToggleSelect}
+            activeOpacity={0.7}
+          >
+            <View style={[
+              styles.checkbox,
+              { 
+                backgroundColor: isSelected ? Colors.light.primaryLight : 'transparent',
+                borderColor: isSelected ? Colors.light.primaryLight : Colors[colorScheme ?? 'light'].text
+              }
+            ]}>
+              {isSelected && (
+                <Ionicons name="checkmark" size={16} color="white" />
+              )}
+            </View>
+          </TouchableOpacity>
+        </RNAnimated.View>
+      )}
+      
+      {/* Bin icon background revealed as card is dragged (only in normal mode) */}
+      {!isMultiSelectMode && (
         <View style={{
-          width: 60,
-          height: 70,
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: '100%',
           justifyContent: 'center',
-          alignItems: 'center',
-        }}>
-          <Ionicons name="trash" size={32} color="#FF0005" />
+          alignItems: 'flex-start',
+          zIndex: 0,
+          height: 70,
+        }} pointerEvents="none">
+          <View style={{
+            width: 60,
+            height: 70,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}>
+            <Ionicons name="trash" size={32} color="#FF0005" />
+          </View>
         </View>
-      </View>
+      )}
+      
       <RNAnimated.View
         style={{
-          transform: [{ translateX }],
+          transform: [
+            { 
+              translateX: RNAnimated.add(
+                translateX,
+                multiSelectSlideAnim ? 
+                  multiSelectSlideAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -60]
+                  }) : 
+                  new RNAnimated.Value(0)
+              )
+            }
+          ],
           zIndex: 1,
         }}
         {...panHandlers}
       >
-        <View style={[styles.savedLikesCard, { backgroundColor: Colors[colorScheme ?? 'light'].card, position: 'relative', overflow: 'hidden' }]}> 
+        <View style={[
+          styles.savedLikesCard, 
+          { 
+            backgroundColor: Colors[colorScheme ?? 'light'].card, 
+            position: 'relative', 
+            overflow: 'hidden'
+          }
+        ]}> 
           <LinearGradient
-            colors={[
+            colors={isSelected ? [
+              'rgba(255,105,226,0.8)',
+              'rgba(255,77,157,0.8)',
+              'rgba(255,0,5,0.8)'
+            ] : [
               'rgba(255,0,5,0.5)',
               'rgba(255,77,157,0.5)',
               'rgba(255,105,226,0.5)',
@@ -110,15 +182,17 @@ const SavedEventCard = React.memo(({
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />
+          
+
           <TouchableOpacity 
             ref={cardRef}
             style={{ flex: 1 }}
             activeOpacity={0.85}
-            accessibilityLabel={`View details for ${event.name}`}
+            accessibilityLabel={isMultiSelectMode ? `Toggle selection for ${event.name}` : `View details for ${event.name}`}
             accessibilityRole="button"
             onPressIn={onPressIn}
             onPressOut={onPressOut}
-            onPress={onPress}
+            onPress={isMultiSelectMode ? onToggleSelect : onPress}
           >
             <View style={styles.savedLikesCardTextColumn}>
               <Text style={[
@@ -168,7 +242,10 @@ const SavedEventCard = React.memo(({
     prevProps.index === nextProps.index &&
     prevProps.colorScheme === nextProps.colorScheme &&
     prevProps.event.name === nextProps.event.name &&
-    prevProps.event.distance === nextProps.event.distance
+    prevProps.event.distance === nextProps.event.distance &&
+    prevProps.isMultiSelectMode === nextProps.isMultiSelectMode &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.multiSelectSlideAnim === nextProps.multiSelectSlideAnim
   );
 });
 
@@ -187,6 +264,11 @@ export default function SavedActivities({
   const [expandedSavedActivity, setExpandedSavedActivity] = useState<EventCard | null>(null);
   const [cardPosition, setCardPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   
+  // Multi-select state
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  
   // Initialize animation values
   const slideAnim = useRef(new RNAnimated.Value(0)).current;
   const savedActivitiesFadeAnim = useRef(new RNAnimated.Value(0)).current;
@@ -197,6 +279,7 @@ export default function SavedActivities({
   // For each card, keep a ref for its animated value
   const cardTranslateX = useRef<{ [key: number]: RNAnimated.Value }>({}).current;
   const cardPanResponder = useRef<{ [key: number]: any }>({}).current;
+  const multiSelectSlideAnim = useRef(new RNAnimated.Value(0)).current;
   const CARD_WIDTH = useMemo(() => Dimensions.get('window').width - 40, []);
 
   // Memoized distance calculation
@@ -441,6 +524,9 @@ export default function SavedActivities({
   }, [handleRemoveSavedEventOptimized]);
 
   const handleCardPress = useCallback((event: EventCard, index: number) => {
+    // Don't open detail modal in multi-select mode
+    if (isMultiSelectMode) return;
+    
     // Measure the card position before expanding
     const cardRef = cardRefs.current[index];
     if (cardRef && cardRef.measure) {
@@ -453,9 +539,101 @@ export default function SavedActivities({
       setExpandedSavedActivity(event);
       setCardPosition(null);
     }
+  }, [isMultiSelectMode]);
+
+  const handleToggleMultiSelect = useCallback(() => {
+    const newMode = !isMultiSelectMode;
+    setIsMultiSelectMode(newMode);
+    
+    // Animate the slide effect
+    RNAnimated.timing(multiSelectSlideAnim, {
+      toValue: newMode ? 1 : 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+    
+    if (isMultiSelectMode) {
+      // Clear selections when exiting multi-select mode
+      setSelectedEventIds(new Set());
+    }
+  }, [isMultiSelectMode, multiSelectSlideAnim]);
+
+  const handleToggleEventSelection = useCallback((eventId: number) => {
+    setSelectedEventIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(eventId)) {
+        newSet.delete(eventId);
+      } else {
+        newSet.add(eventId);
+      }
+      return newSet;
+    });
   }, []);
 
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedEventIds.size === 0) return;
+
+    Alert.alert(
+      'Delete Selected Events',
+      `Are you sure you want to delete ${selectedEventIds.size} selected event${selectedEventIds.size > 1 ? 's' : ''}? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive', 
+          onPress: async () => {
+            setDeleteLoading(true);
+            try {
+              // Convert Set to Array for iteration
+              const idsToDelete = Array.from(selectedEventIds);
+              
+              // Remove events from UI optimistically
+              setSavedActivitiesEvents(currentEvents => 
+                currentEvents.filter(event => !selectedEventIds.has(event.id))
+              );
+              
+              // Remove from backend
+              for (const eventId of idsToDelete) {
+                await dataManager.removeEventFromSavedEvents(eventId);
+              }
+              
+              // Clear selection and exit multi-select mode
+              setSelectedEventIds(new Set());
+              setIsMultiSelectMode(false);
+              
+            } catch (error) {
+              console.error('Error deleting selected events:', error);
+              // Revert UI state by refetching
+              try {
+                const revertedEvents = await dataManager.getSavedEvents();
+                setSavedActivitiesEvents(revertedEvents);
+              } catch (revertError) {
+                console.error('Failed to revert events after delete error');
+              }
+              Alert.alert('Error', 'Failed to delete some events. Please try again.');
+            } finally {
+              setDeleteLoading(false);
+            }
+          }
+        },
+      ]
+    );
+  }, [selectedEventIds, dataManager]);
+
   const handleClose = useCallback(() => {
+    // Exit multi-select mode if active
+    if (isMultiSelectMode) {
+      setIsMultiSelectMode(false);
+      setSelectedEventIds(new Set());
+      
+      // Animate the slide back to normal position
+      RNAnimated.timing(multiSelectSlideAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+    
     // Start the closing animation
     Animated.parallel([
       Animated.timing(savedActivitiesFadeAnim, {
@@ -473,7 +651,7 @@ export default function SavedActivities({
       // Only call onClose after animation completes
       onClose();
     });
-  }, [onClose, savedActivitiesFadeAnim, slideAnim]);
+  }, [onClose, savedActivitiesFadeAnim, slideAnim, isMultiSelectMode, multiSelectSlideAnim]);
 
   const handleClearAll = useCallback(async () => {
     try {
@@ -524,6 +702,7 @@ export default function SavedActivities({
     return () => {
       slideAnim.stopAnimation();
       savedActivitiesFadeAnim.stopAnimation();
+      multiSelectSlideAnim.stopAnimation();
       
       // Clean up all card animations and pan responders
       Object.keys(cardTranslateX).forEach(eventIdStr => {
@@ -595,8 +774,12 @@ export default function SavedActivities({
         
         {/* Clear Button */}
         <TouchableOpacity
-          style={styles.clearSavedButton}
+          style={[
+            styles.clearSavedButton,
+            { opacity: isMultiSelectMode ? 0.3 : 1 }
+          ]}
           onPress={() => {
+            if (isMultiSelectMode) return; // Disable in multi-select mode
             Alert.alert(
               'Clear All Saved Activities',
               'Are you sure you want to delete all your saved activities? This action cannot be undone.',
@@ -608,6 +791,7 @@ export default function SavedActivities({
           }}
           accessibilityLabel="Clear Saved Activities"
           accessibilityRole="button"
+          disabled={isMultiSelectMode}
         >
           <LinearGradient
             colors={[Colors.light.accent, Colors.light.primaryLight]}
@@ -616,6 +800,48 @@ export default function SavedActivities({
             style={styles.clearSavedButtonGradient}
           >
             <Ionicons name="trash" size={28} color={'white'} />
+          </LinearGradient>
+        </TouchableOpacity>
+
+        {/* Multi-Select Button */}
+        <TouchableOpacity
+          style={styles.multiSelectButton}
+          onPress={isMultiSelectMode ? 
+            (selectedEventIds.size > 0 ? handleDeleteSelected : handleToggleMultiSelect) : 
+            handleToggleMultiSelect
+          }
+          accessibilityLabel={isMultiSelectMode ? 
+            (selectedEventIds.size > 0 ? `Delete ${selectedEventIds.size} selected events` : "Exit multi-select mode") : 
+            "Select multiple events"
+          }
+          accessibilityRole="button"
+          disabled={false} // Always enabled - X button should be clickable to exit
+        >
+          <LinearGradient
+            colors={isMultiSelectMode && selectedEventIds.size > 0 ? 
+              ['#FF0005', '#FF3366'] : 
+              [Colors.light.accent, Colors.light.primaryLight]
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.multiSelectButtonGradient}
+          >
+            {deleteLoading ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : isMultiSelectMode ? (
+              selectedEventIds.size > 0 ? (
+                <View style={{ alignItems: 'center' }}>
+                  <Ionicons name="trash" size={20} color="white" />
+                  <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                    {selectedEventIds.size}
+                  </Text>
+                </View>
+              ) : (
+                <Ionicons name="close" size={24} color="white" />
+              )
+            ) : (
+              <Ionicons name="checkmark-done" size={24} color="white" />
+            )}
           </LinearGradient>
         </TouchableOpacity>
         
@@ -658,8 +884,12 @@ export default function SavedActivities({
                   onPressOut={() => setPressedCardIdx(null)}
                   cardRef={(ref) => { cardRefs.current[idx] = ref; }}
                   translateX={cardTranslateX[event.id]}
-                  panHandlers={getPanHandlers(event.id)}
+                  panHandlers={isMultiSelectMode ? {} : getPanHandlers(event.id)}
                   colorScheme={colorScheme}
+                  isMultiSelectMode={isMultiSelectMode}
+                  isSelected={selectedEventIds.has(event.id)}
+                  onToggleSelect={() => handleToggleEventSelection(event.id)}
+                  multiSelectSlideAnim={multiSelectSlideAnim}
                 />
               );
             }).filter(Boolean)}
@@ -708,6 +938,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
+    zIndex: 1001, // Higher than floating buttons to ensure close button is always clickable
   },
   savedLikesTitle: {
     fontSize: 24,
@@ -824,6 +1055,51 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     width: 56,
     height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  multiSelectButton: {
+    position: 'absolute',
+    bottom: 30,
+    left: 30,
+    borderRadius: 30,
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 1000,
+  },
+  multiSelectButtonGradient: {
+    borderRadius: 30,
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxArea: {
+    position: 'absolute',
+    right: -15, // Move 10px to the left from the previous centered position
+    top: 0,
+    bottom: 0,
+    width: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  checkboxContainer: {
+    padding: 8,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },

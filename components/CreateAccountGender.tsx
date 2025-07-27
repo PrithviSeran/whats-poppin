@@ -62,9 +62,9 @@ const CreateAccountGender = ({ route }: { route: CreateAccountGenderRouteProp })
       </TouchableOpacity>
 
       <CreateAccountProgressBar
-        currentStep={4}
-        totalSteps={6}
-        stepLabels={['Name', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+        currentStep={5}
+        totalSteps={7}
+        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
       />
 
       <ScrollView

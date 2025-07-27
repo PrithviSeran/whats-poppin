@@ -91,9 +91,9 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
       </TouchableOpacity>
 
       <CreateAccountProgressBar
-        currentStep={3}
-        totalSteps={6}
-        stepLabels={['Name', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+        currentStep={4}
+        totalSteps={7}
+        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
       />
 
       <ScrollView
