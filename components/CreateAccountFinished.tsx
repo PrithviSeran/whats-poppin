@@ -166,6 +166,16 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
       // Insert user profile data into all_users table
       if (authData.user) {
         console.log('🔄 Inserting user profile data...');
+        console.log('📊 User data being inserted:', {
+          name: userData.name,
+          username: userData.username,
+          email: userData.email,
+          birthday: userData.birthday,
+          gender: userData.gender,
+          hasPreferences: !!userData.preferences,
+          hasTimePreferences: !!userData.preferences?.timePreferences,
+          hasLocationPreferences: !!userData.preferences?.locationPreferences
+        });
 
         const preferencesArr = userData.preferences?.eventTypes || [];
         const preferences = `{${preferencesArr.map((p: string) => `"${p}"`).join(',')}}`;
@@ -173,24 +183,34 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         const savedEventsArr = userData.saved_events || [];
         const saved_events = `{${savedEventsArr.map((e: string) => `"${e}"`).join(',')}}`;
 
+        const insertData = {
+          name: userData.name,
+          username: userData.username,
+          email: userData.email,
+          birthday: userData.birthday,
+          gender: userData.gender,
+          saved_events: saved_events,
+          preferences: userData.preferences?.eventTypes || [],
+          ['start-time']: userData.preferences?.timePreferences?.start || null,
+          ['end-time']: userData.preferences?.timePreferences?.end || null,
+          location: userData.preferences?.locationPreferences?.[0] || null,
+          ['travel-distance']: userData.preferences?.travelDistance || null,
+        };
+
+        console.log('📝 Final insert data:', insertData);
+
         const { error: insertError } = await supabase
           .from('all_users')
-          .insert([{
-            name: userData.name,
-            username: userData.username,
-            email: userData.email,
-            birthday: userData.birthday,
-            gender: userData.gender,
-            saved_events: saved_events,
-            preferences: userData.preferences.eventTypes,
-            ['start-time']: userData.preferences.timePreferences.start,
-            ['end-time']: userData.preferences.timePreferences.end,
-            location: userData.preferences.locationPreferences[0],
-            ['travel-distance']: userData.preferences.travelDistance,
-          }]);
+          .insert([insertData]);
           
         if (insertError) {
-          console.error('❌ Error inserting into all_users:', insertError.message);
+          console.error('❌ Error inserting into all_users:', insertError);
+          console.error('❌ Error details:', {
+            message: insertError.message,
+            details: insertError.details,
+            hint: insertError.hint,
+            code: insertError.code
+          });
           // Don't fail account creation for profile insert errors
           console.log('⚠️ User account created but profile data insertion failed - user can update profile later');
         } else {
@@ -335,14 +355,12 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
       
       console.log('⚠️ Still no user session - user may need to confirm email or sign in');
       console.log('🔄 Proceeding to SuggestedEvents - user can sign in there if needed');
-      // Temporarily commented out to view CreateAccountFinished screen
-      // navigation.navigate('suggested-events');
+      navigation.navigate('suggested-events');
       return;
     }
     
     console.log('✅ Navigating to SuggestedEvents for:', currentUser.email);
-      // Temporarily commented out to view CreateAccountFinished screen
-      // navigation.navigate('suggested-events');
+    navigation.navigate('suggested-events');
   }
 
   async function handleAddressSubmit() {

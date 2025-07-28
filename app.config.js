@@ -21,6 +21,8 @@ module.exports = {
       "**/*"
     ],
     ios: {
+      displayName: "Whats Poppin",
+      icon: "./assets/images/balloons.png",
       supportsTablet: true,
       bundleIdentifier: "com.prithviseran.whatspoppin",
       buildNumber: "1",

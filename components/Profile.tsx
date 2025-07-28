@@ -41,6 +41,14 @@ export default memo(function Profile({
 }: ProfileProps = {}) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
+  // Username editing state
+  const [isEditingUsername, setIsEditingUsername] = useState(false);
+  const [editingUsername, setEditingUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+  const [usernameValid, setUsernameValid] = useState(false);
+  const [isSavingUsername, setIsSavingUsername] = useState(false);
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
 
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
@@ -70,6 +78,152 @@ export default memo(function Profile({
 
   // Image preloading state
   const [imagesPreloaded, setImagesPreloaded] = useState(false);
+
+  // Username validation functions
+  const validateUsernameFormat = (text: string) => {
+    // Username requirements: 3-20 characters, alphanumeric and underscores only, no spaces
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    
+    if (!text.trim()) {
+      setUsernameError('Username is required');
+      return false;
+    }
+    if (text.length < 3) {
+      setUsernameError('Username must be at least 3 characters');
+      return false;
+    }
+    if (text.length > 20) {
+      setUsernameError('Username must be 20 characters or less');
+      return false;
+    }
+    if (!usernameRegex.test(text)) {
+      setUsernameError('Username can only contain letters, numbers, and underscores');
+      return false;
+    }
+    
+    return true;
+  };
+
+  const checkUsernameAvailability = async (text: string) => {
+    if (!validateUsernameFormat(text)) {
+      setUsernameValid(false);
+      return;
+    }
+
+    // Don't check if it's the same as current username
+    if (text.toLowerCase() === profile?.username?.toLowerCase()) {
+      setUsernameError('');
+      setUsernameValid(true);
+      return;
+    }
+
+    setIsCheckingUsername(true);
+    setUsernameError('');
+
+    try {
+      // Check if username already exists
+      const { data, error } = await supabase
+        .from('all_users')
+        .select('username')
+        .eq('username', text.toLowerCase())
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 is "not found" which is what we want
+        console.error('Error checking username:', error);
+        setUsernameError('Error checking username availability');
+        setUsernameValid(false);
+        return;
+      }
+
+      if (data) {
+        // Username already exists
+        setUsernameError('This username is already taken');
+        setUsernameValid(false);
+      } else {
+        // Username is available
+        setUsernameError('');
+        setUsernameValid(true);
+      }
+    } catch (error) {
+      console.error('Error checking username:', error);
+      setUsernameError('Error checking username availability');
+      setUsernameValid(false);
+    } finally {
+      setIsCheckingUsername(false);
+    }
+  };
+
+  // Debounced username checking
+  useEffect(() => {
+    if (!showUsernameModal) return;
+
+    const timeoutId = setTimeout(() => {
+      if (editingUsername.trim()) {
+        checkUsernameAvailability(editingUsername.trim().toLowerCase());
+      } else {
+        setUsernameValid(false);
+        setUsernameError('');
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [editingUsername, showUsernameModal]);
+
+  const handleStartEditUsername = () => {
+    setShowUsernameModal(true);
+    setEditingUsername(profile?.username || '');
+    setUsernameError('');
+    setUsernameValid(false);
+  };
+
+  const handleCancelEditUsername = () => {
+    setShowUsernameModal(false);
+    setEditingUsername('');
+    setUsernameError('');
+    setUsernameValid(false);
+  };
+
+  const handleSaveUsername = async () => {
+    if (!usernameValid || !profile?.email) return;
+
+    setIsSavingUsername(true);
+    try {
+      const newUsername = editingUsername.trim().toLowerCase();
+      
+      // Update username in database
+      const { error } = await supabase
+        .from('all_users')
+        .update({ username: newUsername })
+        .eq('email', profile.email);
+
+      if (error) {
+        console.error('Error updating username:', error);
+        Alert.alert('Error', 'Failed to update username. Please try again.');
+        return;
+      }
+
+      // Update local profile state
+      const updatedProfile = { ...profile, username: newUsername };
+      setProfile(updatedProfile);
+      
+      // Update GlobalDataManager cache
+      await dataManager.setUserProfile(updatedProfile);
+      
+      // Exit edit mode
+      setShowUsernameModal(false);
+      setEditingUsername('');
+      setUsernameError('');
+      setUsernameValid(false);
+      
+      Alert.alert('Success', 'Username updated successfully!');
+    } catch (error) {
+      console.error('Error saving username:', error);
+      Alert.alert('Error', 'Failed to update username. Please try again.');
+    } finally {
+      setIsSavingUsername(false);
+    }
+  };
 
   // OFFLINE-FIRST: Load all social data from cache/database with automatic sync
   const loadAllSocialData = async (userId: number, forceRefresh: boolean = false) => {
@@ -153,17 +307,6 @@ export default memo(function Profile({
       setHasNewFriends(false);
     } catch (error) {
       console.error('Error saving friends viewed state:', error);
-    }
-  };
-
-  // Mark requests as viewed
-  const markRequestsAsViewed = async () => {
-    try {
-      await AsyncStorage.setItem('lastViewedRequestsCount', friendRequests.length.toString());
-      setLastViewedRequestsCount(friendRequests.length);
-      setHasNewRequests(false);
-    } catch (error) {
-      console.error('Error saving requests viewed state:', error);
     }
   };
 
@@ -343,7 +486,7 @@ export default memo(function Profile({
 
     Alert.alert(
       'Delete Account',
-      'Are you absolutely sure you want to delete your account? This action cannot be undone and will permanently remove:\n\n• Your profile and all personal data\n• All events you have posted\n• Your friends and social connections\n• All saved events and preferences',
+      'Are you absolutely sure you want to delete your account? This action cannot be undone and will permanently remove:\n\n• Your profile and all personal data\n• All events you have posted\n• Your friends and social connections\n• All saved events and preferences\n• Your profile and banner images',
       [
         {
           text: 'Cancel',
@@ -384,21 +527,59 @@ export default memo(function Profile({
               
               console.log('✅ User deleted from all_users successfully');
               
-              // Step 3: Delete user from Supabase auth
-              console.log('🔐 Deleting user from Supabase auth...');
-              const { error: authError } = await supabase.auth.admin.deleteUser(
-                (await supabase.auth.getUser()).data.user?.id || ''
-              );
-              
-              if (authError) {
-                console.error('❌ Error deleting user from auth:', authError);
-                throw new Error(`Failed to delete authentication: ${authError.message}`);
+              // Step 3: Delete user images from Supabase storage
+              console.log('🖼️ Deleting user images from storage...');
+              try {
+                // Create the user folder name (email with special characters replaced by underscores)
+                const userFolder = profile.email.replace(/[^a-zA-Z0-9]/g, '_');
+                console.log('📁 Deleting folder:', userFolder);
+                
+                // List all files in the user's folder
+                const { data: filesList, error: listError } = await supabase.storage
+                  .from('user-images')
+                  .list(userFolder);
+                
+                if (listError) {
+                  console.error('❌ Error listing user files:', listError);
+                  // Continue with deletion even if listing fails
+                } else if (filesList && filesList.length > 0) {
+                  // Delete all files in the user's folder
+                  const filesToDelete = filesList.map(file => `${userFolder}/${file.name}`);
+                  console.log('🗑️ Deleting files:', filesToDelete);
+                  
+                  const { error: deleteFilesError } = await supabase.storage
+                    .from('user-images')
+                    .remove(filesToDelete);
+                  
+                  if (deleteFilesError) {
+                    console.error('❌ Error deleting user files:', deleteFilesError);
+                    // Continue with deletion even if file deletion fails
+                  } else {
+                    console.log('✅ User images deleted successfully');
+                  }
+                } else {
+                  console.log('ℹ️ No user images found to delete');
+                }
+              } catch (storageError) {
+                console.error('❌ Error during storage cleanup:', storageError);
+                // Continue with account deletion even if storage cleanup fails
               }
               
-              console.log('✅ User deleted from auth successfully');
+              const { data, error } = await supabase.rpc('delete_current_user');
+  
+              if (error) {
+                console.error('Error deleting user:', error);
+                throw new Error('Failed to delete account');
+              }
               
-              // Step 4: Sign out and redirect
-              console.log('🚪 Signing out and redirecting...');
+              if (data.error) {
+                console.error('Database error:', data.error);
+                throw new Error(data.error);
+              }
+              
+              console.log('Account deleted successfully');
+              
+              // Sign out the user (this will redirect them)
               await supabase.auth.signOut();
               
               // Reset navigation and show success message
@@ -571,6 +752,12 @@ export default memo(function Profile({
             <View style={styles.nameContainer}>
               <View style={styles.nameDisplayContainer}>
                 <Text style={styles.name}>@{profile?.username || 'username'}</Text>
+                <TouchableOpacity
+                  style={styles.editUsernameButton}
+                  onPress={handleStartEditUsername}
+                >
+                  <Ionicons name="pencil" size={16} color="#fff" />
+                </TouchableOpacity>
               </View>
             </View>
           </LinearGradient>
@@ -836,6 +1023,153 @@ export default memo(function Profile({
         documentType="privacy"
       />
 
+      {/* Username Edit Modal */}
+      <Modal
+        visible={showUsernameModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCancelEditUsername}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[
+            styles.usernameModalContent,
+            { backgroundColor: Colors[colorScheme ?? 'light'].background }
+          ]}>
+            <View style={styles.usernameModalHeader}>
+              <Text style={[
+                styles.usernameModalTitle,
+                { color: Colors[colorScheme ?? 'light'].text }
+              ]}>
+                Edit Username
+              </Text>
+              <TouchableOpacity
+                style={styles.usernameModalCloseButton}
+                onPress={handleCancelEditUsername}
+              >
+                <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.usernameModalBody}>
+              <Text style={[
+                styles.usernameModalSubtitle,
+                { color: Colors[colorScheme ?? 'light'].text }
+              ]}>
+                Choose a unique username that others will use to find you
+              </Text>
+
+              <View style={[
+                styles.usernameInputWrapper,
+                {
+                  backgroundColor: Colors[colorScheme ?? 'light'].card,
+                  borderColor: usernameError 
+                    ? '#FF3B30' 
+                    : usernameValid
+                      ? '#22C55E'
+                      : Colors[colorScheme ?? 'light'].secondary,
+                }
+              ]}>
+                <Text style={[styles.atSymbol, { color: Colors[colorScheme ?? 'light'].text }]}>@</Text>
+                <TextInput
+                  style={[
+                    styles.usernameInput,
+                    { color: Colors[colorScheme ?? 'light'].text },
+                  ]}
+                  value={editingUsername}
+                  onChangeText={(text) => {
+                    // Remove spaces and convert to lowercase as user types
+                    const cleanText = text.replace(/\s/g, '').toLowerCase();
+                    setEditingUsername(cleanText);
+                  }}
+                  placeholder="username"
+                  placeholderTextColor={colorScheme === 'dark' ? '#666' : '#999'}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={20}
+                />
+                <View style={styles.usernameValidationIcon}>
+                  {isCheckingUsername ? (
+                    <ActivityIndicator size="small" color="#9E95BD" />
+                  ) : usernameValid ? (
+                    <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
+                  ) : usernameError ? (
+                    <Ionicons name="close-circle" size={20} color="#FF3B30" />
+                  ) : null}
+                </View>
+              </View>
+
+              {usernameError ? (
+                <Text style={styles.usernameErrorText}>{usernameError}</Text>
+              ) : usernameValid ? (
+                <Text style={styles.usernameSuccessText}>Great! This username is available</Text>
+              ) : null}
+
+              <View style={styles.usernameTipsContainer}>
+                <Text style={[
+                  styles.usernameTipsTitle,
+                  { color: Colors[colorScheme ?? 'light'].text }
+                ]}>
+                  Username requirements:
+                </Text>
+                <View style={styles.usernameTipsList}>
+                  <View style={styles.usernameTipRow}>
+                    <Ionicons name="checkmark" size={14} color="#9E95BD" />
+                    <Text style={[
+                      styles.usernameTipText,
+                      { color: Colors[colorScheme ?? 'light'].text }
+                    ]}>
+                      3-20 characters long
+                    </Text>
+                  </View>
+                  <View style={styles.usernameTipRow}>
+                    <Ionicons name="checkmark" size={14} color="#9E95BD" />
+                    <Text style={[
+                      styles.usernameTipText,
+                      { color: Colors[colorScheme ?? 'light'].text }
+                    ]}>
+                      Letters, numbers, and underscores only
+                    </Text>
+                  </View>
+                  <View style={styles.usernameTipRow}>
+                    <Ionicons name="checkmark" size={14} color="#9E95BD" />
+                    <Text style={[
+                      styles.usernameTipText,
+                      { color: Colors[colorScheme ?? 'light'].text }
+                    ]}>
+                      No spaces allowed
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.usernameModalFooter}>
+              <TouchableOpacity
+                style={styles.usernameCancelButton}
+                onPress={handleCancelEditUsername}
+                disabled={isSavingUsername}
+              >
+                <Text style={styles.usernameCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.usernameSaveButton,
+                  (!usernameValid || isSavingUsername) && styles.usernameSaveButtonDisabled
+                ]}
+                onPress={handleSaveUsername}
+                disabled={!usernameValid || isSavingUsername}
+              >
+                {isSavingUsername ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.usernameSaveButtonText}>Save Username</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 });
@@ -913,6 +1247,177 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginRight: 8,
+  },
+  editUsernameButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  usernameEditContainer: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  usernameInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 8,
+    minWidth: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  atSymbol: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginRight: 4,
+    opacity: 0.7,
+  },
+  usernameInput: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '500',
+    paddingVertical: 8,
+    minWidth: 120,
+  },
+  usernameValidationIcon: {
+    marginLeft: 8,
+    width: 20,
+    alignItems: 'center',
+  },
+  usernameValidationContainer: {
+    minHeight: 20,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  usernameErrorText: {
+    color: '#FF3B30',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  usernameSuccessText: {
+    color: '#22C55E',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  usernameEditButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  usernameCancelButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  usernameCancelButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  usernameSaveButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#22C55E',
+  },
+  usernameSaveButtonDisabled: {
+    backgroundColor: 'rgba(34, 197, 94, 0.5)',
+  },
+  usernameSaveButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  usernameModalContent: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  usernameModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  usernameModalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  usernameModalCloseButton: {
+    padding: 4,
+  },
+  usernameModalBody: {
+    marginBottom: 24,
+  },
+  usernameModalSubtitle: {
+    fontSize: 16,
+    marginBottom: 20,
+    opacity: 0.7,
+    textAlign: 'center',
+  },
+  usernameTipsContainer: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.1)',
+  },
+  usernameTipsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 12,
+    opacity: 0.8,
+  },
+  usernameTipsList: {
+    gap: 8,
+  },
+  usernameTipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  usernameTipText: {
+    fontSize: 13,
+    opacity: 0.7,
+  },
+  usernameModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
   },
 
   editButton: {
