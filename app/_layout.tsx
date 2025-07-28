@@ -43,6 +43,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="social-sign-in" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="create-account-username" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-email" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-birthday" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-gender" options={{ headerShown: false, gestureEnabled: false }} />

@@ -18,7 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import LegalDocumentViewer from './LegalDocumentViewer';
-//import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import GlobalDataManager from '@/lib/GlobalDataManager';
 import { supabase } from '@/lib/supabase';
 
@@ -26,6 +26,7 @@ type RootStackParamList = {
   'social-sign-in': undefined;
   'create-account': undefined;
   'suggested-events': undefined;
+  'create-account-username': { userData: string; isGoogleSignIn?: boolean };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -51,16 +52,16 @@ const SignInScreen = () => {
   const colorScheme = useColorScheme();
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
-  //const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
 
   // Configure Google Sign-In
-  //useEffect(() => {
-  //  GoogleSignin.configure({
-  //    iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
-  //    // Add Android client ID if needed
-  //    // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
-  //  });
-  //}, []);
+  useEffect(() => {
+    GoogleSignin.configure({
+      iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
+      // Add Android client ID if needed
+      // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
+    });
+  }, []);
 
   const handleOpenTerms = () => {
     setShowTermsModal(true);
@@ -70,46 +71,83 @@ const SignInScreen = () => {
     setShowPrivacyModal(true);
   };
 
-  //const handleGoogleSignIn = async () => {
-  //  try {
-  //    setIsGoogleSigningIn(true);
-  //    
-  //    // Check if Google Play Services are available (Android)
-  //    if (Platform.OS === 'android') {
-  //      await GoogleSignin.hasPlayServices();
-  //    }
-  //    
-  //    // Sign in with Google
-  //    const userInfo = await GoogleSignin.signIn() as any;
-  //    console.log('Google Sign-In successful:', userInfo);
-  //    
-  //    if (!userInfo.data?.idToken) {
-  //      throw new Error('No ID token received from Google');
-  //    }
-  //    
-  //    // Sign in with Supabase using Google token
-  //    const { data, error } = await supabase.auth.signInWithIdToken({
-  //      provider: 'google',
-  //      token: userInfo.data.idToken,
-  //    });
-  //    
-  //    if (error) {
-  //      console.error('Supabase Google Sign-In error:', error);
-  //      throw error;
-  //    }
-  //    
-  //    if (data.user) {
-  //      console.log('✅ Google Sign-In successful, user:', data.user.email);
-  //      // Navigate to main app or handle successful sign-in
-  //      GlobalDataManager.getInstance().setCurrentUser(data.user);
-  //    }
-  //  } catch (error) {
-  //    console.error('❌ Google Sign-In error:', error);
-  //    // Handle error appropriately
-  //  } finally {
-  //    setIsGoogleSigningIn(false);
-  //  }
-  //};
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsGoogleSigningIn(true);
+      
+      // Check if Google Play Services are available (Android)
+      if (Platform.OS === 'android') {
+        await GoogleSignin.hasPlayServices();
+      }
+      
+      // Sign in with Google
+      const userInfo = await GoogleSignin.signIn() as any;
+      console.log('Google Sign-In successful:', userInfo);
+      
+      if (!userInfo.data?.idToken) {
+        throw new Error('No ID token received from Google');
+      }
+      
+      // Sign in with Supabase using Google token
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: userInfo.data.idToken,
+      });
+      
+      if (error) {
+        console.error('Supabase Google Sign-In error:', error);
+        throw error;
+      }
+      
+      if (data.user) {
+        console.log('✅ Google Sign-In successful, user:', data.user.email);
+        
+        // Check if user already has a username
+        const { data: userProfile, error: profileError } = await supabase
+          .from('all_users')
+          .select('username')
+          .eq('email', data.user.email)
+          .single();
+        
+        if (profileError && profileError.code !== 'PGRST116') {
+          console.error('Error checking user profile:', profileError);
+        }
+        
+        // Set user in GlobalDataManager
+        GlobalDataManager.getInstance().setCurrentUser(data.user);
+
+        navigation.navigate('create-account-username', {
+          userData: JSON.stringify({
+            email: data.user.email,
+            googleUserInfo: userInfo.data,
+            supabaseUser: data.user
+          }),
+          isGoogleSignIn: true
+        });
+        
+        /*
+        if (userProfile?.username) {
+          // User already has a username, go directly to SuggestedEvents
+          navigation.navigate('suggested-events');
+        } else {
+          // User doesn't have a username, go to CreateAccountUsername
+          navigation.navigate('create-account-username', {
+            userData: JSON.stringify({
+              email: data.user.email,
+              googleUserInfo: userInfo.data,
+              supabaseUser: data.user
+            }),
+            isGoogleSignIn: true
+          });
+        }*/
+      }
+    } catch (error) {
+      console.error('❌ Google Sign-In error:', error);
+      // Handle error appropriately
+    } finally {
+      setIsGoogleSigningIn(false);
+    }
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -165,7 +203,7 @@ const SignInScreen = () => {
           </Text>
           
           {/* Google Sign-In Button */}
-          {/*<TouchableOpacity 
+          <TouchableOpacity 
             onPress={handleGoogleSignIn}
             disabled={isGoogleSigningIn}
             style={[styles.googleButton, isGoogleSigningIn && styles.disabledButton]}
@@ -185,13 +223,13 @@ const SignInScreen = () => {
                 {isGoogleSigningIn ? 'Signing in...' : 'Continue with Google'}
               </Text>
             </View>
-          </TouchableOpacity>*/}
+          </TouchableOpacity>
           
-          {/*<View style={styles.dividerContainer}>
+          <View style={styles.dividerContainer}>
             <View style={styles.dividerLine} />
             <Text style={[styles.dividerText, { color: Colors[colorScheme ?? 'light'].text }]}>or</Text>
             <View style={styles.dividerLine} />
-          </View>*/}
+          </View>
           
           <TouchableOpacity onPress={() => navigation.navigate('social-sign-in')}>
             <LinearGradient
@@ -286,57 +324,57 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 30,
   },
-  //googleButton: {
-  //  backgroundColor: '#FFFFFF',
-  //  borderRadius: 30,
-  //  width: width * 0.8,
-  //  paddingVertical: 13,
-  //  alignItems: 'center',
-  //  marginBottom: 20,
-  //  shadowColor: '#000',
-  //  shadowOffset: { width: 0, height: 2 },
-  //  shadowOpacity: 0.1,
-  //  shadowRadius: 4,
-  //  elevation: 3,
-  //  borderWidth: 1,
-  //  borderColor: '#E0E0E0',
-  //},
-  //googleButtonContent: {
-  //  flexDirection: 'row',
-  //  alignItems: 'center',
-  //  justifyContent: 'center',
-  //},
-  //googleIcon: {
-  //  width: 20,
-  //  height: 20,
-  //  marginRight: 12,
-  //},
-  //googleButtonText: {
-  //  color: '#757575',
-  //  fontSize: 16,
-  //  fontWeight: '600',
-  //  fontFamily: 'Gotham Rounded',
-  //},
-  //disabledButton: {
-  //  opacity: 0.6,
-  //},
-  //dividerContainer: {
-  //  flexDirection: 'row',
-  //  alignItems: 'center',
-  //  width: width * 0.8,
-  //  marginBottom: 20,
-  //},
-  //dividerLine: {
-  //  flex: 1,
-  //  height: 1,
-  //  backgroundColor: '#E0E0E0',
-  //},
-  //dividerText: {
-  //  marginHorizontal: 15,
-  //  fontSize: 14,
-  //  fontWeight: '500',
-  //  opacity: 0.6,
-  //},
+  googleButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
+    width: width * 0.8,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  googleIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 12,
+  },
+  googleButtonText: {
+    color: '#757575',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Gotham Rounded',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: width * 0.8,
+    marginBottom: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E0E0E0',
+  },
+  dividerText: {
+    marginHorizontal: 15,
+    fontSize: 14,
+    fontWeight: '500',
+    opacity: 0.6,
+  },
   loginButton: {
     borderRadius: 30,
     width: width * 0.8,

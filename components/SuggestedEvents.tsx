@@ -138,8 +138,10 @@ export default function SuggestedEvents() {
   const [isHandlingSwipedAll, setIsHandlingSwipedAll] = useState(false);
   const [backendReturnedEmpty, setBackendReturnedEmpty] = useState(false);
 
+  //supabase.auth.signOut();
 
   const dataManager = GlobalDataManager.getInstance();
+
 
   // Simple cache functions
   const saveEventsToCache = useCallback(async (events: EventCard[]) => {

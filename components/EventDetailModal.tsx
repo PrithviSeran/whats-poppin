@@ -1219,7 +1219,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     </View>
                   )}
                   <MapView
-                  provider={PROVIDER_GOOGLE}
+                  //provider={PROVIDER_GOOGLE}
                   style={styles.map}
                   initialRegion={{
                     latitude: (userLocation.latitude + event.latitude) / 2,

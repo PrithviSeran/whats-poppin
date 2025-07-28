@@ -2,7 +2,7 @@ module.exports = {
   expo: {
     name: "Whats Poppin",
     slug: "whats-poppin",
-    version: "1.0.0",
+    version: "1.5.0",
     orientation: "portrait",
     icon: "./assets/images/balloons.png",
     scheme: "whatspoppin",
@@ -25,9 +25,9 @@ module.exports = {
       icon: "./assets/images/balloons.png",
       supportsTablet: true,
       bundleIdentifier: "com.prithviseran.whatspoppin",
-      buildNumber: "1",
+      buildNumber: "2",
       config: {
-        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+        googleMapsApiKey: "AIzaSyDpfGWjgw_5ME20DS-I4H6ED-sBZcCUBWM"
       },
       infoPlist: {
         NSAppTransportSecurity: {
@@ -47,7 +47,7 @@ module.exports = {
           "applinks:whatspoppin.app"
         ],
         // Critical for Google Maps to work in production/TestFlight
-        GMSApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+        GMSApiKey: "AIzaSyDpfGWjgw_5ME20DS-I4H6ED-sBZcCUBWM"
       },
       // iOS Universal Links
       associatedDomains: ["applinks:whatspoppin.app"]
@@ -60,7 +60,7 @@ module.exports = {
       package: "com.prithviseran.whatspoppin",
       config: {
         googleMaps: {
-          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+          apiKey: "AIzaSyDpfGWjgw_5ME20DS-I4H6ED-sBZcCUBWM"
         }
       },
       permissions: [
@@ -141,6 +141,8 @@ module.exports = {
       ],
       "expo-font",
       "expo-web-browser",
+
+
       // Critical: React Native Maps plugin for proper iOS compilation
     ],
     experiments: {

@@ -22,11 +22,13 @@ import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import CreateAccountProgressBar from './CreateAccountProgressBar';
 import { supabase } from '@/lib/supabase';
+import GlobalDataManager from '@/lib/GlobalDataManager';
 
 type RootStackParamList = {
   'create-account-email': { userData: string };
-  'create-account-username': { userData: string };
+  'create-account-username': { userData: string; isGoogleSignIn?: boolean };
   'create-account': { userData: string };
+  'suggested-events': undefined;
 };
 
 type CreateAccountUsernameRouteProp = RouteProp<RootStackParamList, 'create-account-username'>;
@@ -53,6 +55,36 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
+  const isGoogleSignIn = route?.params?.isGoogleSignIn || false;
+
+  // Check if user already has a username when coming through Google Sign-In
+  useEffect(() => {
+    const checkExistingUsername = async () => {
+      if (isGoogleSignIn && userData.email) {
+        try {
+          const { data: userProfile, error } = await supabase
+            .from('all_users')
+            .select('username')
+            .eq('email', userData.email)
+            .single();
+          
+          if (error && error.code !== 'PGRST116') {
+            console.error('Error checking user profile:', error);
+            return;
+          }
+          
+          if (userProfile?.username) {
+            // User already has a username, redirect to SuggestedEvents
+            navigation.navigate('suggested-events');
+          }
+        } catch (error) {
+          console.error('Error checking existing username:', error);
+        }
+      }
+    };
+
+    checkExistingUsername();
+  }, [isGoogleSignIn, userData.email, navigation]);
 
   const validateUsernameFormat = (text: string) => {
     // Username requirements: 3-20 characters, alphanumeric and underscores only, no spaces
@@ -135,17 +167,106 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
     return () => clearTimeout(timeoutId);
   }, [username]);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (usernameValid && !isCheckingUsername) {
-      const userDataToSend = { 
-        ...userData, 
-        username: username.trim().toLowerCase() 
-      };
-      console.log('CreateAccountUsername - userDataToSend:', userDataToSend);
+      if (isGoogleSignIn) {
+        // For Google Sign-In flow, update the user's profile and go to SuggestedEvents
+        try {
+          // First check if user already exists in all_users table
+          const { data: existingUser, error: checkError } = await supabase
+            .from('all_users')
+            .select('id')
+            .eq('email', userData.email)
+            .single();
+          
+          if (checkError && checkError.code !== 'PGRST116') {
+            console.error('Error checking existing user:', checkError);
+            return;
+          }
+          
+          let result;
+          if (existingUser) {
+            // Update existing user
+            result = await supabase
+              .from('all_users')
+              .update({ username: username.trim().toLowerCase() })
+              .eq('email', userData.email);
+          } else {
+            // Insert new user
+            const insertData = {
+              username: username.trim().toLowerCase(),
+              email: userData.email,
+              auth_id: userData.supabaseUser.id, // Add the auth_id field
+              name: userData.googleUserInfo?.name || userData.email.split('@')[0],
+              saved_events: '{}',
+              preferences: [],
+            };
+            
+            result = await supabase
+              .from('all_users')
+              .insert([insertData]);
+          }
+          
+          if (result.error) {
+            console.error('Error updating user profile:', result.error);
+            // Handle error appropriately
+            return;
+          }
 
-      navigation.navigate('create-account-email', {
-        userData: JSON.stringify(userDataToSend),
-      });
+          // After successful database update, fetch the complete user profile
+          const { data: userProfile, error: profileError } = await supabase
+            .from('all_users')
+            .select('*')
+            .eq('email', userData.email)
+            .single();
+
+          if (profileError) {
+            console.error('Error fetching updated user profile:', profileError);
+          } else if (userProfile) {
+            // Update GlobalDataManager with the complete user profile
+            await GlobalDataManager.getInstance().setUserProfile({
+              id: userProfile.id,
+              created_at: userProfile.created_at,
+              email: userProfile.email,
+              username: userProfile.username,
+              name: userProfile.name,
+              birthday: userProfile.birthday,
+              gender: userProfile.gender,
+              profileImage: userProfile.profile_image,
+              bannerImage: userProfile.banner_image,
+              location: userProfile.location,
+              ['start-time']: userProfile['start-time'],
+              ['end-time']: userProfile['end-time'],
+              ['travel-distance']: userProfile['travel-distance'],
+              saved_events: userProfile.saved_events,
+              preferences: userProfile.preferences,
+              rejected_events: userProfile.rejected_events,
+              preferred_days: userProfile.preferred_days,
+              saved_events_all_time: userProfile.saved_events_all_time,
+            });
+          }
+          
+          // Navigate to SuggestedEvents
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'suggested-events' }],
+          });
+        } catch (error) {
+          console.error('Error updating user profile:', error);
+          // Handle error appropriately
+        }
+      } else {
+        // Regular create account flow
+        const userDataToSend = { 
+          ...userData, 
+          username: username.trim().toLowerCase() 
+        };
+        console.log('CreateAccountUsername - userDataToSend:', userDataToSend);
+
+        navigation.navigate('create-account-email', {
+          userData: JSON.stringify(userDataToSend),
+        });
+      }
     }
   };
 
@@ -216,18 +337,24 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
         { backgroundColor: Colors[colorScheme ?? 'light'].background },
       ]}
     >
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => navigation.goBack()}
-      >
-        <Ionicons name="chevron-back" size={28} color="#9E95BD" />
-      </TouchableOpacity>
+      {/* Only show back button if not Google Sign-In */}
+      {!isGoogleSignIn && (
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="chevron-back" size={28} color="#9E95BD" />
+        </TouchableOpacity>
+      )}
 
-      <CreateAccountProgressBar
-        currentStep={2}
-        totalSteps={7}
-        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
-      />
+      {/* Only show progress bar if not Google Sign-In */}
+      {!isGoogleSignIn && (
+        <CreateAccountProgressBar
+          currentStep={2}
+          totalSteps={7}
+          stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+        />
+      )}
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
