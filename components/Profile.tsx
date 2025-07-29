@@ -41,8 +41,6 @@ export default memo(function Profile({
 }: ProfileProps = {}) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
-  // Username editing state
-  const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [editingUsername, setEditingUsername] = useState('');
   const [usernameError, setUsernameError] = useState('');
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
@@ -677,6 +675,8 @@ export default memo(function Profile({
       outputRange: [0.8, 1.2],
     });
 
+    console.log('profile?.profileImage', profile?.profileImage);
+
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
         <View style={styles.loadingContainer}>
@@ -733,7 +733,7 @@ export default memo(function Profile({
             </TouchableOpacity>
             <View style={styles.profileImageContainer}>
               <View style={styles.profileImageWrapper}>
-                {profile?.profileImage ? (
+                 {profile?.profileImage ? (
                   <OptimizedImage 
                     source={{ uri: profile?.profileImage || '' }} 
                     style={styles.profileImage}

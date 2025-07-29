@@ -45,6 +45,8 @@ export default function EditImages() {
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [imagesPreloaded, setImagesPreloaded] = useState(false);
+  const [profileImageLoaded, setProfileImageLoaded] = useState(false);
+  const [bannerImageLoaded, setBannerImageLoaded] = useState(false);
   const colorScheme = useColorScheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
@@ -56,6 +58,10 @@ export default function EditImages() {
     if (params?.currentProfile) {
       setEditedProfile(params.currentProfile);
       setIsUploading(false);
+      
+      // Reset image loaded states
+      setProfileImageLoaded(false);
+      setBannerImageLoaded(false);
       
       // Preload images for faster display
       if (params.currentProfile.profileImage || params.currentProfile.bannerImage) {
@@ -288,6 +294,56 @@ export default function EditImages() {
     navigation.goBack();
   };
 
+  const removeImage = async (type: 'profile' | 'banner') => {
+    try {
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      // Create folder path using user's email
+      const userFolder = user.email.replace(/[^a-zA-Z0-9]/g, '_');
+      const imagePath = `${userFolder}/${type}.jpg`;
+
+      console.log(`Removing ${type} image from:`, imagePath);
+
+      // Delete from Supabase storage
+      const { error } = await supabase.storage
+        .from('user-images')
+        .remove([imagePath]);
+
+      if (error) {
+        console.error('Error removing image:', error);
+        Alert.alert('Error', `Failed to remove ${type} image`);
+        return;
+      }
+
+      // Update local state to remove the image
+      if (editedProfile) {
+        const updatedProfile = {
+          ...editedProfile,
+          [type === 'profile' ? 'profileImage' : 'bannerImage']: undefined
+        };
+        setEditedProfile(updatedProfile);
+
+        // Reset the loaded state
+        if (type === 'profile') {
+          setProfileImageLoaded(false);
+        } else {
+          setBannerImageLoaded(false);
+        }
+
+        console.log(`✅ ${type} image removed successfully`);
+        Alert.alert('Success', `${type === 'profile' ? 'Profile' : 'Banner'} image removed successfully!`);
+      }
+    } catch (error) {
+      console.error('Error removing image:', error);
+      Alert.alert('Error', `Failed to remove ${type} image`);
+    }
+  };
+
   const pickImage = async (type: 'profile' | 'banner') => {
     try {
       // Request permissions first
@@ -405,12 +461,20 @@ export default function EditImages() {
             disabled={isUploading}
           >
             {editedProfile.bannerImage ? (
-              <OptimizedImage 
-                source={{ uri: editedProfile.bannerImage }} 
-                style={styles.bannerImage}
-                resizeMode="cover"
-                placeholder={false}
-              />
+              <View style={styles.imageWrapper}>
+                <OptimizedImage 
+                  source={{ uri: editedProfile.bannerImage }} 
+                  style={styles.bannerImage}
+                  resizeMode="cover"
+                  placeholder={false}
+                />
+                <Image
+                  source={{ uri: editedProfile.bannerImage }}
+                  style={styles.hiddenImage}
+                  onLoad={() => setBannerImageLoaded(true)}
+                  onError={() => setBannerImageLoaded(false)}
+                />
+              </View>
             ) : (
               <LinearGradient
                 colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
@@ -424,6 +488,27 @@ export default function EditImages() {
               </LinearGradient>
             )}
           </TouchableOpacity>
+
+          {/* Remove banner button - only show if image exists and is loaded */}
+          {editedProfile.bannerImage && bannerImageLoaded && (
+            <TouchableOpacity
+              style={styles.removeButton}
+              onPress={() => {
+                Alert.alert(
+                  'Remove Banner Image',
+                  'Are you sure you want to remove your banner image? This action cannot be undone.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Remove', style: 'destructive', onPress: () => removeImage('banner') }
+                  ]
+                );
+              }}
+              disabled={isUploading}
+            >
+              <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+              <Text style={styles.removeButtonText}>Remove Banner</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -436,12 +521,20 @@ export default function EditImages() {
             disabled={isUploading}
           >
             {editedProfile.profileImage ? (
-              <OptimizedImage 
-                source={{ uri: editedProfile.profileImage }} 
-                style={styles.profileImage}
-                resizeMode="cover"
-                placeholder={false}
-              />
+              <View style={styles.imageWrapper}>
+                <OptimizedImage 
+                  source={{ uri: editedProfile.profileImage }} 
+                  style={styles.profileImage}
+                  resizeMode="cover"
+                  placeholder={false}
+                />
+                <Image
+                  source={{ uri: editedProfile.profileImage }}
+                  style={styles.hiddenImage}
+                  onLoad={() => setProfileImageLoaded(true)}
+                  onError={() => setProfileImageLoaded(false)}
+                />
+              </View>
             ) : (
               <View style={styles.profilePlaceholder}>
                 <Ionicons name="person-outline" size={40} color={Colors[colorScheme ?? 'light'].text} />
@@ -451,6 +544,27 @@ export default function EditImages() {
               </View>
             )}
           </TouchableOpacity>
+
+          {/* Remove profile button - only show if image exists and is loaded */}
+          {editedProfile.profileImage && profileImageLoaded && (
+            <TouchableOpacity
+              style={styles.removeButton}
+              onPress={() => {
+                Alert.alert(
+                  'Remove Profile Image',
+                  'Are you sure you want to remove your profile image? This action cannot be undone.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Remove', style: 'destructive', onPress: () => removeImage('profile') }
+                  ]
+                );
+              }}
+              disabled={isUploading}
+            >
+              <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+              <Text style={styles.removeButtonText}>Remove Profile</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {isUploading && (
@@ -593,5 +707,37 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     flex: 1,
     opacity: 0.8,
+  },
+  removeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.3)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 10,
+    alignSelf: 'center',
+  },
+  removeButtonText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 6,
+  },
+  imageWrapper: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+  },
+  hiddenImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
 });
