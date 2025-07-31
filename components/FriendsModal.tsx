@@ -56,6 +56,19 @@ const AnimatedUserItem = React.memo(({
   const userId = user.friend_id || user.follower_id || user.following_id || user.sender_id;
   const userName = user.friend_name || user.follower_name || user.following_name || user.sender_name;
   const userEmail = user.friend_email || user.follower_email || user.following_email || user.sender_email;
+  
+  // Debug: Log user object to see what fields are available
+  console.log('🔍 AnimatedUserItem - User object:', {
+    type,
+    userId,
+    userName,
+    userEmail,
+    friend_username: user.friend_username,
+    follower_username: user.follower_username,
+    following_username: user.following_username,
+    sender_username: user.sender_username,
+    fullUserObject: user
+  });
   const key = user.friendship_id || user.request_id || `${type}-${userId}`;
 
   // Animation values
@@ -373,11 +386,11 @@ const AnimatedUserItem = React.memo(({
               />
             </View>
             <View style={styles.userDetails}>
+              <Text style={[styles.userUsername, { color: Colors[colorScheme as keyof typeof Colors].text }]}>
+                {user.friend_username || user.follower_username || user.following_username || user.sender_username || 'No username'}
+              </Text>
               <Text style={[styles.userName, { color: Colors[colorScheme as keyof typeof Colors].text }]}>
                 {userName}
-              </Text>
-              <Text style={[styles.userEmail, { color: Colors[colorScheme as keyof typeof Colors].text }]}>
-                {userEmail}
               </Text>
               {type === 'request' && (
                 <View style={styles.dateContainer}>
@@ -408,6 +421,23 @@ export default function FriendsModal({
   onFollowCountsUpdate,
   onRefreshRequests
 }: FriendsModalProps) {
+  
+  // Debug: Log the props to see what data is being passed
+  console.log('🔍 FriendsModal - Props received:', {
+    profileId: profile?.id,
+    friendsCount: friends.length,
+    requestsCount: friendRequests.length,
+    sampleFriend: friends[0] ? {
+      id: friends[0].friend_id,
+      name: friends[0].friend_name,
+      username: friends[0].friend_username
+    } : null,
+    sampleRequest: friendRequests[0] ? {
+      id: friendRequests[0].sender_id,
+      name: friendRequests[0].sender_name,
+      username: friendRequests[0].sender_username
+    } : null
+  });
   const colorScheme = useColorScheme();
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'friends' | 'followers' | 'following' | 'requests'>('friends');
@@ -712,10 +742,12 @@ export default function FriendsModal({
       setTimeout(() => markRequestsAsViewed(), 200);
     }
     
-    // OFFLINE-FIRST: Load data for tabs that need it from cache
+    // OFFLINE-FIRST: Load data for tabs that need it with fresh data
     if ((tab === 'followers' || tab === 'following') && profile?.id) {
       try {
-        console.log(`🚀 OFFLINE-FIRST: Loading ${tab} data from cache for tab switch`);
+        console.log(`🚀 OFFLINE-FIRST: Loading ${tab} data with fresh data for usernames`);
+        // Clear cache first to ensure we get fresh data with usernames
+        await socialDataManager.clearCache(profile.id);
         const socialData = await socialDataManager.getSocialData(profile.id);
         
         if (tab === 'followers') {
@@ -730,14 +762,30 @@ export default function FriendsModal({
     // Friends and requests are already available from props
   };
 
-  const handleModalOpen = () => {
+  const handleModalOpen = async () => {
     setActiveTab('friends');
     
-    // OFFLINE-FIRST: Data will be fresh from parent's cache refresh
-    console.log('🚀 OFFLINE-FIRST: Modal opened - using cached social data from parent');
+    // Clear cache to force fresh data with usernames
+    console.log('🚀 OFFLINE-FIRST: Modal opened - clearing cache for fresh data with usernames');
+    await socialDataManager.clearCache(profile?.id);
     
-    // Update local follower/following state from props
-    // (Friends and requests are passed as props and already up-to-date)
+    // Force refresh the social data to get fresh data with usernames
+    console.log('🔄 OFFLINE-FIRST: Force refreshing social data...');
+    try {
+      const freshData = await socialDataManager.refreshAllSocialData(profile?.id || 0, true);
+      console.log('✅ OFFLINE-FIRST: Fresh social data loaded:', {
+        friends: freshData.friends.length,
+        followers: freshData.followers.length,
+        following: freshData.following.length,
+        requests: freshData.friendRequests.length
+      });
+      
+      // Update local state with fresh data
+      setFollowers(freshData.followers);
+      setFollowing(freshData.following);
+    } catch (error) {
+      console.error('❌ Error refreshing social data:', error);
+    }
     
     // Trigger parent refresh for latest data
     if (onRefreshRequests) {
@@ -1196,10 +1244,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  userName: {
-    fontSize: 15,
+  userUsername: {
+    fontSize: 16,
     fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  userName: {
+    fontSize: 14,
+    fontWeight: '500',
     marginBottom: 4,
+    opacity: 0.8,
   },
   userEmail: {
     fontSize: 14,

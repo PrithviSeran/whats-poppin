@@ -601,6 +601,13 @@ export default function SavedActivities({
               setSelectedEventIds(new Set());
               setIsMultiSelectMode(false);
               
+              // Animate the slide back to normal position
+              RNAnimated.timing(multiSelectSlideAnim, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              }).start();
+              
             } catch (error) {
               console.error('Error deleting selected events:', error);
               // Revert UI state by refetching

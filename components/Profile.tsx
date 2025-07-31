@@ -15,6 +15,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LegalDocumentViewer from './LegalDocumentViewer';
 import SocialDataManager, { Friend, FriendRequest, Follower, Following, SocialData } from '@/lib/SocialDataManager';
 import OptimizedImage from './OptimizedImage';
+import EventDetailModal from './EventDetailModal';
+import * as Location from 'expo-location';
 
 type RootStackParamList = {
   '(tabs)': {
@@ -26,6 +28,7 @@ type RootStackParamList = {
 
   'edit-images': { currentProfile: UserProfile };
   'create-event': undefined;
+  'my-events': undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -76,6 +79,14 @@ export default memo(function Profile({
 
   // Image preloading state
   const [imagesPreloaded, setImagesPreloaded] = useState(false);
+
+  // Events page state
+  const [showMyEventsModal, setShowMyEventsModal] = useState(false);
+  const [userEvents, setUserEvents] = useState<any[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [expandedEvent, setExpandedEvent] = useState<any>(null);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [eventImageStates, setEventImageStates] = useState<{ [eventId: number]: { currentImageIndex: number; hasError: boolean } }>({});
 
   // Username validation functions
   const validateUsernameFormat = (text: string) => {
@@ -237,6 +248,22 @@ export default memo(function Profile({
       setFollowersCount(socialData.followersCount);
       setFollowingCount(socialData.followingCount);
       
+      // Debug: Log the data to see if usernames are included
+      console.log('🔍 Profile - Social data received:', {
+        friendsCount: socialData.friends.length,
+        requestsCount: socialData.friendRequests.length,
+        sampleFriend: socialData.friends[0] ? {
+          id: socialData.friends[0].friend_id,
+          name: socialData.friends[0].friend_name,
+          username: socialData.friends[0].friend_username
+        } : null,
+        sampleRequest: socialData.friendRequests[0] ? {
+          id: socialData.friendRequests[0].sender_id,
+          name: socialData.friendRequests[0].sender_name,
+          username: socialData.friendRequests[0].sender_username
+        } : null
+      });
+      
       console.log('✅ OFFLINE-FIRST: All social data loaded and state updated:', {
         friends: socialData.friends.length,
         requests: socialData.friendRequests.length,
@@ -284,6 +311,9 @@ export default memo(function Profile({
       } else {
         console.log('⚠️ No user ID found, skipping social data');
       }
+
+      // Fetch user location for map functionality
+      await fetchUserLocation();
     } catch (error) {
       console.error('❌ Error loading initial data:', error);
     } finally {
@@ -500,7 +530,7 @@ export default memo(function Profile({
               // Step 1: Delete all events posted by this user
               console.log('📝 Deleting user\'s posted events...');
               const { error: eventsError } = await supabase
-                .from('all_events')
+                .from('new_events')
                 .delete()
                 .eq('posted_by', profile.email);
               
@@ -623,6 +653,206 @@ export default memo(function Profile({
 
   const handleCreateEvent = () => {
     navigation.navigate('create-event');
+  };
+
+  // Events page functions
+  const getEventImageUrls = useCallback((eventId: number) => {
+    if (!eventId) return { imageUrl: null, allImages: [] };
+
+    const baseUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${eventId}`;
+    const allImages = Array.from({ length: 5 }, (_, i) => `${baseUrl}/${i}.jpg`);
+    
+    return { imageUrl: allImages[0], allImages };
+  }, []);
+
+  const handleEventImageError = useCallback((eventId: number) => {
+    console.log('Image failed to load for event:', eventId);
+    
+    const { allImages } = getEventImageUrls(eventId);
+    const currentState = eventImageStates[eventId] || { currentImageIndex: 0, hasError: false };
+    const nextIndex = currentState.currentImageIndex + 1;
+    
+    if (nextIndex < allImages.length) {
+      console.log(`Retrying with image ${nextIndex} for event ${eventId}`);
+      setEventImageStates(prev => ({
+        ...prev,
+        [eventId]: { currentImageIndex: nextIndex, hasError: false }
+      }));
+      
+      // Update the event's image URL to the next one
+      setUserEvents(prevEvents => 
+        prevEvents.map(event => 
+          event.id === eventId ? { ...event, image: allImages[nextIndex] } : event
+        )
+      );
+    } else {
+      console.log('No more images to try for event:', eventId);
+      setEventImageStates(prev => ({
+        ...prev,
+        [eventId]: { currentImageIndex: nextIndex, hasError: true }
+      }));
+      
+      // Set image to null to show placeholder
+      setUserEvents(prevEvents => 
+        prevEvents.map(event => 
+          event.id === eventId ? { ...event, image: null } : event
+        )
+      );
+    }
+  }, [eventImageStates, getEventImageUrls]);
+
+  const getCurrentEventImageUrl = useCallback((event: any) => {
+    const eventState = eventImageStates[event.id];
+    
+    if (eventState?.hasError) {
+      return null; // Show placeholder
+    }
+    
+    // If we have a custom image state, use it
+    if (eventState) {
+      const { allImages } = getEventImageUrls(event.id);
+      return allImages[eventState.currentImageIndex] || null;
+    }
+    
+    // Otherwise, use the event's image or generate the first one
+    if (event.image) {
+      return event.image;
+    }
+    
+    const { imageUrl } = getEventImageUrls(event.id);
+    return imageUrl;
+  }, [eventImageStates, getEventImageUrls]);
+
+  const handleEventCardPress = useCallback((event: any) => {
+    console.log('🎯 Event card pressed:', event.name);
+    // Convert to EventCard format for EventDetailModal
+    const eventCard = {
+      ...event,
+      days_of_the_week: event.days_of_the_week ? 
+        (typeof event.days_of_the_week === 'string' ? 
+          event.days_of_the_week.split(',').map((d: string) => d.trim()) : 
+          event.days_of_the_week) : 
+        undefined,
+      latitude: event.latitude || 0,
+      longitude: event.longitude || 0,
+      distance: undefined,
+      featured: event.featured || false,
+      age_restriction: event.age_restriction || 0,
+      reservation: event.reservation || 'no',
+      times: event.times || {},
+      allImages: event.allImages || []
+    };
+    setExpandedEvent(eventCard);
+  }, []);
+
+  const handleCloseEventDetail = useCallback(() => {
+    setExpandedEvent(null);
+  }, []);
+
+  const fetchUserEvents = async () => {
+    if (!profile?.username) {
+      console.log('No username available to fetch events');
+      return;
+    }
+
+    try {
+      setEventsLoading(true);
+      
+      // Fetch events posted by this user using username
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('new_events')
+        .select('*')
+        .eq('posted_by', profile.username)
+        .order('created_at', { ascending: false });
+
+      if (eventsError) {
+        console.error('Error fetching user events:', eventsError);
+        setUserEvents([]);
+      } else {
+        const events = eventsData || [];
+        
+        // Initialize event images using the same logic as UserProfileModal
+        const eventsWithImages = events.map(event => {
+          const { imageUrl, allImages } = getEventImageUrls(event.id);
+          return {
+            ...event,
+            image: event.image || imageUrl, // Use existing image or generate first one
+            allImages // Add allImages array for fallback logic
+          };
+        });
+        
+        setUserEvents(eventsWithImages);
+        
+        // Initialize image states for all events
+        const initialImageStates: { [eventId: number]: { currentImageIndex: number; hasError: boolean } } = {};
+        events.forEach(event => {
+          initialImageStates[event.id] = { currentImageIndex: 0, hasError: false };
+        });
+        setEventImageStates(initialImageStates);
+      }
+
+    } catch (error) {
+      console.error('Error fetching user events:', error);
+      setUserEvents([]);
+    } finally {
+      setEventsLoading(false);
+    }
+  };
+
+  const handleOpenMyEvents = () => {
+    setShowMyEventsModal(true);
+    fetchUserEvents();
+  };
+
+  const handleCloseMyEvents = () => {
+    setShowMyEventsModal(false);
+    setUserEvents([]);
+    setEventImageStates({});
+  };
+
+  // Function to fetch user location
+  const fetchUserLocation = async () => {
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Permission to access location was denied');
+        return;
+      }
+
+      let location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      setUserLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+    } catch (err) {
+      console.error('Error getting user location:', err);
+      // Try to get manual location from user profile as fallback
+      try {
+        const userProfile = await dataManager.getUserProfile();
+        if (userProfile?.location) {
+          console.log('Using manual location as fallback:', userProfile.location);
+          try {
+            const geocodedLocation = await Location.geocodeAsync(userProfile.location);
+            if (geocodedLocation && geocodedLocation.length > 0) {
+              setUserLocation({
+                latitude: geocodedLocation[0].latitude,
+                longitude: geocodedLocation[0].longitude,
+              });
+              console.log('Successfully geocoded manual address:', geocodedLocation[0]);
+            } else {
+              console.log('Could not geocode manual address:', userProfile.location);
+            }
+          } catch (geocodeError) {
+            console.error('Error geocoding manual address:', geocodeError);
+          }
+        }
+      } catch (profileError) {
+        console.error('Error getting user profile for fallback location:', profileError);
+      }
+    }
   };
 
   const handleOpenTerms = () => {
@@ -863,6 +1093,25 @@ export default memo(function Profile({
                 <Text style={styles.actionCardSubtitle}>Start something amazing</Text>
                 <View style={styles.actionCardStats}>
                   <Text style={styles.actionCardStatsText}>Host your next gathering</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* My Events Card */}
+            <TouchableOpacity style={styles.actionCard} onPress={handleOpenMyEvents}>
+              <LinearGradient
+                colors={['#FF6B9D', '#FF8E53']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.actionCardGradient}
+              >
+                <View style={styles.actionCardHeader}>
+                  <Ionicons name="calendar" size={32} color="#fff" />
+                </View>
+                <Text style={styles.actionCardTitle}>My Events</Text>
+                <Text style={styles.actionCardSubtitle}>View your creations</Text>
+                <View style={styles.actionCardStats}>
+                  <Text style={styles.actionCardStatsText}>See all your events</Text>
                 </View>
               </LinearGradient>
             </TouchableOpacity>
@@ -1168,6 +1417,160 @@ export default memo(function Profile({
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* My Events Modal */}
+      <Modal
+        visible={showMyEventsModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={handleCloseMyEvents}
+      >
+        <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={handleCloseMyEvents} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+            </TouchableOpacity>
+            <Text style={[styles.headerTitle, { color: Colors[colorScheme ?? 'light'].text }]}>My Events</Text>
+            <View style={styles.placeholder} />
+          </View>
+
+          {eventsLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].accent} />
+              <Text style={[styles.loadingText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                Loading your events...
+              </Text>
+            </View>
+          ) : (
+            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+              {/* Events Section */}
+              <View style={[styles.eventsSection, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+                <Text style={[styles.eventsSectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                  Events Created ({userEvents.length})
+                </Text>
+                
+                {userEvents.length === 0 ? (
+                  <View style={styles.noEventsContainer}>
+                    <Ionicons name="calendar-outline" size={40} color="#ccc" />
+                    <Text style={[styles.noEventsText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      No events created yet
+                    </Text>
+                    <Text style={[styles.noEventsSubtext, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Create your first event to get started!
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.eventsList}>
+                    {userEvents.map((event) => (
+                      <TouchableOpacity 
+                        key={event.id} 
+                        style={[styles.eventCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}
+                        onPress={() => handleEventCardPress(event)}
+                        activeOpacity={0.7}
+                      >
+                        {/* Event Image with sophisticated fallback logic */}
+                        {(() => {
+                          const currentImageUrl = getCurrentEventImageUrl(event);
+                          const eventState = eventImageStates[event.id];
+                          
+                          return currentImageUrl && !eventState?.hasError ? (
+                            <Image 
+                              source={{ uri: currentImageUrl }}
+                              style={styles.eventImage}
+                              onError={() => handleEventImageError(event.id)}
+                              onLoad={() => {
+                                // Mark that this image loaded successfully
+                                setEventImageStates(prev => ({
+                                  ...prev,
+                                  [event.id]: { 
+                                    ...prev[event.id], 
+                                    hasError: false 
+                                  }
+                                }));
+                              }}
+                            />
+                          ) : (
+                            <LinearGradient
+                              colors={colorScheme === 'dark' 
+                                ? ['#2A2A2A', '#1F1F1F', '#252525'] 
+                                : ['#FFFFFF', '#F8F9FA', '#FFFFFF']
+                              }
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                              style={[styles.eventImage, { justifyContent: 'center', alignItems: 'center' }]}
+                            >
+                              <Ionicons name="image-outline" size={28} color="#B97AFF" style={{ marginTop: -6 }} />
+                              <Text style={{ color: '#B97AFF', fontSize: 12, fontWeight: 'bold', marginTop: 6, marginBottom: 2, textAlign: 'center' }}>
+                                No Event Image
+                              </Text>
+                              <Text style={{ color: '#999', fontSize: 10, fontWeight: 'bold', marginTop: 2, textAlign: 'center' }}>
+                                But the fun is still on! 🎈
+                              </Text>
+                            </LinearGradient>
+                          );
+                        })()}
+                        
+                        {/* Event Info */}
+                        <View style={styles.eventInfo}>
+                          <Text style={[styles.eventName, { color: Colors[colorScheme ?? 'light'].text }]}>
+                            {event.name}
+                          </Text>
+                          
+                          {event.location && (
+                            <View style={styles.eventDetail}>
+                              <Ionicons name="location-outline" size={14} color="#9E95BD" />
+                              <Text style={[styles.eventDetailText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                                {event.location}
+                              </Text>
+                            </View>
+                          )}
+                          
+                          {event.start_date && (
+                            <View style={styles.eventDetail}>
+                              <Ionicons name="calendar-outline" size={14} color="#9E95BD" />
+                              <Text style={[styles.eventDetailText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                                {new Date(event.start_date).toLocaleDateString()}
+                              </Text>
+                            </View>
+                          )}
+                          
+                          {event.cost !== undefined && event.cost !== null && (
+                            <View style={styles.eventDetail}>
+                              <Ionicons name="cash-outline" size={14} color="#9E95BD" />
+                              <Text style={[styles.eventDetailText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                                {event.cost === 0 ? 'FREE' : `$${event.cost}`}
+                              </Text>
+                            </View>
+                          )}
+                          
+                          {event.event_type && (
+                            <View style={styles.eventTypeContainer}>
+                              <Text style={styles.eventType}>
+                                {event.event_type}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          )}
+        </SafeAreaView>
+
+        {/* Event Detail Modal */}
+        {expandedEvent && (
+          <EventDetailModal
+            visible={!!expandedEvent}
+            event={expandedEvent}
+            onClose={handleCloseEventDetail}
+            userLocation={userLocation}
+          />
+        )}
       </Modal>
 
     </View>
@@ -1515,13 +1918,10 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   actionCardsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 20,
-    gap: 15,
+    gap: 12,
   },
   actionCard: {
-    flex: 1,
     borderRadius: 16,
     overflow: 'hidden',
     shadowColor: '#9E95BD',
@@ -1529,16 +1929,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
+    marginBottom: 8,
   },
   actionCardGradient: {
-    padding: 20,
+    padding: 24,
     position: 'relative',
+    minHeight: 120,
   },
   actionCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   actionCardBadge: {
     position: 'absolute',
@@ -1558,17 +1960,19 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   actionCardTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 4,
   },
   actionCardSubtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#fff',
     opacity: 0.9,
+    marginBottom: 8,
   },
   actionCardStats: {
-    marginTop: 8,
+    marginTop: 12,
   },
   actionCardStatsText: {
     fontSize: 12,
@@ -1716,6 +2120,108 @@ const styles = StyleSheet.create({
   dangerZoneItemSubtitle: {
     fontSize: 14,
     opacity: 0.9,
+  },
+
+  // My Events Modal styles
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  placeholder: {
+    width: 34,
+  },
+  eventsSection: {
+    margin: 20,
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  eventsSectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+  },
+  noEventsContainer: {
+    alignItems: 'center',
+    paddingVertical: 30,
+  },
+  noEventsText: {
+    fontSize: 16,
+    marginTop: 10,
+    opacity: 0.6,
+  },
+  noEventsSubtext: {
+    fontSize: 14,
+    marginTop: 5,
+    opacity: 0.5,
+    textAlign: 'center',
+  },
+  eventsList: {
+    gap: 12,
+  },
+  eventCard: {
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 8,
+  },
+  eventImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 12,
+    resizeMode: 'cover',
+  },
+  eventInfo: {
+    gap: 8,
+  },
+  eventName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  eventDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  eventDetailText: {
+    fontSize: 14,
+    marginLeft: 6,
+    opacity: 0.8,
+  },
+  eventTypeContainer: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#9E95BD',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 4,
+  },
+  eventType: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
   },
 
 }); 

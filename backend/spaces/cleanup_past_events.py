@@ -2,7 +2,7 @@
 """
 Event Cleanup Script for What's Poppin App
 
-This script removes past events from the all_events database table.
+This script removes past events from the new_events database table.
 It's designed to be run periodically to keep the database clean and performant.
 
 Features:
@@ -107,7 +107,7 @@ class EventCleanupManager:
         
         try:
             # Query all events with relevant fields
-            result = self.supabase.table('all_events').select(
+            result = self.supabase.table('new_events').select(
                 'id, name, start_date, end_date, occurrence, event_type, created_at'
             ).execute()
             
@@ -214,7 +214,7 @@ class EventCleanupManager:
             Number of events actually deleted
         """
         try:
-            result = self.supabase.table('all_events').delete().in_('id', event_ids).execute()
+            result = self.supabase.table('new_events').delete().in_('id', event_ids).execute()
             
             # The delete operation returns the deleted rows count in some cases
             # We'll assume success if no exception was raised
@@ -226,7 +226,7 @@ class EventCleanupManager:
             successful_deletes = 0
             for event_id in event_ids:
                 try:
-                    self.supabase.table('all_events').delete().eq('id', event_id).execute()
+                    self.supabase.table('new_events').delete().eq('id', event_id).execute()
                     successful_deletes += 1
                 except Exception as individual_error:
                     self.logger.error(f"❌ Failed to delete event {event_id}: {str(individual_error)}")
@@ -289,11 +289,11 @@ class EventCleanupManager:
     def get_final_statistics(self) -> Dict[str, int]:
         """Get final database statistics after cleanup."""
         try:
-            result = self.supabase.table('all_events').select('id', count='exact').execute()
+            result = self.supabase.table('new_events').select('id', count='exact').execute()
             total_remaining = result.count if result.count else 0
             
             # Get breakdown by occurrence type
-            occurrence_result = self.supabase.table('all_events').select('occurrence').execute()
+            occurrence_result = self.supabase.table('new_events').select('occurrence').execute()
             occurrence_counts = {}
             
             if occurrence_result.data:

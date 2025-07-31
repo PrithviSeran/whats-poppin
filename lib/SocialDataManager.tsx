@@ -6,6 +6,7 @@ export interface Friend {
   friend_id: number;
   friend_name: string;
   friend_email: string;
+  friend_username?: string;
   friendship_id: number;
   status: 'pending' | 'accepted' | 'blocked' | 'declined';
   created_at: string;
@@ -16,6 +17,7 @@ export interface FriendRequest {
   sender_id: number;
   sender_name: string;
   sender_email: string;
+  sender_username?: string;
   created_at: string;
 }
 
@@ -23,6 +25,7 @@ export interface Follower {
   follower_id: number;
   follower_name: string;
   follower_email: string;
+  follower_username?: string;
   created_at: string;
 }
 
@@ -30,6 +33,7 @@ export interface Following {
   following_id: number;
   following_name: string;
   following_email: string;
+  following_username?: string;
   created_at: string;
 }
 
@@ -112,10 +116,36 @@ class SocialDataManager {
         throw directError;
       }
 
+      // Get usernames for all friends from all_users table
+      const friendIds = directData?.map((friend: any) => friend.friend_id) || [];
+      let usernames: { [key: number]: string } = {};
+      
+      console.log('🔍 SocialDataManager - Friend IDs to fetch usernames for:', friendIds);
+      
+      if (friendIds.length > 0) {
+        const { data: userData, error: userError } = await supabase
+          .from('all_users')
+          .select('id, username')
+          .in('id', friendIds);
+        
+        console.log('🔍 SocialDataManager - Friend user data response:', { userData, userError });
+        
+        if (userData) {
+          userData.forEach((user: any) => {
+            if (user.username) {
+              usernames[user.id] = user.username;
+            }
+          });
+        }
+        
+        console.log('🔍 SocialDataManager - Friend usernames lookup object:', usernames);
+      }
+
       return directData?.map((friend: any) => ({
         friend_id: friend.friend_id,
         friend_name: friend.all_users?.name || 'Unknown',
         friend_email: friend.all_users?.email || 'Unknown',
+        friend_username: usernames[friend.friend_id],
         friendship_id: friend.id,
         status: friend.status,
         created_at: friend.created_at
@@ -146,12 +176,32 @@ class SocialDataManager {
       // Get sender details
       const senderIds = pendingRequests.map(req => req.sender_id);
       let senderDetails: any[] = [];
+      let usernames: { [key: number]: string } = {};
+      
       if (senderIds.length > 0) {
         const { data: sendersData } = await supabase
           .from('all_users')
           .select('id, name, email')
           .in('id', senderIds);
         senderDetails = sendersData || [];
+        
+        // Get usernames for senders from all_users table
+        const { data: userData, error: userError } = await supabase
+          .from('all_users')
+          .select('id, username')
+          .in('id', senderIds);
+        
+        console.log('🔍 SocialDataManager - Friend request user data response:', { userData, userError });
+        
+        if (userData) {
+          userData.forEach((user: any) => {
+            if (user.username) {
+              usernames[user.id] = user.username;
+            }
+          });
+        }
+        
+        console.log('🔍 SocialDataManager - Friend request usernames lookup object:', usernames);
       }
 
       return pendingRequests.map(request => {
@@ -161,6 +211,7 @@ class SocialDataManager {
           sender_id: request.sender_id,
           sender_name: sender?.name || 'Unknown',
           sender_email: sender?.email || 'Unknown',
+          sender_username: usernames[request.sender_id],
           created_at: request.created_at
         };
       });
@@ -193,10 +244,36 @@ class SocialDataManager {
         throw directError;
       }
 
+      // Get usernames for all followers from all_users table
+      const followerIds = directData?.map((follow: any) => follow.follower_id) || [];
+      let usernames: { [key: number]: string } = {};
+      
+      console.log('🔍 SocialDataManager - Follower IDs to fetch usernames for:', followerIds);
+      
+      if (followerIds.length > 0) {
+        const { data: userData, error: userError } = await supabase
+          .from('all_users')
+          .select('id, username')
+          .in('id', followerIds);
+        
+        console.log('🔍 SocialDataManager - Follower user data response:', { userData, userError });
+        
+        if (userData) {
+          userData.forEach((user: any) => {
+            if (user.username) {
+              usernames[user.id] = user.username;
+            }
+          });
+        }
+        
+        console.log('🔍 SocialDataManager - Follower usernames lookup object:', usernames);
+      }
+
       return directData?.map((follow: any) => ({
         follower_id: follow.follower_id,
         follower_name: follow.all_users?.name || 'Unknown',
         follower_email: follow.all_users?.email || 'Unknown',
+        follower_username: usernames[follow.follower_id],
         created_at: follow.created_at
       })) || [];
     } catch (error) {
@@ -228,10 +305,36 @@ class SocialDataManager {
         throw directError;
       }
 
+      // Get usernames for all following from all_users table
+      const followingIds = directData?.map((follow: any) => follow.followed_id) || [];
+      let usernames: { [key: number]: string } = {};
+      
+      console.log('🔍 SocialDataManager - Following IDs to fetch usernames for:', followingIds);
+      
+      if (followingIds.length > 0) {
+        const { data: userData, error: userError } = await supabase
+          .from('all_users')
+          .select('id, username')
+          .in('id', followingIds);
+        
+        console.log('🔍 SocialDataManager - Following user data response:', { userData, userError });
+        
+        if (userData) {
+          userData.forEach((user: any) => {
+            if (user.username) {
+              usernames[user.id] = user.username;
+            }
+          });
+        }
+        
+        console.log('🔍 SocialDataManager - Following usernames lookup object:', usernames);
+      }
+
       return directData?.map((follow: any) => ({
         following_id: follow.followed_id,
         following_name: follow.all_users?.name || 'Unknown',
         following_email: follow.all_users?.email || 'Unknown',
+        following_username: usernames[follow.followed_id],
         created_at: follow.created_at
       })) || [];
     } catch (error) {

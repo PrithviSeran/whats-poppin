@@ -1505,7 +1505,7 @@ class TorontoActivityScraper:
             for i in range(0, len(cleaned_activities), batch_size):
                 batch = cleaned_activities[i:i+batch_size]
                 print(f"Saving batch {i//batch_size + 1} ({len(batch)} records)...")
-                result = supabase.table('all_events').upsert(batch).execute()
+                result = supabase.table('new_events').upsert(batch).execute()
                 print(f"Successfully saved batch {i//batch_size + 1}")
                 
         except Exception as e:
@@ -1810,7 +1810,7 @@ class TorontoActivityScraper:
             return []
         
         try:
-            result = supabase.table('all_events').select('id, name, location, latitude, longitude').execute()
+            result = supabase.table('new_events').select('id, name, location, latitude, longitude').execute()
             return result.data
         except Exception as e:
             print(f"Error fetching existing events: {e}")
@@ -1981,7 +1981,7 @@ class TorontoActivityScraper:
             
             # Get the highest existing ID to continue from there
             try:
-                result = supabase.table('all_events').select('id').order('id', desc=True).limit(1).execute()
+                result = supabase.table('new_events').select('id').order('id', desc=True).limit(1).execute()
                 if result.data:
                     self.next_event_id = result.data[0]['id'] + 1
                 else:
@@ -2057,7 +2057,7 @@ class TorontoActivityScraper:
             for i in range(0, len(cleaned_activities), batch_size):
                 batch = cleaned_activities[i:i+batch_size]
                 print(f"Inserting batch {i//batch_size + 1} ({len(batch)} records)...")
-                result = supabase.table('all_events').insert(batch).execute()
+                result = supabase.table('new_events').insert(batch).execute()
                 print(f"Successfully inserted batch {i//batch_size + 1}")
                 
         except Exception as e:

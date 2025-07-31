@@ -291,7 +291,7 @@ export default function UserProfileModal({
       
       // Fetch events posted by this user - get ALL fields
       const { data: eventsData, error: eventsError } = await supabase
-        .from('all_events')
+        .from('new_events')
         .select('*')
         .eq('posted_by', userEmail)
         .order('created_at', { ascending: false });
@@ -860,7 +860,7 @@ export default function UserProfileModal({
 
               {/* Action Buttons */}
               <View style={styles.actionButtonsContainer}>
-                {/* Follow/Unfollow Button - Hide when there's any friendship relationship */}
+                {/* Follow/Unfollow Button - Always show when no friendship relationship */}
                 {friendshipStatus === 'none' && (
                   <TouchableOpacity
                     style={[
@@ -889,15 +889,7 @@ export default function UserProfileModal({
                   </View>
                 ) : (
                   <>
-                    {friendshipStatus === 'none' && (
-                      <TouchableOpacity
-                        style={[styles.actionButton, { backgroundColor: '#4ECDC4' }]}
-                        onPress={handleFriendRequest}
-                      >
-                        <Ionicons name="people" size={16} color="white" />
-                        <Text style={styles.actionButtonText}>Add Friend</Text>
-                      </TouchableOpacity>
-                    )}
+
 
                     {friendshipStatus === 'pending' && (
                       <View style={styles.friendsContainer}>
@@ -1163,24 +1155,23 @@ const styles = StyleSheet.create({
 
   actionButtonsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     width: '100%',
     paddingHorizontal: 20,
-    gap: 12,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
-    flex: 1,
+    minWidth: 120,
   },
   actionButtonText: {
     color: 'white',

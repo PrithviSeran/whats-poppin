@@ -675,7 +675,7 @@ export default function SuggestedEvents() {
         (async () => {
           try {
             const { data: event, error } = await supabase
-              .from('all_events')
+              .from('new_events')
               .select('*')
               .eq('id', parseInt(sharedEventId, 10))
               .single();
@@ -948,6 +948,9 @@ export default function SuggestedEvents() {
   };
 
   const handleSwipeRight = async (cardIndex: number) => {
+    // Update the cardIndex to point to the next card for color overlay effect
+    setCardIndex(cardIndex + 1);
+    
     // Mark swipe as in progress to block interactions
     setIsSwipeInProgress(true);
     
@@ -1283,6 +1286,9 @@ export default function SuggestedEvents() {
   }, [loading, isFetchingActivities]);
 
   const handleSwipedLeft = async (cardIndex: number) => {
+    // Update the cardIndex to point to the next card for color overlay effect
+    setCardIndex(cardIndex + 1);
+    
     // Mark swipe as in progress to block interactions
     setIsSwipeInProgress(true);
     

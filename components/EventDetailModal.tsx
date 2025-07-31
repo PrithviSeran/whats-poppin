@@ -290,17 +290,33 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   }, []);
 
   // Function to fetch creator information
-  const fetchCreatorInfo = async (creatorEmail: string) => {
+  const fetchCreatorInfo = async (creatorIdentifier: string) => {
     setCreatorLoading(true);
     try {
-      const { data, error } = await supabase
+      // First try to find by username (new format)
+      let { data, error } = await supabase
         .from('all_users')
-        .select('id, name, email')
-        .eq('email', creatorEmail)
+        .select('id, name, email, username')
+        .eq('username', creatorIdentifier)
         .single();
 
-      if (error) {
-        console.error('Error fetching creator info:', error);
+      // If not found by username, try by email (old format)
+      if (error && error.code === 'PGRST116') {
+        console.log('Creator not found by username, trying email...');
+        const { data: emailData, error: emailError } = await supabase
+          .from('all_users')
+          .select('id, name, email, username')
+          .eq('email', creatorIdentifier)
+          .single();
+        
+        if (emailError) {
+          console.error('Error fetching creator info by email:', emailError);
+          setCreatorInfo(null);
+        } else {
+          setCreatorInfo(emailData);
+        }
+      } else if (error) {
+        console.error('Error fetching creator info by username:', error);
         setCreatorInfo(null);
       } else {
         setCreatorInfo(data);

@@ -625,7 +625,7 @@ class NotificationService {
 
       // Get event details for saved events
       const { data: events, error: eventsError } = await supabase
-        .from('all_events')
+        .from('new_events')
         .select('id, name, start_date, start_time, occurrence')
         .in('id', savedEventIds);
 

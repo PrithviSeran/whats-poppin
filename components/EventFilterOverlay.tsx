@@ -39,16 +39,10 @@ interface EventFilterOverlayProps {
 }
 
 const EVENT_TYPES = [
-  'Food & Drink',
-  'Outdoor / Nature',
-  'Leisure & Social',
-  'Games & Entertainment',
-  'Arts & Culture',
-  'Nightlife & Parties',
-  'Wellness & Low-Energy',
-  'Experiences & Activities',
-  'Travel & Discovery',
-  'Happy Hour'
+  'Bars',
+  'Party life',
+  'Clubbing',
+  'Happy hours'
 ];
 
 const defaultStart = '21:00';

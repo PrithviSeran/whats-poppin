@@ -684,7 +684,7 @@ export default function Discover() {
 
           // Fetch events directly from database
           const { data: events, error } = await supabase
-            .from('all_events')
+            .from('new_events')
             .select('*')
             .order('created_at', { ascending: false });
 
@@ -928,7 +928,7 @@ export default function Discover() {
     try {
       setIsLoadingMore(true);
       const { data: eventsData, error } = await supabase
-        .from('all_events')
+        .from('new_events')
         .select('*')
         .order('created_at', { ascending: false })
         .range((pageNum - 1) * ITEMS_PER_PAGE, pageNum * ITEMS_PER_PAGE - 1);

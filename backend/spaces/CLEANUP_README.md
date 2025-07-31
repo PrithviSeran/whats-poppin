@@ -1,6 +1,6 @@
 # Event Cleanup System
 
-This system automatically removes past events from the `all_events` database to keep your What's Poppin app database clean and performant.
+This system automatically removes past events from the `new_events` database to keep your What's Poppin app database clean and performant.
 
 ## 🎯 Features
 

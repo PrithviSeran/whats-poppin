@@ -3,7 +3,7 @@ import { supabase } from './supabase-node';
 async function checkLocations() {
   try {
     const { data: events, error } = await supabase
-      .from('all_events')
+      .from('new_events')
       .select('id, name, location, latitude, longitude');
 
     if (error) {

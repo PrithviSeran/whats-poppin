@@ -224,12 +224,12 @@ class GlobalDataManager extends EventEmitter {
   }
 
   private async fetchAndStoreEvents() {
-    const cacheKey = 'all_events';
+    const cacheKey = 'new_events';
     
     try {
       const events = await this.makeApiCall(cacheKey, async () => {
         const { data: events, error } = await supabase
-          .from('all_events')
+          .from('new_events')
           .select('*');
 
         if (error) throw error;
@@ -354,7 +354,7 @@ class GlobalDataManager extends EventEmitter {
       
       // Fetch full event objects for these IDs
       const { data: events, error: eventsError } = await supabase
-        .from('all_events')
+        .from('new_events')
         .select('*')
         .in('id', savedEventIds);
       if (eventsError) throw eventsError;
@@ -439,7 +439,7 @@ class GlobalDataManager extends EventEmitter {
       }
       // Fetch full event objects for these IDs
       const { data: events, error: eventsError } = await supabase
-        .from('all_events')
+        .from('new_events')
         .select('*')
         .in('id', rejectedEventsArr);
       if (eventsError) throw eventsError;
@@ -724,7 +724,7 @@ class GlobalDataManager extends EventEmitter {
 
         // Fetch the full event object
         const { data: event, error: eventError } = await supabase
-          .from('all_events')
+          .from('new_events')
           .select('*')
           .eq('id', eventId)
           .single();

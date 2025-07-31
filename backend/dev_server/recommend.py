@@ -45,7 +45,7 @@ def fetch_users_and_events():
     users = [u["name"] for u in users_resp.data if u.get("name")]
 
     # Fetch all events
-    events_resp = Client.table("all_events").select("name").execute()
+    events_resp = Client.table("new_events").select("name").execute()
     print("events_resp:", events_resp)
     print("events_resp.data:", events_resp.data)
     events = [e["name"] for e in events_resp.data if e.get("name")]
@@ -126,8 +126,8 @@ def recommend():
     print("user_travel_distance:", user_travel_distance)
     print("saved_events:", saved_events)
     print("rejected_events:", rejected_events)
-    # 2. Query all_events, filtering by user preferences
-    query = Client.table("all_events").select("*", "latitude", "longitude") # Select latitude and longitude
+    # 2. Query new_events, filtering by user preferences
+    query = Client.table("new_events").select("*", "latitude", "longitude") # Select latitude and longitude
 
     if user_preferences:
         # If user has preferences, filter events by event_type
@@ -135,11 +135,11 @@ def recommend():
         query = query.in_('event_type', list(user_preferences))
 
     event_result = query.execute()
-    all_events_raw = event_result.data # Renamed to all_events_raw
+    new_events_raw = event_result.data # Renamed to new_events_raw
 
-    print("all_events_raw after preferences filter:", len(all_events_raw))
+    print("new_events_raw after preferences filter:", len(new_events_raw))
 
-    if not all_events_raw:
+    if not new_events_raw:
         print("No events found matching user preferences.")
         return jsonify({"recommended_events": []}) # Return empty list if no matching events
 
@@ -168,7 +168,7 @@ def recommend():
         user_end = parse_time_str(str(user_end_time))
         if user_start and user_end:
             filtered_by_time = []
-            for event in all_events_raw:
+            for event in new_events_raw:
                 # Extract time ranges from the new times field
                 times_data = event.get('times', {})
                 time_match = False
@@ -192,8 +192,8 @@ def recommend():
                     # Include events without time data
                     filtered_by_time.append(event)
                     
-            all_events_raw = filtered_by_time
-    print("all_events_raw after time filter:", len(all_events_raw))
+            new_events_raw = filtered_by_time
+    print("new_events_raw after time filter:", len(new_events_raw))
 
     # --- End filter by time preference ---
 
@@ -202,7 +202,7 @@ def recommend():
     # --- Filter by occurrence and days_of_the_week ---
     user_preferred_days = parse_days(user_data.get("preferred_days", []))
     filtered_by_occurrence = []
-    for event in all_events_raw:
+    for event in new_events_raw:
         occurrence = event.get("occurrence", "")
         if occurrence != "Weekly":
             filtered_by_occurrence.append(event)
@@ -211,15 +211,15 @@ def recommend():
             # Check for intersection
             if any(day in user_preferred_days for day in event_days):
                 filtered_by_occurrence.append(event)
-    all_events_raw = filtered_by_occurrence
-    print("all_events_raw after occurrence/days_of_the_week filter:", len(all_events_raw))
+    new_events_raw = filtered_by_occurrence
+    print("new_events_raw after occurrence/days_of_the_week filter:", len(new_events_raw))
     # --- End filter by occurrence and days_of_the_week ---
 
     # --- Print all distances before filtering ---
     """
     if user_latitude is not None and user_longitude is not None:
         print("Distances from user to each event (before filtering):")
-        for event in all_events_raw:
+        for event in new_events_raw:
             event_latitude = event.get("latitude")
             event_longitude = event.get("longitude")
             event_id = event.get("id")
@@ -236,11 +236,11 @@ def recommend():
                 print(f"Event {event_id} ({event_name}): No location data")
     """
     # Apply distance filtering if user location is available and filter_by_distance is True
-    all_events_filtered = []
+    new_events_filtered = []
     distance_threshold_km = user_travel_distance
 
     if filter_by_distance and user_latitude is not None and user_longitude is not None:
-        for event in all_events_raw:
+        for event in new_events_raw:
             event_latitude = event.get("latitude")
             event_longitude = event.get("longitude")
             # Check if event has location data
@@ -255,17 +255,17 @@ def recommend():
                 event["distance"] = distance
                 # Only include events within the user's travel distance threshold
                 if distance <= distance_threshold_km:
-                    all_events_filtered.append(event)
+                    new_events_filtered.append(event)
             else:
                 # Optionally include events without location data, or filter them out
                 event["distance"] = None
-                all_events_filtered.append(event)
+                new_events_filtered.append(event)
     else:
         # If not filtering by distance, use all events filtered by preferences
-        all_events_filtered = all_events_raw
+        new_events_filtered = new_events_raw
         # Still add distance field if location data is available
         if user_latitude is not None and user_longitude is not None:
-            for event in all_events_filtered:
+            for event in new_events_filtered:
                 event_latitude = event.get("latitude")
                 event_longitude = event.get("longitude")
                 if event_latitude is not None and event_longitude is not None:
@@ -279,14 +279,14 @@ def recommend():
                 else:
                     event["distance"] = None
 
-    print("all_events_filtered after distance filter:", len(all_events_filtered))
+    print("new_events_filtered after distance filter:", len(new_events_filtered))
 
-    if not all_events_filtered:
+    if not new_events_filtered:
         print("No events found after applying distance filter.")
         return jsonify({"recommended_events": []})
 
     # 3. Build event_ids from the FILTERED events
-    event_ids_filtered = [event.get("id") for event in all_events_filtered if event.get("id")]
+    event_ids_filtered = [event.get("id") for event in new_events_filtered if event.get("id")]
     # Remove saved and rejected events from the pool
     exclude_ids = set(saved_events) | set(rejected_events)
     event_ids_filtered = [eid for eid in event_ids_filtered if eid not in exclude_ids]
@@ -316,7 +316,7 @@ def recommend():
 
     # 5. Build event feature tuples from the FILTERED events
     event_feature_tuples = []
-    for event in all_events_filtered:
+    for event in new_events_filtered:
         eid = event.get("id")
         event_types = parse_event_types(event.get("event_type", []))
         
@@ -379,7 +379,7 @@ def recommend():
         print(feats)
 
     # Return full event objects instead of just IDs
-    top_5_event_objs = [event for event in all_events_filtered if event.get("id") in top_5_recommended_events]
+    top_5_event_objs = [event for event in new_events_filtered if event.get("id") in top_5_recommended_events]
     return jsonify({"recommended_events": top_5_event_objs})
 
 
@@ -510,7 +510,7 @@ def parse_preferences(preferences):
 # all_users = result.data  # from your Supabase query
 
 # all_users = result from Client.table("all_users").select("*").execute().data
-# all_events = result from Client.table("all_events").select("*").execute().data
+# new_events = result from Client.table("new_events").select("*").execute().data
 
 def parse_event_types(event_type):
     if isinstance(event_type, list):

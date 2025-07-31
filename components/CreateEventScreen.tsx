@@ -12,16 +12,10 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 
 
 const EVENT_TYPES = [
-  'Food & Drink',
-  'Outdoor / Nature',
-  'Leisure & Social',
-  'Games & Entertainment',
-  'Arts & Culture',
-  'Nightlife & Parties',
-  'Wellness & Low-Energy',
-  'Experiences & Activities',
-  'Travel & Discovery',
-  'Happy Hour'
+  'Bars',
+  'Party life',
+  'Clubbing',
+  'Happy hours'
 ];
 
 const DAYS_OF_WEEK = [
@@ -411,11 +405,27 @@ export default function CreateEventScreen() {
         Alert.alert('Error', 'Website/Link is required when reservation is needed');
         return;
       }
-      // Get current user's email
+      // Get current user's email and username
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         Alert.alert('Error', 'You must be logged in to create an event');
         return;
+      }
+      
+      // Get user's username from profiles table
+      let username = user.email; // fallback to email if username not found
+      try {
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('username')
+          .eq('id', user.id)
+          .single();
+        
+        if (!profileError && profileData && profileData.username) {
+          username = profileData.username;
+        }
+      } catch (error) {
+        console.warn('Could not fetch username, using email as fallback:', error);
       }
       // Get coordinates for location
       let latitude: number | null = null;
@@ -468,12 +478,12 @@ export default function CreateEventScreen() {
         link: eventForm.link.trim() || null,
         latitude,
         longitude,
-        posted_by: user.email,
+        posted_by: username,
         created_at: new Date().toISOString()
       };
       // Insert event into Supabase
       const { data, error } = await supabase
-        .from('all_events')
+        .from('new_events')
         .insert([eventData])
         .select();
       if (error) {

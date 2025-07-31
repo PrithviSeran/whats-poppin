@@ -4,7 +4,7 @@ async function checkTable() {
   try {
     // First, let's check if we can read the table structure
     const { data: tableInfo, error: tableError } = await supabase
-      .from('all_events')
+      .from('new_events')
       .select('*')
       .limit(1);
 
@@ -22,7 +22,7 @@ async function checkTable() {
     };
 
     const { data: updateData, error: updateError } = await supabase
-      .from('all_events')
+      .from('new_events')
       .update(testUpdate)
       .eq('id', 1)
       .select();
