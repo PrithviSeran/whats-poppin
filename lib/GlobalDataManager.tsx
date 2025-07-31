@@ -36,6 +36,7 @@ export interface EventCard {
   featured?: boolean;  // Whether the event is featured
   friendsWhoSaved?: { id: number; name: string; email: string }[];  // Friends who have saved this event
   posted_by?: string;  // Email of the user who created this event
+  posted_by_email?: string;  // Email of the user who created this event
 };
 
 export interface UserProfile {

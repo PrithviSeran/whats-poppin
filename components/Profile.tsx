@@ -199,18 +199,39 @@ export default memo(function Profile({
     setIsSavingUsername(true);
     try {
       const newUsername = editingUsername.trim().toLowerCase();
+      const oldUsername = profile.username || profile.email; // fallback to email if no username
       
-      // Update username in database
-      const { error } = await supabase
+      console.log('🔄 Updating username from', oldUsername, 'to', newUsername);
+      
+      // STEP 1: Update posted_by column in new_events table first
+      console.log('📝 Step 1: Updating posted_by in new_events table...');
+      const { error: eventsError } = await supabase
+        .from('new_events')
+        .update({ posted_by: newUsername })
+        .eq('posted_by', oldUsername);
+
+      if (eventsError) {
+        console.error('Error updating events posted_by:', eventsError);
+        Alert.alert('Error', 'Failed to update events. Please try again.');
+        return;
+      }
+      
+      console.log('✅ Successfully updated posted_by in new_events table');
+
+      // STEP 2: Update username in all_users table
+      console.log('👤 Step 2: Updating username in all_users table...');
+      const { error: userError } = await supabase
         .from('all_users')
         .update({ username: newUsername })
         .eq('email', profile.email);
 
-      if (error) {
-        console.error('Error updating username:', error);
+      if (userError) {
+        console.error('Error updating username in all_users:', userError);
         Alert.alert('Error', 'Failed to update username. Please try again.');
         return;
       }
+      
+      console.log('✅ Successfully updated username in all_users table');
 
       // Update local profile state
       const updatedProfile = { ...profile, username: newUsername };

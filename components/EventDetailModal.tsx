@@ -1927,12 +1927,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   modernExpiringTag: {
-    backgroundColor: 'rgba(255, 68, 68, 0.1)',
+    backgroundColor: '#ff4444',
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: 'rgba(255, 68, 68, 0.2)',
+    borderColor: '#ff4444',
     overflow: 'hidden',
   },
   modernExpiringTagGradient: {

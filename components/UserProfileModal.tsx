@@ -289,11 +289,15 @@ export default function UserProfileModal({
     try {
       setEventsLoading(true);
       
+      // Use username if available, otherwise fallback to email
+      const postedBy = userProfile?.username || userEmail;
+      console.log('🔍 Fetching events for user:', { username: userProfile?.username, email: userEmail, using: postedBy });
+      
       // Fetch events posted by this user - get ALL fields
       const { data: eventsData, error: eventsError } = await supabase
         .from('new_events')
         .select('*')
-        .eq('posted_by', userEmail)
+        .eq('posted_by', postedBy)
         .order('created_at', { ascending: false });
 
       if (eventsError) {
@@ -301,6 +305,7 @@ export default function UserProfileModal({
         setUserEvents([]);
       } else {
         const events = eventsData || [];
+        console.log(`✅ Found ${events.length} events for user with posted_by: ${postedBy}`);
         
         // Initialize event images using the same logic as SuggestedEvents
         const eventsWithImages = events.map(event => {
@@ -758,9 +763,15 @@ export default function UserProfileModal({
     if (visible && userId) {
       fetchUserProfile();
       fetchCurrentUserProfile();
-      fetchUserEvents();
     }
   }, [visible, userId]);
+
+  // Fetch user events after user profile is loaded
+  useEffect(() => {
+    if (visible && userId && userProfile) {
+      fetchUserEvents();
+    }
+  }, [visible, userId, userProfile]);
 
   useEffect(() => {
     if (visible && userId && currentUserProfile?.email) {
@@ -881,59 +892,48 @@ export default function UserProfileModal({
                   </TouchableOpacity>
                 )}
 
-                {/* Friend Request Button - Show loading state */}
-                {relationshipLoading ? (
-                  <View style={[styles.actionButton, { backgroundColor: '#ddd' }]}>
-                    <ActivityIndicator size="small" color="white" />
-                    <Text style={styles.actionButtonText}>Loading...</Text>
+                {/* Friend Request Button - Show friendship status */}
+                {friendshipStatus === 'pending' && (
+                  <View style={styles.friendsContainer}>
+                    <View style={[styles.actionButton, { backgroundColor: '#FFA500' }]}>
+                      <Ionicons name="time" size={16} color="white" />
+                      <Text style={styles.actionButtonText}>Request Sent</Text>
+                    </View>
+                    <Text style={[styles.autoFollowText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      You're following {userProfile?.name || userName}
+                    </Text>
                   </View>
-                ) : (
-                  <>
+                )}
 
+                {friendshipStatus === 'accepted' && (
+                  <View style={styles.friendsContainer}>
+                    <View style={[styles.actionButton, { backgroundColor: '#4CAF50' }]}>
+                      <Ionicons name="checkmark-circle" size={16} color="white" />
+                      <Text style={styles.actionButtonText}>Friends</Text>
+                    </View>
+                    <Text style={[styles.autoFollowText, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      You and {userProfile?.name || userName} are following each other
+                    </Text>
+                  </View>
+                )}
 
-                    {friendshipStatus === 'pending' && (
-                      <View style={styles.friendsContainer}>
-                        <View style={[styles.actionButton, { backgroundColor: '#FFA500' }]}>
-                          <Ionicons name="time" size={16} color="white" />
-                          <Text style={styles.actionButtonText}>Request Sent</Text>
-                        </View>
-                        <Text style={[styles.autoFollowText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          You're following {userProfile?.name || userName}
-                        </Text>
-                      </View>
-                    )}
-
-                    {friendshipStatus === 'accepted' && (
-                      <View style={styles.friendsContainer}>
-                        <View style={[styles.actionButton, { backgroundColor: '#4CAF50' }]}>
-                          <Ionicons name="checkmark-circle" size={16} color="white" />
-                          <Text style={styles.actionButtonText}>Friends</Text>
-                        </View>
-                        <Text style={[styles.autoFollowText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          You and {userProfile?.name || userName} are following each other
-                        </Text>
-                      </View>
-                    )}
-
-                    {friendshipStatus === 'incoming' && (
-                      <View style={styles.friendRequestButtons}>
-                        <TouchableOpacity
-                          style={[styles.actionButton, { backgroundColor: '#4ECDC4', flex: 1, marginRight: 8 }]}
-                          onPress={handleAcceptFriendRequest}
-                        >
-                          <Ionicons name="checkmark" size={16} color="white" />
-                          <Text style={styles.actionButtonText}>Accept</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.actionButton, { backgroundColor: '#ff4444', flex: 1, marginLeft: 8 }]}
-                          onPress={handleDeclineFriendRequest}
-                        >
-                          <Ionicons name="close" size={16} color="white" />
-                          <Text style={styles.actionButtonText}>Decline</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </>
+                {friendshipStatus === 'incoming' && (
+                  <View style={styles.friendRequestButtons}>
+                    <TouchableOpacity
+                      style={[styles.actionButton, { backgroundColor: '#4ECDC4', flex: 1, marginRight: 8 }]}
+                      onPress={handleAcceptFriendRequest}
+                    >
+                      <Ionicons name="checkmark" size={16} color="white" />
+                      <Text style={styles.actionButtonText}>Accept</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, { backgroundColor: '#ff4444', flex: 1, marginLeft: 8 }]}
+                      onPress={handleDeclineFriendRequest}
+                    >
+                      <Ionicons name="close" size={16} color="white" />
+                      <Text style={styles.actionButtonText}>Decline</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
             </View>

@@ -1727,7 +1727,7 @@ export default function SuggestedEvents() {
                                 <View style={styles.topRightProfileContainer}>
                                   <Image 
                                     source={{ 
-                                      uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${(card.posted_by || card.organization).replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
+                                      uri: `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/user-images/${(card.posted_by_email || card.organization).replace('@', '_').replace(/\./g, '_')}/profile.jpg` 
                                     }}
                                     style={styles.topRightProfileImage}
                                     onError={() => {
