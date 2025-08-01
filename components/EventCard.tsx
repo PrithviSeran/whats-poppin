@@ -150,14 +150,7 @@ const EventCardComponent = memo<EventCardComponentProps>(({
           {event.name}
         </Text>
         
-        {event.start_date && (
-          <View style={styles.infoRow}>
-            <Ionicons name="calendar-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-            <Text style={[styles.infoText, { color: Colors[colorScheme ?? 'light'].text }]}>
-              {event.start_date}
-            </Text>
-          </View>
-        )}
+
         
         <View style={styles.infoRow}>
           <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />

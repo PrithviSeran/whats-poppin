@@ -11,6 +11,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import GlobalDataManager, { EventCard, UserProfile } from '@/lib/GlobalDataManager';
 import SocialDataManager from '@/lib/SocialDataManager';
 import EventDetailModal from './EventDetailModal';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import * as Location from 'expo-location';
 import EventCardComponent from './EventCard';
 import UserProfileModal from './UserProfileModal';
@@ -311,8 +312,11 @@ export default function Discover() {
 
   // User search functions
   const searchUsers = async (query: string) => {
+    console.log('searchUsers called with query:', query, 'userProfile:', userProfile?.email || 'No profile');
+    
     if (!userProfile?.id || query.trim().length < 2) {
       setSearchResults([]);
+      console.log('Search cancelled - userProfile missing or query too short');
       return;
     }
     
@@ -649,158 +653,34 @@ export default function Discover() {
   useEffect(() => {
     let isMounted = true;
 
-    const initializeData = async () => {
-      if (!hasInitialLoad && isMounted) {
-        setLoading(true);
-        try {
-          // Initialize global data if not already initialized
-          if (!dataManager.isDataInitialized()) {
-            await dataManager.initialize();
-          }
 
-          // Get user profile for user search functionality
-          const profile = await dataManager.getUserProfile();
-          setUserProfile(profile);
 
-          // Load recent searches
-          await loadRecentSearches();
-
-          // Get user location
-          const { data: userData } = await supabase.auth.getUser();
-          if (userData?.user) {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('latitude, longitude')
-              .eq('id', userData.user.id)
-              .single();
-            
-            if (profile?.latitude && profile?.longitude) {
-              setUserLocation({
-                latitude: profile.latitude,
-                longitude: profile.longitude
-              });
-            }
-          }
-
-          // Fetch events directly from database
-          const { data: events, error } = await supabase
-            .from('new_events')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-          if (error) throw error;
-
-          if (!isMounted) return;
-
-          // Get saved events to filter them out
-          const savedEvents = await dataManager.getSavedEvents();
-          const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
-
-          // Filter out saved events
-          const filteredEvents = events.filter(event => !savedEventIds.has(event.id));
-          
-          // Process events with friends data
-          const eventsWithLikes = await Promise.all(
-            filteredEvents.map(async (event) => {
-              // Randomly select one of the 5 images (0-4) or leave null if no ID
-              const randomImageIndex = Math.floor(Math.random() * 5);
-              const imageUrl = event.id ? 
-                `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${randomImageIndex}.jpg` : 
-                null;
-
-              // Fetch friends who saved this event
-              let friendsWhoSaved: { id: number; name: string; email: string }[] = [];
-              try {
-                friendsWhoSaved = await dataManager.getFriendsWhoSavedEvent(event.id);
-              } catch (error) {
-                console.error(`Error fetching friends for event ${event.id} in initializeData:`, error);
-              }
-
-              return {
-                ...event,
-                image: imageUrl,
-                isLiked: false, // These are unsaved events
-                allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
-                  `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
-                ) : [],
-                friendsWhoSaved
-              } as ExtendedEventCard;
-            })
-          );
-
-          // Shuffle the events array only once during initialization
-          const shuffledEvents = [...eventsWithLikes].sort(() => Math.random() - 0.5);
-
-          setAllEvents(shuffledEvents);
-          setEvents(shuffledEvents.slice(0, ITEMS_PER_PAGE));
-          setLoadedEventIds(new Set(shuffledEvents.slice(0, ITEMS_PER_PAGE).map(e => e.id)));
-          setHasInitialLoad(true);
-        } catch (error) {
-          console.error('Error initializing data:', error);
-          setError('Failed to load events');
-        } finally {
-          if (isMounted) {
-            setLoading(false);
-          }
+    const loadUserProfile = async () => {
+      try {
+        // Load user profile for search functionality
+        const dataManager = GlobalDataManager.getInstance();
+        
+        // Initialize if needed
+        if (!dataManager.isDataInitialized()) {
+          await dataManager.initialize();
         }
+        
+        const profile = await dataManager.getUserProfile();
+        console.log('User profile loaded for search:', profile?.email || 'No profile');
+        setUserProfile(profile);
+        
+        // Load recent searches
+        await loadRecentSearches();
+      } catch (error) {
+        console.error('Error loading user profile:', error);
       }
     };
 
-    // Listen for data updates - only refresh liked status, not entire data
-    const handleDataUpdate = async () => {
-      if (isMounted) {
-        try {
-          // Only sync the liked status instead of reloading everything
-          const savedEvents = await dataManager.getSavedEvents();
-          const savedEventIds = new Set(savedEvents.map((event: ExtendedEventCard) => event.id));
-          setEvents(prevEvents =>
-            prevEvents.map(event => ({
-              ...event,
-              isLiked: savedEventIds.has(event.id)
-            } as ExtendedEventCard))
-          );
-        } catch (error) {
-          console.error('Error updating liked status:', error);
-        }
-      }
-    };
-
-    // Listen for saved events updates from other components
-    const handleSavedEventsUpdate = (updatedSavedEvents: ExtendedEventCard[]) => {
-      console.log('Discover: Received savedEventsUpdated event with', updatedSavedEvents.length, 'events');
-      if (isMounted) {
-        const savedEventIds = new Set(updatedSavedEvents.map(event => event.id));
-        setEvents(prevEvents =>
-          prevEvents.map(event => ({
-            ...event,
-            isLiked: savedEventIds.has(event.id)
-          } as ExtendedEventCard))
-        );
-      }
-    };
-
-    // Listen for shared events
-    const handleSharedEvent = (event: EventCard) => {
-      // Add the shared event to the top of the stack
-      setSharedEvent(event as ExtendedEventCard);
-      setEvents(prevEvents => {
-        // Remove the event if it already exists in the list
-        const filteredEvents = prevEvents.filter(e => e.id !== event.id);
-        // Add the shared event at the beginning
-        return [event as ExtendedEventCard, ...filteredEvents];
-      });
-    };
-
-    dataManager.on('dataInitialized', handleDataUpdate);
-    dataManager.on('savedEventsUpdated', handleSavedEventsUpdate);
-    dataManager.on('sharedEventReceived', handleSharedEvent);
-    initializeData();
+    fetchEvents(1, false); // Use fetchEvents instead of loadEvents to get friends data
+    loadUserProfile();
 
     return () => {
       isMounted = false;
-      dataManager.removeListener('dataInitialized', handleDataUpdate);
-      dataManager.removeListener('savedEventsUpdated', handleSavedEventsUpdate);
-      dataManager.removeListener('sharedEventReceived', handleSharedEvent);
     };
   }, []);
 
@@ -924,14 +804,21 @@ export default function Discover() {
     }
   };
 
-  const fetchEvents = async (pageNum: number = 1) => {
+  const fetchEvents = async (pageNum: number = 1, loadAllForSearch: boolean = false) => {
     try {
       setIsLoadingMore(true);
-      const { data: eventsData, error } = await supabase
+      
+      let query = supabase
         .from('new_events')
         .select('*')
-        .order('created_at', { ascending: false })
-        .range((pageNum - 1) * ITEMS_PER_PAGE, pageNum * ITEMS_PER_PAGE - 1);
+        .order('created_at', { ascending: false });
+      
+      // If loading all for search, don't use range
+      if (!loadAllForSearch) {
+        query = query.range((pageNum - 1) * ITEMS_PER_PAGE, pageNum * ITEMS_PER_PAGE - 1);
+      }
+      
+      const { data: eventsData, error } = await query;
 
       if (error) throw error;
 
@@ -939,8 +826,8 @@ export default function Discover() {
       const savedEvents = await dataManager.getSavedEvents();
       const savedEventIds = new Set(savedEvents.map(event => event.id));
 
-      // Filter out already loaded events and saved events, then map the remaining ones
-      const filteredEvents = eventsData.filter(event => !loadedEventIds.has(event.id) && !savedEventIds.has(event.id));
+      // Filter out already loaded events, but include saved events (they'll be marked as liked)
+      const filteredEvents = eventsData.filter(event => !loadedEventIds.has(event.id));
       
       // OPTIMIZED: Batch fetch friends data for all events at once (eliminates N+1 queries)
       const eventIds = filteredEvents.map(event => event.id);
@@ -969,7 +856,7 @@ export default function Discover() {
         return {
           ...event,
           image: imageUrl,
-          isLiked: false, // These are unsaved events
+          isLiked: savedEventIds.has(event.id), // Mark as liked if it's in saved events
           occurrence: event.occurrence || 'one-time',
           allImages: event.id ? Array.from({ length: 5 }, (_, i) => 
             `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${i}.jpg`
@@ -990,16 +877,21 @@ export default function Discover() {
 
       if (pageNum === 1) {
         setEvents(newEvents);
+        setAllEvents(newEvents); // Also set allEvents for search functionality
       } else {
         setEvents(prev => [...prev, ...newEvents]);
+        setAllEvents(prev => [...prev, ...newEvents]); // Update allEvents for search
       }
       setPage(pageNum);
       setLoading(false);
       setError(null);
+      
+      return newEvents; // Return the processed events
     } catch (err) {
       console.error('Error fetching events:', err);
       setError('Failed to load events. Please try again.');
       setLoading(false);
+      return []; // Return empty array on error
     } finally {
       setIsLoadingMore(false);
     }
@@ -1029,13 +921,11 @@ export default function Discover() {
       })
     ]).start();
 
-    // Shuffle all events and reset to initial state
-    const shuffledEvents = [...allEvents].sort(() => Math.random() - 0.5);
-    setAllEvents(shuffledEvents);
-    setEvents(shuffledEvents.slice(0, ITEMS_PER_PAGE));
+    // Reset to initial state and fetch fresh events with friends data
     setPage(1);
-    setLoadedEventIds(new Set(shuffledEvents.slice(0, ITEMS_PER_PAGE).map(e => e.id)));
+    setLoadedEventIds(new Set());
     setHasMore(true);
+    await fetchEvents(1, false);
     
     setIsRefreshing(false);
     setRefreshTriggered(false);
@@ -1065,21 +955,39 @@ export default function Discover() {
     }
   };
 
-  const handleSearch = (text: string) => {
+  const handleSearch = async (text: string) => {
     setSearchQuery(text);
+    console.log('handleSearch called with text:', text, 'searchMode:', searchMode);
     
     if (searchMode === 'events') {
       // Handle event search
       if (text.trim() === '') {
-        setEvents(allEvents);
+        // Reset to paginated view
+        setPage(1);
+        setLoadedEventIds(new Set());
+        await fetchEvents(1);
       } else {
-        const filtered = allEvents.filter(event =>
-          event.name.toLowerCase().includes(text.toLowerCase())
-        );
-        setEvents(filtered);
+        // Load all events for search if not already loaded
+        if (allEvents.length < 50) { // If we have less than 50 events, load all for search
+          console.log('Loading all events for search...');
+          const allEventsData = await fetchEvents(1, true); // loadAllForSearch = true
+          if (allEventsData) {
+            const filtered = allEventsData.filter(event =>
+              event.name.toLowerCase().includes(text.toLowerCase())
+            );
+            setEvents(filtered);
+          }
+        } else {
+          // Use existing allEvents for search
+          const filtered = allEvents.filter(event =>
+            event.name.toLowerCase().includes(text.toLowerCase())
+          );
+          setEvents(filtered);
+        }
       }
     } else {
       // Handle user search
+      console.log('User search mode - text length:', text.trim().length);
       if (text.trim().length < 2) {
         setSearchResults([]);
       } else {
@@ -1490,6 +1398,21 @@ export default function Discover() {
           </Text>
           <Text style={[styles.noResultsSubtext, { color: Colors[colorScheme].text }]}>
             Try different keywords or browse all events
+          </Text>
+        </View>
+      );
+    }
+
+    // No events available (not searching)
+    if (!searchQuery && events.length === 0 && searchMode === 'events' && hasInitialLoad) {
+      return (
+        <View style={styles.noResultsContainer}>
+          <Ionicons name="calendar-outline" size={48} color={Colors[colorScheme].text} />
+          <Text style={[styles.noResultsText, { color: Colors[colorScheme].text }]}>
+            No Events Available
+          </Text>
+          <Text style={[styles.noResultsSubtext, { color: Colors[colorScheme].text }]}>
+            {error || 'Check back later for new events in your area'}
           </Text>
         </View>
       );
@@ -2201,5 +2124,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
     opacity: 0.7,
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 25,
+    borderWidth: 2,
+    alignSelf: 'center',
+  },
+  retryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 }); 

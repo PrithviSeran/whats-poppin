@@ -22,6 +22,7 @@ interface FriendsModalProps {
   onRequestsUpdate: (requests: FriendRequest[]) => void;
   onFollowCountsUpdate?: () => void;
   onRefreshRequests?: () => void;
+  initialTab?: 'followers' | 'following';
 }
 
 const { width } = Dimensions.get('window');
@@ -419,7 +420,8 @@ export default function FriendsModal({
   onFriendsUpdate,
   onRequestsUpdate,
   onFollowCountsUpdate,
-  onRefreshRequests
+  onRefreshRequests,
+  initialTab = 'followers'
 }: FriendsModalProps) {
   
   // Debug: Log the props to see what data is being passed
@@ -440,7 +442,7 @@ export default function FriendsModal({
   });
   const colorScheme = useColorScheme();
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'friends' | 'followers' | 'following' | 'requests'>('friends');
+  const [activeTab, setActiveTab] = useState<'followers' | 'following'>(initialTab);
   
   // Follow state
   const [followers, setFollowers] = useState<Follower[]>([]);
@@ -718,7 +720,7 @@ export default function FriendsModal({
   };
 
   // Handle tab switching and mark as viewed
-  const handleTabSwitch = async (tab: 'friends' | 'followers' | 'following' | 'requests') => {
+  const handleTabSwitch = async (tab: 'followers' | 'following') => {
     // Animate tab switch
     Animated.sequence([
       Animated.timing(tabSwitchAnim, {
@@ -736,11 +738,7 @@ export default function FriendsModal({
     setActiveTab(tab);
     
     // Mark as viewed when switching to tabs
-    if (tab === 'friends') {
-      setTimeout(() => markFriendsAsViewed(), 200);
-    } else if (tab === 'requests') {
-      setTimeout(() => markRequestsAsViewed(), 200);
-    }
+    // No need to mark as viewed for followers/following tabs
     
     // OFFLINE-FIRST: Load data for tabs that need it with fresh data
     if ((tab === 'followers' || tab === 'following') && profile?.id) {
@@ -763,7 +761,7 @@ export default function FriendsModal({
   };
 
   const handleModalOpen = async () => {
-    setActiveTab('friends');
+    setActiveTab(initialTab);
     
     // Clear cache to force fresh data with usernames
     console.log('🚀 OFFLINE-FIRST: Modal opened - clearing cache for fresh data with usernames');
@@ -900,13 +898,6 @@ export default function FriendsModal({
     let type: 'friend' | 'follower' | 'following' | 'request' = 'friend';
 
     switch (activeTab) {
-      case 'friends':
-        data = friends;
-        emptyIcon = 'people-outline';
-        emptyTitle = 'No friends yet';
-        emptySubtitle = 'Use the Discover tab to search for friends';
-        type = 'friend';
-        break;
       case 'followers':
         data = followers;
         emptyIcon = 'person-outline';
@@ -920,13 +911,6 @@ export default function FriendsModal({
         emptyTitle = 'Not following anyone';
         emptySubtitle = 'Follow people to see their updates';
         type = 'following';
-        break;
-      case 'requests':
-        data = friendRequests;
-        emptyIcon = 'mail-outline';
-        emptyTitle = 'No friend requests';
-        emptySubtitle = '';
-        type = 'request';
         break;
     }
 
@@ -959,46 +943,16 @@ export default function FriendsModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="fullScreen"
-      onRequestClose={() => {}} // Prevent closing with back button or gestures
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
     >
       <SafeAreaView style={[styles.modalContainer, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-        <View style={styles.modalHeader}>
-          <Text style={[styles.modalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Social</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        {/* Drag indicator */}
+        <View style={styles.dragIndicator} />
 
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-            </TouchableOpacity>
-          </View>
-        </View>
 
-        {/* Tab Navigation */}
+        
         <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'friends' && styles.tabActive]}
-            onPress={() => handleTabSwitch('friends')}
-          >
-            <View style={styles.tabIconContainer}>
-              <Ionicons 
-                name="people" 
-                size={20} 
-                color={activeTab === 'friends' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
-              />
-              {hasNewFriends && activeTab !== 'friends' && (
-                <View style={styles.tabNotificationBubble}>
-                  <View style={styles.tabNotificationDot} />
-                </View>
-              )}
-            </View>
-            <Text style={[
-              styles.tabText,
-              { color: activeTab === 'friends' ? '#fff' : Colors[colorScheme ?? 'light'].text }
-            ]}>
-              Friends
-            </Text>
-          </TouchableOpacity>
-          
           <TouchableOpacity
             style={[styles.tab, activeTab === 'followers' && styles.tabActive]}
             onPress={() => handleTabSwitch('followers')}
@@ -1036,35 +990,6 @@ export default function FriendsModal({
               Following
             </Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'requests' && styles.tabActive]}
-            onPress={() => handleTabSwitch('requests')}
-          >
-            <View style={styles.tabIconContainer}>
-              <Ionicons 
-                name="mail" 
-                size={20} 
-                color={activeTab === 'requests' ? '#fff' : Colors[colorScheme ?? 'light'].text} 
-              />
-              {friendRequests.length > 0 && (
-                <View style={styles.tabBadge}>
-                  <Text style={styles.tabBadgeText}>{friendRequests.length}</Text>
-                </View>
-              )}
-              {hasNewRequests && activeTab !== 'requests' && (
-                <View style={styles.tabNotificationBubble}>
-                  <View style={styles.tabNotificationDot} />
-                </View>
-              )}
-            </View>
-            <Text style={[
-              styles.tabText,
-              { color: activeTab === 'requests' ? '#fff' : Colors[colorScheme ?? 'light'].text }
-            ]}>
-              Requests
-            </Text>
-          </TouchableOpacity>
         </View>
 
         {/* Tab Content */}
@@ -1098,6 +1023,27 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  modalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+  },
+  backButton: {
+    padding: 5,
+  },
+  dragIndicator: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#D1D5DB',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  titleContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 10,
   },
   modalTitle: {
     fontSize: 20,

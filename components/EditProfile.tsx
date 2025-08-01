@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { supabase } from '@/lib/supabase';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -108,39 +108,27 @@ export default function EditProfile() {
     if (!editedProfile) return;
 
     try {
+      // Get the optimized services
+      const services = OptimizedComponentServices.getInstance();
+      
       // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
+      const result = await services.getCurrentUser();
+      const user = result?.data?.user;
       if (!user) {
         console.error('No authenticated user found');
         Alert.alert('Error', 'You must be logged in to update your profile');
         return;
       }
 
-      // Update user profile in database
-      console.log('Updating profile in database...');
-      const { data: updateData, error: updateError } = await supabase
-        .from('all_users')
-        .update({
-          name: editedProfile.name,
-          birthday: editedProfile.birthday,
-          gender: editedProfile.gender,
-        })
-        .eq('email', user.email)
-        .select();
+      // Update user profile using optimized service with automatic caching and optimistic updates
+      console.log('Updating profile with optimized service...');
+      await services.updateUserProfile(user.email, {
+        name: editedProfile.name,
+        birthday: editedProfile.birthday,
+        gender: editedProfile.gender,
+      });
 
-      if (updateError) {
-        console.error('Profile update error:', updateError);
-        Alert.alert('Error', 'Failed to update profile. Please try again.');
-        return;
-      }
-
-      console.log('Profile updated successfully:', updateData);
-
-      // Immediately refresh the GlobalDataManager cache with fresh data
-      const GlobalDataManager = require('@/lib/GlobalDataManager').default;
-      const dataManager = GlobalDataManager.getInstance();
-      await dataManager.refreshAllData();
-      console.log('✅ GlobalDataManager cache refreshed with updated profile data');
+      console.log('✅ Profile updated successfully with optimistic updates');
 
       // Show success message and go back to previous screen
       Alert.alert('Success', 'Profile updated successfully!', [

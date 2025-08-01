@@ -6,11 +6,12 @@ import { Colors } from '@/constants/Colors';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { UserData } from '@/types/user';
-import { supabase } from '@/lib/supabase';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import GlobalDataManager from '@/lib/GlobalDataManager';
 import LegalDocumentViewer from './LegalDocumentViewer';
+import { supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -75,27 +76,26 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
       // Create user account directly (email is already verified)
       console.log('🔄 Creating Supabase auth user...');
       
-      // First, try to sign up with email confirmation disabled
-      const { data: signupData, error: signupError } = await supabase.auth.signUp({
-        email: userData.email,
-        password: userData.password,
-        options: {
-          emailRedirectTo: undefined,
-          data: {
-            username: userData.username || undefined,
-            name: userData.name || undefined,
-            gender: userData.gender || undefined,
-            birthday: userData.birthday || undefined,
-            preferences: userData.preferences || undefined,
-            email_verified: true
-          },
-        },
+      // First, try to sign up with email confirmation disabled using optimized service
+      const services = OptimizedComponentServices.getInstance();
+      const signupResult = await services.signUp(userData.email, userData.password, {
+        username: userData.username || undefined,
+        name: userData.name || undefined,
+        gender: userData.gender || undefined,
+        birthday: userData.birthday || undefined,
+        preferences: userData.preferences || undefined,
+        email_verified: true
       });
+      
+      const signupData = (signupResult as any)?.data;
+      const signupError = (signupResult as any)?.error;
 
       let authData = signupData;
 
-      console.log(signupData.session)
-      const { data: { session }, error } = await supabase.auth.getSession()
+      console.log(signupData?.session)
+      const sessionResult = await services.getSession();
+      const session = (sessionResult as any)?.data?.session;
+      const error = (sessionResult as any)?.error;
 
       if (session) {
         console.log('User is signed in:', session.user)
@@ -111,10 +111,9 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         if (signupError.message.includes('User already registered')) {
           // User might exist, try signing in instead
           console.log('🔄 User already exists, attempting sign-in...');
-          const { data: signinData, error: signinError } = await supabase.auth.signInWithPassword({
-            email: userData.email,
-            password: userData.password,
-          });
+          const signinResult = await services.signInWithPassword(userData.email, userData.password);
+          const signinData = (signinResult as any)?.data;
+          const signinError = (signinResult as any)?.error;
           
           if (signinError) {
             throw new Error('Account already exists but sign-in failed. Please try signing in manually.');
@@ -146,10 +145,9 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
             console.log('✅ Email verification confirmed in our records');
             
             // Try to sign in directly since the user exists and email is verified
-            const { data: signinData, error: signinError } = await supabase.auth.signInWithPassword({
-              email: userData.email,
-              password: userData.password,
-            });
+            const signinResult = await services.signInWithPassword(userData.email, userData.password);
+            const signinData = (signinResult as any)?.data;
+            const signinError = (signinResult as any)?.error;
             
             if (signinError) {
               console.log(signinError);
@@ -221,7 +219,9 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
       console.log('✅ Account creation and database insert successful');
       
       // Verify we have a valid session
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const sessionCheckResult = await services.getSession();
+      const sessionData = (sessionCheckResult as any)?.data;
+      const sessionError = (sessionCheckResult as any)?.error;
       
       if (sessionError) {
         console.error('❌ Session error after account creation:', sessionError);
@@ -234,10 +234,9 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         // Try to sign in immediately after account creation
         try {
           console.log('🔄 Attempting to sign in with created credentials...');
-          const { data: signinData, error: signinError } = await supabase.auth.signInWithPassword({
-            email: userData.email,
-            password: userData.password,
-          });
+          const signinResult = await services.signInWithPassword(userData.email, userData.password);
+          const signinData = (signinResult as any)?.data;
+          const signinError = (signinResult as any)?.error;
           
           if (signinError) {
             console.log('⚠️ Sign-in failed after account creation:', signinError.message);

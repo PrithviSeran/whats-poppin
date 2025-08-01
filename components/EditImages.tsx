@@ -101,116 +101,36 @@ export default function EditImages() {
         return null;
       }
 
-      // Method 1: Try with FormData (React Native specific)
-      try {
-        console.log('Trying FormData approach...');
-        const formData = new FormData();
-        formData.append('file', {
-          uri: imageUri,
-          type: 'image/jpeg',
-          name: imagePath.split('/').pop() || 'image.jpg',
-        } as any);
+      // Simple direct upload using FormData (React Native standard)
+      console.log('📤 Uploading with FormData...');
+      const formData = new FormData();
+      formData.append('file', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: imagePath.split('/').pop() || 'image.jpg',
+      } as any);
 
-        const { data, error } = await supabase.storage
-          .from('user-images')
-          .upload(imagePath, formData, {
-            contentType: 'image/jpeg',
-            upsert: true,
-          });
+      const { data, error } = await supabase.storage
+        .from('user-images')
+        .upload(imagePath, formData, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
 
-        if (!error && data) {
-          console.log('FormData upload successful:', data);
-          const { data: { publicUrl } } = supabase.storage
-            .from('user-images')
-            .getPublicUrl(imagePath);
-          return publicUrl;
-        }
-        console.log('FormData method failed:', error);
-      } catch (formDataError) {
-        console.log('FormData method error:', formDataError);
+      if (error) {
+        console.error('Upload failed:', error);
+        return null;
       }
 
-      // Method 2: Try with fetch and arraybuffer
-      try {
-        console.log('Trying ArrayBuffer approach...');
-        const response = await fetch(imageUri);
-        
-        if (!response.ok) {
-          console.error('Failed to fetch image:', response.status, response.statusText);
-          return null;
-        }
+      console.log('✅ Upload successful:', data);
 
-        const arrayBuffer = await response.arrayBuffer();
-        console.log('ArrayBuffer created, size:', arrayBuffer.byteLength);
-        
-        if (arrayBuffer.byteLength === 0) {
-          console.error('ArrayBuffer is empty');
-          return null;
-        }
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('user-images')
+        .getPublicUrl(imagePath);
 
-        const { data, error } = await supabase.storage
-          .from('user-images')
-          .upload(imagePath, arrayBuffer, {
-            contentType: 'image/jpeg',
-            upsert: true,
-          });
-
-        if (!error && data) {
-          console.log('ArrayBuffer upload successful:', data);
-          const { data: { publicUrl } } = supabase.storage
-            .from('user-images')
-            .getPublicUrl(imagePath);
-          return publicUrl;
-        }
-        console.log('ArrayBuffer method failed:', error);
-      } catch (arrayBufferError) {
-        console.log('ArrayBuffer method error:', arrayBufferError);
-      }
-
-      // Method 3: Try with blob (original method)
-      try {
-        console.log('Trying Blob approach...');
-        const response = await fetch(imageUri);
-        
-        if (!response.ok) {
-          console.error('Failed to fetch image:', response.status, response.statusText);
-          return null;
-        }
-
-        const blob = await response.blob();
-        console.log('Blob created, size:', blob.size, 'type:', blob.type);
-        
-        if (!blob || blob.size === 0) {
-          console.error('Invalid or empty blob');
-          return null;
-        }
-
-        const { data, error } = await supabase.storage
-          .from('user-images')
-          .upload(imagePath, blob, {
-            contentType: blob.type || 'image/jpeg',
-            upsert: true,
-          });
-
-        if (!error && data) {
-          console.log('Blob upload successful:', data);
-          const { data: { publicUrl } } = supabase.storage
-            .from('user-images')
-            .getPublicUrl(imagePath);
-          return publicUrl;
-        }
-        console.log('Blob method failed:', error);
-      } catch (blobError) {
-        console.log('Blob method error:', blobError);
-      }
-
-      // Method 4: Try with base64 if available
-      const base64Key = imagePath.includes('profile') ? 'profileBase64' : 'bannerBase64';
-      const base64Data = (editedProfile as any)?.[base64Key];
-      
-      
-      console.error('All upload methods failed');
-      return null;
+      console.log('✅ Public URL generated:', publicUrl);
+      return publicUrl;
     } catch (error) {
       console.error('Error in uploadImageToSupabase:', error);
       return null;

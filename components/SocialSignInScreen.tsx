@@ -20,7 +20,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '@/lib/supabase';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import LegalDocumentViewer from './LegalDocumentViewer';
 import { checkPendingEventAfterLogin } from '@/lib/deepLinking';
 
@@ -85,18 +85,17 @@ const SocialSignInScreen = () => {
     setIsLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email,
-        password: password,
-      });
+      // Use optimized service with caching and better error handling
+      const services = OptimizedComponentServices.getInstance();
+      const result = await services.signInWithPassword(email, password);
 
-      if (error) {
-        setError(getErrorMessage(error));
+      if ((result as any)?.error) {
+        setError(getErrorMessage((result as any).error));
         setIsLoading(false);
         return;
       }
       
-      console.log('Sign in successful:', data);
+      console.log('Sign in successful:', (result as any)?.data);
       // Check for pending event after login
       const handled = await checkPendingEventAfterLogin(navigation);
       if (!handled) {

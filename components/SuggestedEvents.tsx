@@ -11,6 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import GlobalDataManager from '@/lib/GlobalDataManager';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import SavedActivities from './SavedActivities';
 import EventDetailModal from './EventDetailModal';
 import { EventCard } from '../lib/GlobalDataManager';
@@ -676,7 +677,7 @@ export default function SuggestedEvents() {
           try {
             const { data: event, error } = await supabase
               .from('new_events')
-              .select('*')
+              .select('id, created_at, name, organization, location, cost, age_restriction, reservation, description, start_date, end_date, occurrence, latitude, longitude, days_of_the_week, event_type, link, times, featured, posted_by, posted_by_email')
               .eq('id', parseInt(sharedEventId, 10))
               .single();
             if (event) {
@@ -1001,11 +1002,11 @@ export default function SuggestedEvents() {
     // Do save operations with proper tracking
     (async () => {
       try {
-        // Save the event and ensure it's synced to database
-        await dataManager.addEventToSavedEvents(likedEvent.id);
+        // Save the event using optimized service with automatic optimistic updates
+        const services = OptimizedComponentServices.getInstance();
+        await services.saveEvent(likedEvent.id);
         
-        // Refresh data to ensure everything is in sync
-        await GlobalDataManager.getInstance().refreshAllData();
+        console.log('✅ Event saved successfully with optimistic updates');
         
         // Track the swiped event
         setSwipedEventIds(prev => new Set(prev).add(likedEvent.id));
@@ -1805,7 +1806,7 @@ export default function SuggestedEvents() {
                                 </View>
                               )}
 
-                              {/* Friends Who Saved This Event */}
+                              {/* People You Follow Who Saved This Event */}
                               {card.friendsWhoSaved && card.friendsWhoSaved.length > 0 && (
                                 <View style={styles.friendsContainer}>
                                   <View style={styles.friendsHeader}>

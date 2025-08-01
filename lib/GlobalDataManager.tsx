@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import SocialDataManager from './SocialDataManager';
+import APIRequestService from './APIRequestService';
 import { EventEmitter } from 'events';
 import { Interface } from 'readline';
 import { clearProfileImageCache, clearBannerImageCache } from '@/components/OptimizedImage';
@@ -34,7 +35,7 @@ export interface EventCard {
   allImages?: string[];  // Array of all 5 image URLs for the event
   link?: string;  // Source URL for the event/activity
   featured?: boolean;  // Whether the event is featured
-  friendsWhoSaved?: { id: number; name: string; email: string }[];  // Friends who have saved this event
+  friendsWhoSaved?: { id: number; name: string; email: string }[];  // People you follow who have saved this event
   posted_by?: string;  // Email of the user who created this event
   posted_by_email?: string;  // Email of the user who created this event
 };
@@ -84,8 +85,12 @@ class GlobalDataManager extends EventEmitter {
   private imageCache: Map<string, { data: string; timestamp: number }> = new Map();
   private readonly IMAGE_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
+  // API service for optimized requests
+  private apiService: APIRequestService;
+
   private constructor() {
     super();
+    this.apiService = APIRequestService.getInstance();
   }
 
   static getInstance(): GlobalDataManager {
@@ -231,7 +236,7 @@ class GlobalDataManager extends EventEmitter {
       const events = await this.makeApiCall(cacheKey, async () => {
         const { data: events, error } = await supabase
           .from('new_events')
-          .select('*');
+          .select('id, created_at, name, organization, location, cost, age_restriction, reservation, description, start_date, end_date, occurrence, latitude, longitude, days_of_the_week, event_type, link, times, featured, posted_by, posted_by_email');
 
         if (error) throw error;
         return events;
@@ -261,23 +266,25 @@ class GlobalDataManager extends EventEmitter {
       }
 
       console.log('Querying all_users table for email:', user.email);
-      const { data: profile, error } = await supabase
-        .from('all_users')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
+      
+      // Use APIRequestService for optimized querying with caching
+      const profile = await this.apiService.queueRequest<any>('select', {
+        table: 'all_users',
+        data: { select: '*' },
+        filters: { eq: { email: user.email } },
+        priority: 'high',
+        cacheKey: `user_profile_${user.email}`,
+        cacheTTL: 300000 // 5 minutes cache
+      });
 
-      if (error) {
-        console.error('Supabase query error:', error);
-        throw error;
-      }
+      console.log('Profile query result:', profile && profile.length > 0 ? 'Found profile' : 'No profile found');
       
-      console.log('Profile query result:', profile ? 'Found profile' : 'No profile found');
-      
-      if (profile) {
+      if (profile && profile.length > 0) {
+        const userProfile = profile[0];
+        
         // Use the profile_image and banner_image fields from the database if they exist
-        let profileImageUrl = profile.profile_image;
-        let bannerImageUrl = profile.banner_image;
+        let profileImageUrl = userProfile.profile_image;
+        let bannerImageUrl = userProfile.banner_image;
 
         // If no custom images are set in the database, fall back to default paths
         if (!profileImageUrl) {
@@ -298,7 +305,7 @@ class GlobalDataManager extends EventEmitter {
 
         // Add image URLs to profile object
         const profileWithImages = {
-          ...profile,
+          ...userProfile,
           profileImage: profileImageUrl,
           bannerImage: bannerImageUrl
         };
@@ -327,38 +334,45 @@ class GlobalDataManager extends EventEmitter {
         return;
       }
 
-      // Fetch saved_events IDs from user profile
-      const { data: userData, error } = await supabase
-        .from('all_users')
-        .select('saved_events')
-        .eq('email', user.email)
-        .maybeSingle();
+      // Fetch saved_events IDs from user profile using API service
+      const userData = await this.apiService.queueRequest<any[]>('select', {
+        table: 'all_users',
+        data: { select: 'saved_events' },
+        filters: { eq: { email: user.email } },
+        priority: 'high',
+        cacheKey: `user_saved_events_${user.email}`,
+        cacheTTL: 120000 // 2 minutes cache for saved events
+      });
 
-      if (error) throw error;
       let savedEventIds: number[] = [];
-      if (userData?.saved_events) {
-        if (Array.isArray(userData.saved_events)) {
-          savedEventIds = userData.saved_events;
-        } else if (typeof userData.saved_events === 'string' && userData.saved_events) {
-          savedEventIds = userData.saved_events
+      if (userData && userData.length > 0 && userData[0]?.saved_events) {
+        const savedEvents = userData[0].saved_events;
+        if (Array.isArray(savedEvents)) {
+          savedEventIds = savedEvents;
+        } else if (typeof savedEvents === 'string' && savedEvents) {
+          savedEventIds = savedEvents
             .replace(/[{}"']+/g, '')
             .split(',')
             .map((s: string) => parseInt(s.trim(), 10))
             .filter(Boolean);
         }
       }
+      
       if (savedEventIds.length === 0) {
         await AsyncStorage.setItem('savedEvents', JSON.stringify([]));
         console.log('No saved events to store');
         return;
       }
       
-      // Fetch full event objects for these IDs
-      const { data: events, error: eventsError } = await supabase
-        .from('new_events')
-        .select('*')
-        .in('id', savedEventIds);
-      if (eventsError) throw eventsError;
+      // Fetch full event objects for these IDs using API service
+      const events = await this.apiService.queueRequest<any[]>('select', {
+        table: 'new_events',
+        data: { select: '*' },
+        filters: { in: { id: savedEventIds } },
+        priority: 'medium',
+        cacheKey: `events_batch_${savedEventIds.join('_')}`,
+        cacheTTL: 300000 // 5 minutes cache for event details
+      });
       
       // OPTIMIZED: Generate image URLs efficiently and in parallel
       const eventsWithImages = await this.addImageUrlsToEventsOptimized(events || []);
@@ -415,35 +429,47 @@ class GlobalDataManager extends EventEmitter {
         await AsyncStorage.setItem('rejectedEvents', JSON.stringify([]));
         return;
       }
-      const { data: userData, error } = await supabase
-        .from('all_users')
-        .select('rejected_events')
-        .eq('email', user.email)
-        .maybeSingle();
-      if (error) throw error;
+      
+      // Use API service for fetching rejected events
+      const userData = await this.apiService.queueRequest<any[]>('select', {
+        table: 'all_users',
+        data: { select: 'rejected_events' },
+        filters: { eq: { email: user.email } },
+        priority: 'medium',
+        cacheKey: `user_rejected_events_${user.email}`,
+        cacheTTL: 180000 // 3 minutes cache for rejected events
+      });
+      
       let rejectedEventsArr: number[] = [];
-      if (userData?.rejected_events) {
-        if (Array.isArray(userData.rejected_events)) {
-          rejectedEventsArr = userData.rejected_events;
-        } else if (typeof userData.rejected_events === 'string' && userData.rejected_events) {
-          rejectedEventsArr = userData.rejected_events
+      if (userData && userData.length > 0 && userData[0]?.rejected_events) {
+        const rejectedEvents = userData[0].rejected_events;
+        if (Array.isArray(rejectedEvents)) {
+          rejectedEventsArr = rejectedEvents;
+        } else if (typeof rejectedEvents === 'string' && rejectedEvents) {
+          rejectedEventsArr = rejectedEvents
             .replace(/[{}"']+/g, '')
             .split(',')
             .map((s: string) => parseInt(s.trim(), 10))
             .filter(Boolean);
         }
       }
+      
       if (rejectedEventsArr.length === 0) {
         await AsyncStorage.setItem('rejectedEvents', JSON.stringify([]));
         console.log('No rejected events to store');
         return;
       }
-      // Fetch full event objects for these IDs
-      const { data: events, error: eventsError } = await supabase
-        .from('new_events')
-        .select('*')
-        .in('id', rejectedEventsArr);
-      if (eventsError) throw eventsError;
+      
+      // Fetch full event objects for these IDs using API service
+      const events = await this.apiService.queueRequest<any[]>('select', {
+        table: 'new_events',
+        data: { select: '*' },
+        filters: { in: { id: rejectedEventsArr } },
+        priority: 'low', // Lower priority for rejected events
+        cacheKey: `rejected_events_batch_${rejectedEventsArr.join('_')}`,
+        cacheTTL: 600000 // 10 minutes cache for rejected events (they don't change often)
+      });
+      
       await AsyncStorage.setItem('rejectedEvents', JSON.stringify(events || []));
       console.log('Rejected events (full objects) stored successfully');
     } catch (error) {
@@ -474,20 +500,22 @@ class GlobalDataManager extends EventEmitter {
       const user = this.currentUser;
       if (!user || !user.email) return [];
 
-      const { data: userData, error } = await supabase
-        .from('all_users')
-        .select('saved_events_all_time')
-        .eq('email', user.email)
-        .maybeSingle();
-
-      if (error) throw error;
+      const userData = await this.apiService.queueRequest<any[]>('select', {
+        table: 'all_users',
+        data: { select: 'saved_events_all_time' },
+        filters: { eq: { email: user.email } },
+        priority: 'medium',
+        cacheKey: `user_saved_events_all_time_${user.email}`,
+        cacheTTL: 300000 // 5 minutes cache
+      });
 
       let savedEventsAllTime: number[] = [];
-      if (userData?.saved_events_all_time) {
-        if (Array.isArray(userData.saved_events_all_time)) {
-          savedEventsAllTime = userData.saved_events_all_time;
-        } else if (typeof userData.saved_events_all_time === 'string' && userData.saved_events_all_time) {
-          savedEventsAllTime = userData.saved_events_all_time
+      if (userData && userData.length > 0 && userData[0]?.saved_events_all_time) {
+        const allTimeEvents = userData[0].saved_events_all_time;
+        if (Array.isArray(allTimeEvents)) {
+          savedEventsAllTime = allTimeEvents;
+        } else if (typeof allTimeEvents === 'string' && allTimeEvents) {
+          savedEventsAllTime = allTimeEvents
             .replace(/[{}"']+/g, '')
             .split(',')
             .map((s: string) => parseInt(s.trim(), 10))
@@ -557,17 +585,24 @@ class GlobalDataManager extends EventEmitter {
   // Setter for user profile: updates AsyncStorage and Supabase
   async setUserProfile(profile: UserProfile) {
     try {
-      // Update AsyncStorage
+      // Update AsyncStorage immediately (optimistic update)
       await AsyncStorage.setItem('userProfile', JSON.stringify(profile));
-      // Update Supabase
+      
+      // Update Supabase using API service
       if (profile.email) {
         // Remove profileImage and bannerImage before updating Supabase
         const { id, created_at, profileImage, bannerImage, ...updateData } = profile as any;
-        const { error } = await supabase
-          .from('all_users')
-          .update(updateData)
-          .eq('email', profile.email);
-        if (error) throw error;
+        
+        await this.apiService.queueRequest('update', {
+          table: 'all_users',
+          data: updateData,
+          filters: { eq: { email: profile.email } },
+          priority: 'high',
+          batch: 'user_updates'
+        });
+        
+        // Emit event for listeners
+        this.emit('profileUpdated', profile);
       }
     } catch (err) {
       console.error('Error updating user profile:', err);
@@ -668,83 +703,109 @@ class GlobalDataManager extends EventEmitter {
       const user = this.currentUser;
       if (!user || !user.email) return;
 
-      // Get current saved events and saved_events_all_time from Supabase
-      const { data: userData, error } = await supabase
-        .from('all_users')
-        .select('saved_events, saved_events_all_time')
-        .eq('email', user.email)
-        .maybeSingle();
+      // Get current saved events from AsyncStorage for optimistic update
+      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+      const currentSavedEvents = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+      
+      // Check if already saved
+      if (currentSavedEvents.some((event: EventCard) => event.id === eventId)) {
+        console.log('Event already saved');
+        return;
+      }
 
-      if (error) throw error;
+      // Fetch the full event object first for optimistic update
+      const eventData = await this.apiService.queueRequest<any[]>('select', {
+        table: 'new_events',
+        data: { select: '*' },
+        filters: { eq: { id: eventId } },
+        priority: 'high',
+        cacheKey: `event_${eventId}`,
+        cacheTTL: 300000
+      });
 
-      // Parse current saved events
+      if (!eventData || eventData.length === 0) {
+        throw new Error('Event not found');
+      }
+
+      const event = eventData[0];
+      const eventWithImage = await this.addImageUrlsToEventsOptimized([event]);
+      const optimizedEvent = eventWithImage[0] || { ...event, image: null, allImages: [] };
+
+      // Get current user data to update arrays
+      const userData = await this.apiService.queueRequest<any[]>('select', {
+        table: 'all_users',
+        data: { select: 'saved_events, saved_events_all_time' },
+        filters: { eq: { email: user.email } },
+        priority: 'high'
+      });
+
       let savedEventIds: number[] = [];
-      if (userData?.saved_events) {
-        if (Array.isArray(userData.saved_events)) {
-          savedEventIds = userData.saved_events;
-        } else if (typeof userData.saved_events === 'string' && userData.saved_events) {
-          savedEventIds = userData.saved_events
-            .replace(/[{}"']+/g, '')
-            .split(',')
-            .map((s: string) => parseInt(s.trim(), 10))
-            .filter(Boolean);
-        }
-      }
-
-      // Parse current saved_events_all_time
       let savedEventsAllTime: number[] = [];
-      if (userData?.saved_events_all_time) {
-        if (Array.isArray(userData.saved_events_all_time)) {
-          savedEventsAllTime = userData.saved_events_all_time;
-        } else if (typeof userData.saved_events_all_time === 'string' && userData.saved_events_all_time) {
-          savedEventsAllTime = userData.saved_events_all_time
-            .replace(/[{}"']+/g, '')
-            .split(',')
-            .map((s: string) => parseInt(s.trim(), 10))
-            .filter(Boolean);
+
+      if (userData && userData.length > 0) {
+        const userRecord = userData[0];
+        
+        // Parse saved events
+        if (userRecord.saved_events) {
+          if (Array.isArray(userRecord.saved_events)) {
+            savedEventIds = userRecord.saved_events;
+          } else if (typeof userRecord.saved_events === 'string' && userRecord.saved_events) {
+            savedEventIds = userRecord.saved_events
+              .replace(/[{}"']+/g, '')
+              .split(',')
+              .map((s: string) => parseInt(s.trim(), 10))
+              .filter(Boolean);
+          }
+        }
+
+        // Parse all time events
+        if (userRecord.saved_events_all_time) {
+          if (Array.isArray(userRecord.saved_events_all_time)) {
+            savedEventsAllTime = userRecord.saved_events_all_time;
+          } else if (typeof userRecord.saved_events_all_time === 'string' && userRecord.saved_events_all_time) {
+            savedEventsAllTime = userRecord.saved_events_all_time
+              .replace(/[{}"']+/g, '')
+              .split(',')
+              .map((s: string) => parseInt(s.trim(), 10))
+              .filter(Boolean);
+          }
         }
       }
 
-      // Add new event ID if not already present in current saved events
+      // Add new event ID if not already present
       if (!savedEventIds.includes(eventId)) {
         savedEventIds.push(eventId);
-
-        // Also add to saved_events_all_time if not already present
+        
+        // Also add to all time if not present
         if (!savedEventsAllTime.includes(eventId)) {
           savedEventsAllTime.push(eventId);
         }
 
-        // Update Supabase with both arrays
-        await supabase
-          .from('all_users')
-          .update({ 
+        // Update with optimistic UI update
+        const updatedSavedEvents = [...currentSavedEvents, optimizedEvent];
+        
+        await this.apiService.queueRequest('update', {
+          table: 'all_users',
+          data: { 
             saved_events: savedEventIds,
             saved_events_all_time: savedEventsAllTime
-          })
-          .eq('email', user.email);
-
-        // Fetch the full event object
-        const { data: event, error: eventError } = await supabase
-          .from('new_events')
-          .select('*')
-          .eq('id', eventId)
-          .single();
-
-        if (eventError) throw eventError;
-
-        // OPTIMIZED: Generate image URL efficiently
-        const eventWithImage = await this.addImageUrlsToEventsOptimized([event]);
-        const optimizedEvent = eventWithImage[0] || { ...event, image: null, allImages: [] };
-
-        // Get current saved events from AsyncStorage
-        const savedEventsJson = await AsyncStorage.getItem('savedEvents');
-        const currentSavedEvents = savedEventsJson ? JSON.parse(savedEventsJson) : [];
-
-        // Add new event to AsyncStorage
-        await AsyncStorage.setItem('savedEvents', JSON.stringify([...currentSavedEvents, optimizedEvent]));
-
-        // Emit an event to notify listeners
-        this.emit('savedEventsUpdated', [...currentSavedEvents, optimizedEvent]);
+          },
+          filters: { eq: { email: user.email } },
+          priority: 'high',
+          batch: 'event_operations',
+          optimisticUpdate: async () => {
+            // Update AsyncStorage immediately
+            await AsyncStorage.setItem('savedEvents', JSON.stringify(updatedSavedEvents));
+            this.emit('savedEventsUpdated', updatedSavedEvents);
+            console.log('⚡ Optimistic save event applied');
+          },
+          rollback: async () => {
+            // Rollback to original state
+            await AsyncStorage.setItem('savedEvents', JSON.stringify(currentSavedEvents));
+            this.emit('savedEventsUpdated', currentSavedEvents);
+            console.log('🔄 Save event rolled back');
+          }
+        });
       }
     } catch (error) {
       console.error('Error adding event to saved events:', error);
@@ -1294,9 +1355,9 @@ class GlobalDataManager extends EventEmitter {
     }, 300);
   }
 
-  // Get friends who have saved a specific event
+  // Get people the user follows who have saved a specific event
   async getFriendsWhoSavedEvent(eventId: number): Promise<{ id: number; name: string; email: string }[]> {
-    const cacheKey = `friends_saved_event_${eventId}`;
+    const cacheKey = `following_saved_event_${eventId}`;
     
     return this.makeApiCall(cacheKey, async () => {
       if (!this.currentUser?.email) {
@@ -1312,26 +1373,25 @@ class GlobalDataManager extends EventEmitter {
 
         if (error) throw error;
 
-        // Filter users who have this event in their saved_events and are friends with current user
+        // Filter users who have this event in their saved_events and are people the current user follows
         const userProfile = await this.getUserProfile();
         if (!userProfile?.id) return [];
 
-        // Get current user's friends
-        const { data: friendsData, error: friendsError } = await supabase
-          .from('friends')
-          .select('friend_id')
-          .eq('user_id', userProfile.id)
-          .eq('status', 'accepted');
+        // Get people the current user follows
+        const { data: followingData, error: followingError } = await supabase
+          .from('follows')
+          .select('followed_id')
+          .eq('follower_id', userProfile.id);
 
-        if (friendsError) throw friendsError;
+        if (followingError) throw followingError;
 
-        const friendIds = new Set(friendsData?.map(f => f.friend_id) || []);
+        const followingIds = new Set(followingData?.map(f => f.followed_id) || []);
 
-        // Find friends who have saved this event
-        const friendsWhoSaved: { id: number; name: string; email: string }[] = [];
+        // Find people the user follows who have saved this event
+        const followingWhoSaved: { id: number; name: string; email: string }[] = [];
         
         for (const user of usersData || []) {
-          if (!friendIds.has(user.id)) continue;
+          if (!followingIds.has(user.id)) continue;
           
           let savedEvents: number[] = [];
           if (user.saved_events) {
@@ -1347,7 +1407,7 @@ class GlobalDataManager extends EventEmitter {
           }
           
           if (savedEvents.includes(eventId)) {
-            friendsWhoSaved.push({
+            followingWhoSaved.push({
               id: user.id,
               name: user.name,
               email: user.email
@@ -1355,22 +1415,22 @@ class GlobalDataManager extends EventEmitter {
           }
         }
 
-        return friendsWhoSaved;
+        return followingWhoSaved;
       } catch (error) {
-        console.error('Error fetching friends who saved event:', error);
+        console.error('Error fetching people you follow who saved event:', error);
         return [];
       }
     }, 30 * 1000); // Cache for 30 seconds
   }
 
-  // OPTIMIZED: Batch method to fetch friends data for multiple events at once
+  // OPTIMIZED: Batch method to fetch following data for multiple events at once
   async getFriendsWhoSavedEventsBatch(eventIds: number[]): Promise<{ [eventId: number]: { id: number; name: string; email: string }[] }> {
     if (!this.currentUser?.email || eventIds.length === 0) {
       return {};
     }
 
     try {
-      console.log(`🚀 Batch fetching friends data for ${eventIds.length} events`);
+      console.log(`🚀 Batch fetching following data for ${eventIds.length} events`);
       const startTime = Date.now();
 
       // Get all users who have saved events
@@ -1381,19 +1441,18 @@ class GlobalDataManager extends EventEmitter {
 
       if (error) throw error;
 
-      // Get current user's friends
+      // Get people the current user follows
       const userProfile = await this.getUserProfile();
       if (!userProfile?.id) return {};
 
-      const { data: friendsData, error: friendsError } = await supabase
-        .from('friends')
-        .select('friend_id')
-        .eq('user_id', userProfile.id)
-        .eq('status', 'accepted');
+      const { data: followingData, error: followingError } = await supabase
+        .from('follows')
+        .select('followed_id')
+        .eq('follower_id', userProfile.id);
 
-      if (friendsError) throw friendsError;
+      if (followingError) throw followingError;
 
-      const friendIds = new Set(friendsData?.map(f => f.friend_id) || []);
+      const followingIds = new Set(followingData?.map(f => f.followed_id) || []);
 
       // Build result map for all requested events
       const result: { [eventId: number]: { id: number; name: string; email: string }[] } = {};
@@ -1401,7 +1460,7 @@ class GlobalDataManager extends EventEmitter {
 
       // Process each user once and check against all events
       for (const user of usersData || []) {
-        if (!friendIds.has(user.id)) continue;
+        if (!followingIds.has(user.id)) continue;
         
         let savedEvents: number[] = [];
         if (user.saved_events) {
@@ -1429,11 +1488,11 @@ class GlobalDataManager extends EventEmitter {
       }
 
       const endTime = Date.now();
-      console.log(`✅ Batch friends fetch completed in ${endTime - startTime}ms for ${eventIds.length} events`);
+      console.log(`✅ Batch following fetch completed in ${endTime - startTime}ms for ${eventIds.length} events`);
 
       return result;
     } catch (error) {
-      console.error('Error in batch friends fetch:', error);
+      console.error('Error in batch following fetch:', error);
       // Return empty result for all events instead of failing
       const result: { [eventId: number]: { id: number; name: string; email: string }[] } = {};
       eventIds.forEach(id => result[id] = []);

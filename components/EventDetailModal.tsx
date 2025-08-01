@@ -886,8 +886,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 </View>
               )}
 
-              {/* Friends Who Saved This Event - Hero Section */}
-              {event.friendsWhoSaved && event.friendsWhoSaved.length > 0 && (
+              {/* People You Follow Who Saved This Event - Hero Section */}
+              {event?.friendsWhoSaved && event.friendsWhoSaved.length > 0 && (
                 <View style={styles.modernFriendsSection}>
                   <LinearGradient
                     colors={colorScheme === 'dark' 
@@ -912,7 +912,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                           }
                         </Text>
                         <Text style={[styles.modernFriendsSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          {event.friendsWhoSaved.length} friend{event.friendsWhoSaved.length !== 1 ? 's' : ''} interested
+                          {event.friendsWhoSaved.length} person{event.friendsWhoSaved.length !== 1 ? 's' : ''} you follow interested
                         </Text>
                       </View>
                     </View>

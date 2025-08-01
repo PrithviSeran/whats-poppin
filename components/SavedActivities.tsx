@@ -33,7 +33,9 @@ const SavedEventCard = React.memo(({
   isMultiSelectMode,
   isSelected,
   onToggleSelect,
-  multiSelectSlideAnim
+  multiSelectSlideAnim,
+  fadeAnim,
+  scaleAnim
 }: {
   event: EventCard;
   index: number;
@@ -48,6 +50,8 @@ const SavedEventCard = React.memo(({
   isSelected?: boolean;
   onToggleSelect?: () => void;
   multiSelectSlideAnim?: RNAnimated.Value;
+  fadeAnim?: RNAnimated.Value;
+  scaleAnim?: RNAnimated.Value;
 }) => {
   const formatDaysOfWeek = useCallback((days: string[] | null | undefined): string => {
     if (!days || days.length === 0) return '';
@@ -139,6 +143,7 @@ const SavedEventCard = React.memo(({
       
       <RNAnimated.View
         style={{
+          opacity: fadeAnim || new RNAnimated.Value(1),
           transform: [
             { 
               translateX: RNAnimated.add(
@@ -150,6 +155,9 @@ const SavedEventCard = React.memo(({
                   }) : 
                   new RNAnimated.Value(0)
               )
+            },
+            {
+              scale: scaleAnim || new RNAnimated.Value(1)
             }
           ],
           zIndex: 1,
@@ -245,7 +253,9 @@ const SavedEventCard = React.memo(({
     prevProps.event.distance === nextProps.event.distance &&
     prevProps.isMultiSelectMode === nextProps.isMultiSelectMode &&
     prevProps.isSelected === nextProps.isSelected &&
-    prevProps.multiSelectSlideAnim === nextProps.multiSelectSlideAnim
+    prevProps.multiSelectSlideAnim === nextProps.multiSelectSlideAnim &&
+    prevProps.fadeAnim === nextProps.fadeAnim &&
+    prevProps.scaleAnim === nextProps.scaleAnim
   );
 });
 
@@ -268,6 +278,7 @@ export default function SavedActivities({
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [isDeletingEvents, setIsDeletingEvents] = useState(false);
   
   // Initialize animation values
   const slideAnim = useRef(new RNAnimated.Value(0)).current;
@@ -280,6 +291,10 @@ export default function SavedActivities({
   const cardTranslateX = useRef<{ [key: number]: RNAnimated.Value }>({}).current;
   const cardPanResponder = useRef<{ [key: number]: any }>({}).current;
   const multiSelectSlideAnim = useRef(new RNAnimated.Value(0)).current;
+  
+  // Individual card animations for smooth deletions
+  const cardFadeAnims = useRef<{ [key: number]: RNAnimated.Value }>({}).current;
+  const cardScaleAnims = useRef<{ [key: number]: RNAnimated.Value }>({}).current;
   const CARD_WIDTH = useMemo(() => Dimensions.get('window').width - 40, []);
 
   // Memoized distance calculation
@@ -337,9 +352,27 @@ export default function SavedActivities({
     setSavedActivitiesLoading(true);
     try {
       const savedEvents = await dataManager.getSavedEvents();
-      setSavedActivitiesEvents(savedEvents);
+      
+      // Fetch friends data for saved events
+      if (savedEvents.length > 0) {
+        const eventIds = savedEvents.map(event => event.id);
+        const friendsDataBatch = await dataManager.getFriendsWhoSavedEventsBatch(eventIds);
+        
+        // Add friends data to each event
+        const eventsWithFriendsData = savedEvents.map(event => ({
+          ...event,
+          friendsWhoSaved: friendsDataBatch[event.id] || []
+        }));
+        
+        setSavedActivitiesEvents(eventsWithFriendsData);
+      } else {
+        setSavedActivitiesEvents(savedEvents);
+      }
     } catch (error) {
       console.error('Error fetching saved events:', error);
+      // Fallback to events without friends data
+      const savedEvents = await dataManager.getSavedEvents();
+      setSavedActivitiesEvents(savedEvents);
     } finally {
       setSavedActivitiesLoading(false);
     }
@@ -350,6 +383,49 @@ export default function SavedActivities({
       fetchSavedEvents();
     }
   }, [visible, fetchSavedEvents]);
+
+  // Listen for savedEventsUpdated events from GlobalDataManager
+  useEffect(() => {
+    const handleSavedEventsUpdated = async (updatedEvents: EventCard[]) => {
+      // Ignore events during deletion to prevent race conditions
+      if (isDeletingEvents) {
+        console.log('🚫 SavedActivities: Ignoring savedEventsUpdated during deletion process');
+        return;
+      }
+      
+      console.log('📱 SavedActivities: Received savedEventsUpdated event with', updatedEvents.length, 'events');
+      
+      // Add friends data to updated events
+      if (updatedEvents.length > 0) {
+        try {
+          const eventIds = updatedEvents.map(event => event.id);
+          const friendsDataBatch = await dataManager.getFriendsWhoSavedEventsBatch(eventIds);
+          
+          // Add friends data to each event
+          const eventsWithFriendsData = updatedEvents.map(event => ({
+            ...event,
+            friendsWhoSaved: friendsDataBatch[event.id] || []
+          }));
+          
+          setSavedActivitiesEvents(eventsWithFriendsData);
+        } catch (error) {
+          console.error('Error fetching friends data for updated events:', error);
+          // Fallback to events without friends data
+          setSavedActivitiesEvents(updatedEvents);
+        }
+      } else {
+        setSavedActivitiesEvents(updatedEvents);
+      }
+    };
+
+    // Add event listener
+    dataManager.on('savedEventsUpdated', handleSavedEventsUpdated);
+
+    // Cleanup listener on unmount
+    return () => {
+      dataManager.off('savedEventsUpdated', handleSavedEventsUpdated);
+    };
+  }, [dataManager, isDeletingEvents]);
 
   // Create pan responder for a specific event (memoized)
   const createPanResponder = useCallback((eventId: number) => {
@@ -449,7 +525,7 @@ export default function SavedActivities({
 
   // Optimized removal function using GlobalDataManager
   const handleRemoveSavedEventOptimized = useCallback(async (eventId: number) => {
-    console.log('🗑️ Removing event with ID:', eventId);
+    console.log('🗑️ Removing single event with ID:', eventId);
     console.log('📋 Current events before removal:', savedActivitiesEvents.map(e => ({ id: e.id, name: e.name })));
     
     // Validate eventId
@@ -458,54 +534,58 @@ export default function SavedActivities({
       return;
     }
     
+    setIsDeletingEvents(true); // Block savedEventsUpdated events
+    
     try {
-      // Use functional state update to get current state and avoid stale closures
-      let currentEventsSnapshot: EventCard[] = [];
-      let eventToRemove: EventCard | undefined;
-      let updatedEvents: EventCard[] = [];
+      // Use direct GlobalDataManager for backend deletion to avoid conflicts with optimistic updates
+      console.log('🔄 Starting backend deletion for single event...');
+      await dataManager.removeEventFromSavedEvents(eventId);
+      console.log('✅ Successfully deleted event from backend');
       
+      // Only update UI after successful backend deletion
+      let eventToRemove: EventCard | undefined;
       setSavedActivitiesEvents(currentEvents => {
-        currentEventsSnapshot = [...currentEvents];
-        
-        // Find the event to remove for debugging
-        eventToRemove = currentEventsSnapshot.find(e => e.id === eventId);
+        eventToRemove = currentEvents.find(e => e.id === eventId);
         if (!eventToRemove) {
-          console.error('❌ Event not found in current events:', eventId);
+          console.warn('⚠️ Event not found in current events:', eventId);
           return currentEvents; // Return unchanged if event not found
         }
         
         console.log('🎯 Found event to remove:', eventToRemove.name);
-        
-        // Filter out the event
-        updatedEvents = currentEventsSnapshot.filter(e => e.id !== eventId);
-        console.log('✅ Filtered events - before:', currentEventsSnapshot.length, 'after:', updatedEvents.length);
-        console.log('📋 Remaining events:', updatedEvents.map(e => ({ id: e.id, name: e.name })));
-        
+        const updatedEvents = currentEvents.filter(e => e.id !== eventId);
+        console.log('✅ UI updated - removed 1 event, remaining:', updatedEvents.length);
         return updatedEvents;
       });
-      
-      // Exit early if event was not found
-      if (!eventToRemove) {
-        return;
-      }
-      
-      console.log('🔄 Optimistically updated UI, now updating backend...');
       
       // Clean up animation references for the removed event
       if (cardTranslateX[eventId]) {
         cardTranslateX[eventId].stopAnimation();
         delete (cardTranslateX as any)[eventId];
       }
+      if (cardFadeAnims[eventId]) {
+        delete cardFadeAnims[eventId];
+      }
+      if (cardScaleAnims[eventId]) {
+        delete cardScaleAnims[eventId];
+      }
       if (cardPanResponder[eventId]) {
         delete (cardPanResponder as any)[eventId];
       }
       
-      // Wait for the backend removal to complete
-      await dataManager.removeEventFromSavedEvents(eventId);
-      console.log('✅ Successfully removed event from backend');
-      
     } catch (error) {
-      console.error('❌ Error removing event from saved events:', error);
+      console.error('❌ Error removing single event:', error);
+      
+      // Reset animation values for failed deletion
+      if (cardFadeAnims[eventId]) {
+        cardFadeAnims[eventId].setValue(1);
+      }
+      if (cardScaleAnims[eventId]) {
+        cardScaleAnims[eventId].setValue(1);
+      }
+      if (cardTranslateX[eventId]) {
+        cardTranslateX[eventId].setValue(0);
+      }
+      
       // Revert UI state if the removal failed by refetching from backend
       console.log('🔄 Reverting UI state due to backend error - refetching events');
       try {
@@ -514,8 +594,10 @@ export default function SavedActivities({
       } catch (revertError) {
         console.error('❌ Failed to revert events, keeping current state');
       }
+    } finally {
+      setIsDeletingEvents(false); // Re-enable savedEventsUpdated events
     }
-  }, [dataManager]); // Remove savedActivitiesEvents from dependency to prevent stale closures
+  }, [dataManager, cardTranslateX, cardFadeAnims, cardScaleAnims, cardPanResponder]); // Remove savedActivitiesEvents from dependency to prevent stale closures
 
   // Legacy removal function for backwards compatibility (can be removed later)
   const handleRemoveSavedEvent = useCallback(async (eventId: number) => {
@@ -570,6 +652,49 @@ export default function SavedActivities({
     });
   }, []);
 
+  // Smooth animated delete function
+  const animateCardDeletion = useCallback((eventId: number, delay: number = 0) => {
+    // Initialize animations if they don't exist
+    if (!cardFadeAnims[eventId]) {
+      cardFadeAnims[eventId] = new RNAnimated.Value(1);
+    }
+    if (!cardScaleAnims[eventId]) {
+      cardScaleAnims[eventId] = new RNAnimated.Value(1);
+    }
+
+    return new Promise<void>((resolve) => {
+      // Start the animations after delay
+      setTimeout(() => {
+        RNAnimated.parallel([
+          RNAnimated.timing(cardFadeAnims[eventId], {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          RNAnimated.sequence([
+            RNAnimated.timing(cardScaleAnims[eventId], {
+              toValue: 1.05,
+              duration: 100,
+              useNativeDriver: true,
+            }),
+            RNAnimated.timing(cardScaleAnims[eventId], {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+          ]),
+          RNAnimated.timing(cardTranslateX[eventId] || new RNAnimated.Value(0), {
+            toValue: -width,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          resolve();
+        });
+      }, delay);
+    });
+  }, [cardFadeAnims, cardScaleAnims, cardTranslateX]);
+
   const handleDeleteSelected = useCallback(async () => {
     if (selectedEventIds.size === 0) return;
 
@@ -583,49 +708,143 @@ export default function SavedActivities({
           style: 'destructive', 
           onPress: async () => {
             setDeleteLoading(true);
+            setIsDeletingEvents(true); // Block savedEventsUpdated events
+            
             try {
-              // Convert Set to Array for iteration
               const idsToDelete = Array.from(selectedEventIds);
+              console.log('🗑️ Starting smooth deletion animation for', idsToDelete.length, 'events');
               
-              // Remove events from UI optimistically
-              setSavedActivitiesEvents(currentEvents => 
-                currentEvents.filter(event => !selectedEventIds.has(event.id))
+              // Create staggered animations for each card
+              const animationPromises = idsToDelete.map((eventId, index) => 
+                animateCardDeletion(eventId, index * 100) // 100ms stagger between cards
               );
               
-              // Remove from backend
-              for (const eventId of idsToDelete) {
-                await dataManager.removeEventFromSavedEvents(eventId);
+              // Wait for all card animations to complete
+              await Promise.all(animationPromises);
+              console.log('✅ All card animations completed');
+              
+              // Use direct GlobalDataManager for backend deletion to avoid conflicts with optimistic updates
+              console.log('🔄 Starting backend deletions...');
+              const deletePromises = idsToDelete.map(async (eventId) => {
+                try {
+                  await dataManager.removeEventFromSavedEvents(eventId);
+                  console.log(`✅ Successfully deleted event ${eventId}`);
+                  return { eventId, success: true };
+                } catch (error: any) {
+                  console.error(`❌ Failed to delete event ${eventId}:`, error);
+                  return { eventId, success: false, error };
+                }
+              });
+              
+              // Execute all deletions in parallel and wait for completion
+              const results = await Promise.all(deletePromises);
+              
+              // Check which deletions succeeded
+              const successfulDeletions = results.filter(result => result.success).map(result => result.eventId);
+              const failedDeletions = results.filter(result => !result.success);
+              
+              console.log('📊 Deletion results:', {
+                total: idsToDelete.length,
+                successful: successfulDeletions.length,
+                failed: failedDeletions.length
+              });
+              
+              if (failedDeletions.length > 0) {
+                console.warn('⚠️ Some deletions failed:', failedDeletions.map(f => f.eventId));
               }
               
-              // Clear selection and exit multi-select mode
+              // Only remove successfully deleted events from UI
+              if (successfulDeletions.length > 0) {
+                setSavedActivitiesEvents(currentEvents => {
+                  const filteredEvents = currentEvents.filter(event => !successfulDeletions.includes(event.id));
+                  console.log('🔄 UI updated - removed', successfulDeletions.length, 'events, remaining:', filteredEvents.length);
+                  return filteredEvents;
+                });
+              }
+              
+              // Clean up animation values only for successfully deleted events
+              successfulDeletions.forEach(eventId => {
+                if (cardFadeAnims[eventId]) {
+                  delete cardFadeAnims[eventId];
+                }
+                if (cardScaleAnims[eventId]) {
+                  delete cardScaleAnims[eventId];
+                }
+                if (cardTranslateX[eventId]) {
+                  cardTranslateX[eventId].stopAnimation();
+                  delete cardTranslateX[eventId];
+                }
+              });
+              
+              // Reset animation values for failed deletions
+              failedDeletions.forEach(({ eventId }) => {
+                if (cardFadeAnims[eventId]) {
+                  cardFadeAnims[eventId].setValue(1);
+                }
+                if (cardScaleAnims[eventId]) {
+                  cardScaleAnims[eventId].setValue(1);
+                }
+                if (cardTranslateX[eventId]) {
+                  cardTranslateX[eventId].setValue(0);
+                }
+              });
+              
+              // Clear selection and exit multi-select mode with smooth transition
               setSelectedEventIds(new Set());
               setIsMultiSelectMode(false);
               
-              // Animate the slide back to normal position
+              // Smooth slide back animation
               RNAnimated.timing(multiSelectSlideAnim, {
                 toValue: 0,
-                duration: 200,
+                duration: 300,
                 useNativeDriver: true,
               }).start();
               
+              // Show error message if some deletions failed
+              if (failedDeletions.length > 0) {
+                Alert.alert(
+                  'Partial Deletion', 
+                  `${successfulDeletions.length} of ${idsToDelete.length} events were deleted successfully. ${failedDeletions.length} events could not be deleted.`
+                );
+              } else {
+                console.log('🎉 All deletions completed successfully');
+              }
+              
             } catch (error) {
-              console.error('Error deleting selected events:', error);
-              // Revert UI state by refetching
+              console.error('❌ Error during smooth deletion:', error);
+              
+              // Revert all UI state by refetching
               try {
                 const revertedEvents = await dataManager.getSavedEvents();
                 setSavedActivitiesEvents(revertedEvents);
+                
+                // Reset all animation values
+                selectedEventIds.forEach(eventId => {
+                  if (cardFadeAnims[eventId]) {
+                    cardFadeAnims[eventId].setValue(1);
+                  }
+                  if (cardScaleAnims[eventId]) {
+                    cardScaleAnims[eventId].setValue(1);
+                  }
+                  if (cardTranslateX[eventId]) {
+                    cardTranslateX[eventId].setValue(0);
+                  }
+                });
+                
               } catch (revertError) {
                 console.error('Failed to revert events after delete error');
               }
-              Alert.alert('Error', 'Failed to delete some events. Please try again.');
+
+              Alert.alert('Error', 'Failed to delete events. Please try again.');
             } finally {
               setDeleteLoading(false);
+              setIsDeletingEvents(false); // Re-enable savedEventsUpdated events
             }
           }
         },
       ]
     );
-  }, [selectedEventIds, dataManager]);
+  }, [selectedEventIds, dataManager, animateCardDeletion, multiSelectSlideAnim, cardFadeAnims, cardScaleAnims, cardTranslateX]);
 
   const handleClose = useCallback(() => {
     // Exit multi-select mode if active
@@ -718,6 +937,14 @@ export default function SavedActivities({
           (cardTranslateX as any)[eventId].stopAnimation();
           delete (cardTranslateX as any)[eventId];
         }
+        if ((cardFadeAnims as any)[eventId]) {
+          (cardFadeAnims as any)[eventId].stopAnimation();
+          delete (cardFadeAnims as any)[eventId];
+        }
+        if ((cardScaleAnims as any)[eventId]) {
+          (cardScaleAnims as any)[eventId].stopAnimation();
+          delete (cardScaleAnims as any)[eventId];
+        }
         if ((cardPanResponder as any)[eventId]) {
           delete (cardPanResponder as any)[eventId];
         }
@@ -736,6 +963,14 @@ export default function SavedActivities({
           if ((cardTranslateX as any)[eventId]) {
             (cardTranslateX as any)[eventId].stopAnimation();
             delete (cardTranslateX as any)[eventId];
+          }
+          if ((cardFadeAnims as any)[eventId]) {
+            (cardFadeAnims as any)[eventId].stopAnimation();
+            delete (cardFadeAnims as any)[eventId];
+          }
+          if ((cardScaleAnims as any)[eventId]) {
+            (cardScaleAnims as any)[eventId].stopAnimation();
+            delete (cardScaleAnims as any)[eventId];
           }
           if ((cardPanResponder as any)[eventId]) {
             delete (cardPanResponder as any)[eventId];
@@ -876,9 +1111,15 @@ export default function SavedActivities({
                 return null;
               }
               
-              // Initialize translateX if not exists
+              // Initialize all animations if they don't exist
               if (!cardTranslateX[event.id]) {
                 cardTranslateX[event.id] = new RNAnimated.Value(0);
+              }
+              if (!cardFadeAnims[event.id]) {
+                cardFadeAnims[event.id] = new RNAnimated.Value(1);
+              }
+              if (!cardScaleAnims[event.id]) {
+                cardScaleAnims[event.id] = new RNAnimated.Value(1);
               }
               
               return (
@@ -897,6 +1138,8 @@ export default function SavedActivities({
                   isSelected={selectedEventIds.has(event.id)}
                   onToggleSelect={() => handleToggleEventSelection(event.id)}
                   multiSelectSlideAnim={multiSelectSlideAnim}
+                  fadeAnim={cardFadeAnims[event.id]}
+                  scaleAnim={cardScaleAnims[event.id]}
                 />
               );
             }).filter(Boolean)}

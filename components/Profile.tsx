@@ -7,6 +7,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors, gradients } from '@/constants/Colors';
 import MainFooter from './MainFooter';
 import FriendsModal from './FriendsModal';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import { supabase } from '@/lib/supabase';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -61,6 +62,7 @@ export default memo(function Profile({
 
   // Friends state
   const [friendsModalVisible, setFriendsModalVisible] = useState(false);
+  const [friendsModalTab, setFriendsModalTab] = useState<'followers' | 'following'>('followers');
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,29 +132,16 @@ export default memo(function Profile({
     setUsernameError('');
 
     try {
-      // Check if username already exists
-      const { data, error } = await supabase
-        .from('all_users')
-        .select('username')
-        .eq('username', text.toLowerCase())
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        // PGRST116 is "not found" which is what we want
-        console.error('Error checking username:', error);
-        setUsernameError('Error checking username availability');
-        setUsernameValid(false);
-        return;
-      }
-
-      if (data) {
-        // Username already exists
-        setUsernameError('This username is already taken');
-        setUsernameValid(false);
-      } else {
-        // Username is available
+      // Use optimized service for username checking with caching
+      const services = OptimizedComponentServices.getInstance();
+      const isAvailable = await services.checkUsernameAvailability(text, profile?.email);
+      
+      if (isAvailable) {
         setUsernameError('');
         setUsernameValid(true);
+      } else {
+        setUsernameError('This username is already taken');
+        setUsernameValid(false);
       }
     } catch (error) {
       console.error('Error checking username:', error);
@@ -203,49 +192,20 @@ export default memo(function Profile({
       
       console.log('🔄 Updating username from', oldUsername, 'to', newUsername);
       
-      // STEP 1: Update posted_by column in new_events table first
-      console.log('📝 Step 1: Updating posted_by in new_events table...');
-      const { error: eventsError } = await supabase
-        .from('new_events')
-        .update({ posted_by: newUsername })
-        .eq('posted_by', oldUsername);
-
-      if (eventsError) {
-        console.error('Error updating events posted_by:', eventsError);
-        Alert.alert('Error', 'Failed to update events. Please try again.');
-        return;
-      }
+      // Use optimized service for username update with batching and optimistic updates
+      const services = OptimizedComponentServices.getInstance();
+      await services.updateUsername(profile.email, newUsername);
       
-      console.log('✅ Successfully updated posted_by in new_events table');
-
-      // STEP 2: Update username in all_users table
-      console.log('👤 Step 2: Updating username in all_users table...');
-      const { error: userError } = await supabase
-        .from('all_users')
-        .update({ username: newUsername })
-        .eq('email', profile.email);
-
-      if (userError) {
-        console.error('Error updating username in all_users:', userError);
-        Alert.alert('Error', 'Failed to update username. Please try again.');
-        return;
-      }
-      
-      console.log('✅ Successfully updated username in all_users table');
-
-      // Update local profile state
+      // Update local profile state optimistically
       const updatedProfile = { ...profile, username: newUsername };
       setProfile(updatedProfile);
       
-      // Update GlobalDataManager cache
-      await dataManager.setUserProfile(updatedProfile);
-      
-      // Exit edit mode
       setShowUsernameModal(false);
       setEditingUsername('');
       setUsernameError('');
       setUsernameValid(false);
       
+      console.log('✅ Username update completed successfully with optimized service!');
       Alert.alert('Success', 'Username updated successfully!');
     } catch (error) {
       console.error('Error saving username:', error);
@@ -508,17 +468,98 @@ export default memo(function Profile({
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('🚪 Starting sign out process...');
+              
+              // Step 1: Clear all cached data before signing out
+              console.log('🧹 Clearing all cached data...');
+              
+              // Clear GlobalDataManager cache
+              await dataManager.clearAllUserData();
+              
+              // Clear SocialDataManager cache
+              await socialDataManager.clearCache();
+              
+              // Clear API Request Service cache
+              const apiService = require('@/lib/APIRequestService').default;
+              if (apiService && apiService.getInstance) {
+                const apiInstance = apiService.getInstance();
+                if (apiInstance && apiInstance.clearCache) {
+                  apiInstance.clearCache(); // Clear all API cache
+                }
+              }
+              
+              // Clear AsyncStorage cache
+              const asyncStorageKeys = [
+                'lastViewedFriendsCount',
+                'lastViewedRequestsCount',
+                'userProfile',
+                'savedEvents',
+                'rejectedEvents',
+                'userEvents',
+                'socialData',
+                'followersCount',
+                'followingCount',
+                'friendsCount',
+                'requestsCount'
+              ];
+              
+              for (const key of asyncStorageKeys) {
+                try {
+                  await AsyncStorage.removeItem(key);
+                  console.log(`🗑️ Cleared AsyncStorage key: ${key}`);
+                } catch (error) {
+                  console.warn(`⚠️ Failed to clear AsyncStorage key ${key}:`, error);
+                }
+              }
+              
+              // Clear all AsyncStorage (nuclear option)
+              try {
+                await AsyncStorage.clear();
+                console.log('🗑️ Cleared all AsyncStorage data');
+              } catch (error) {
+                console.warn('⚠️ Failed to clear all AsyncStorage:', error);
+              }
+              
+              // Step 2: Sign out from Supabase
+              console.log('🔐 Signing out from Supabase...');
               const { error } = await supabase.auth.signOut();
               if (error) throw error;
               
-              // Reset the navigation stack completely and navigate to main tabs
+              console.log('✅ Sign out completed successfully');
+              
+              // Step 3: Clear all component state
+              console.log('🔄 Clearing component state...');
+              setProfile(null);
+              setFriends([]);
+              setFriendRequests([]);
+              setFollowersCount(0);
+              setFollowingCount(0);
+              setHasNewFriends(false);
+              setHasNewRequests(false);
+              setLastViewedFriendsCount(0);
+              setLastViewedRequestsCount(0);
+              setUserEvents([]);
+              setExpandedEvent(null);
+              setEventImageStates({});
+              setImagesPreloaded(false);
+              setEditingUsername('');
+              setUsernameError('');
+              setUsernameValid(false);
+              setShowUsernameModal(false);
+              setFriendsModalVisible(false);
+              setFriendsModalTab('followers');
+              setShowMyEventsModal(false);
+              setShowTermsModal(false);
+              setShowPrivacyModal(false);
+              
+              // Step 4: Reset the navigation stack completely and navigate to main tabs
               // The index.tsx will handle showing SignInScreen when there's no session
               navigation.reset({
                 index: 0,
                 routes: [{ name: '(tabs)' }],
               });
             } catch (error) {
-              console.error('Error signing out:', error);
+              console.error('❌ Error signing out:', error);
               Alert.alert('Error', 'Failed to sign out. Please try again.');
             }
           },
@@ -782,7 +823,7 @@ export default memo(function Profile({
       // Fetch events posted by this user using username
       const { data: eventsData, error: eventsError } = await supabase
         .from('new_events')
-        .select('*')
+        .select('id, created_at, name, organization, location, cost, age_restriction, reservation, description, start_date, end_date, occurrence, latitude, longitude, days_of_the_week, event_type, link, times, featured, posted_by, posted_by_email')
         .eq('posted_by', profile.username)
         .order('created_at', { ascending: false });
 
@@ -797,7 +838,7 @@ export default memo(function Profile({
           const { imageUrl, allImages } = getEventImageUrls(event.id);
           return {
             ...event,
-            image: event.image || imageUrl, // Use existing image or generate first one
+            image: (event as any).image || imageUrl, // Use existing image or generate first one
             allImages // Add allImages array for fallback logic
           };
         });
@@ -829,6 +870,44 @@ export default memo(function Profile({
     setShowMyEventsModal(false);
     setUserEvents([]);
     setEventImageStates({});
+  };
+
+  const handleDeleteEvent = async (event: any) => {
+    try {
+      // Show confirmation dialog
+      Alert.alert(
+        'Delete Event',
+        `Are you sure you want to delete "${event.name}"? This action cannot be undone.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                // Use OptimizedComponentServices to delete the event
+                const services = OptimizedComponentServices.getInstance();
+                await services.deleteEvent(event.id);
+                
+                // Remove the event from the local state
+                setUserEvents(prevEvents => prevEvents.filter(e => e.id !== event.id));
+                
+                // Show success message
+                Alert.alert('Success', 'Event deleted successfully');
+              } catch (error) {
+                console.error('Error deleting event:', error);
+                Alert.alert('Error', 'Failed to delete event. Please try again.');
+              }
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error in delete event handler:', error);
+    }
   };
 
   // Function to fetch user location
@@ -1020,19 +1099,14 @@ export default memo(function Profile({
           <View style={styles.quickStatsSection}>
             {/* Top Row */}
             <View style={styles.statsRow}>
-              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                <View style={styles.statCardContent}>
-                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
-                    <Ionicons name="people" size={22} color="#9E95BD" />
-                  </View>
-                  <View style={styles.statTextContainer}>
-                    <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friends.length}</Text>
-                    <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Friends</Text>
-                  </View>
-                </View>
-              </View>
-              
-              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <TouchableOpacity 
+                style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
+                onPress={() => {
+                  setFriendsModalTab('followers');
+                  setFriendsModalVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
                 <View style={styles.statCardContent}>
                   <View style={[styles.statIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
                     <Ionicons name="person" size={22} color="#4CAF50" />
@@ -1042,12 +1116,16 @@ export default memo(function Profile({
                     <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Followers</Text>
                   </View>
                 </View>
-              </View>
-            </View>
-
-            {/* Bottom Row */}
-            <View style={styles.statsRow}>
-              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}
+                onPress={() => {
+                  setFriendsModalTab('following');
+                  setFriendsModalVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
                 <View style={styles.statCardContent}>
                   <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 193, 7, 0.1)' }]}>
                     <Ionicons name="person-add" size={22} color="#FFC107" />
@@ -1057,47 +1135,14 @@ export default memo(function Profile({
                     <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Following</Text>
                   </View>
                 </View>
-              </View>
-                        
-              <View style={[styles.statCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-                <View style={styles.statCardContent}>
-                  <View style={[styles.statIconContainer, { backgroundColor: 'rgba(255, 107, 157, 0.1)' }]}>
-                    <Ionicons name="mail" size={22} color="#FF6B9D" />
-                  </View>
-                  <View style={styles.statTextContainer}>
-                    <Text style={[styles.statNumber, { color: Colors[colorScheme ?? 'light'].text }]}>{friendRequests.length}</Text>
-                    <Text style={[styles.statLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Requests</Text>
-                  </View>
-                </View>
-              </View>
+              </TouchableOpacity>
             </View>
+
+
           </View>
 
           {/* Action Cards Grid */}
           <View style={styles.actionCardsGrid}>
-            {/* Friends Card */}
-            <TouchableOpacity style={styles.actionCard} onPress={handleOpenFriendsModal}>
-              <LinearGradient
-                colors={[Colors[colorScheme ?? 'light'].secondary, Colors[colorScheme ?? 'light'].secondaryLight]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.actionCardGradient}
-              >
-                <View style={styles.actionCardHeader}>
-                  <Ionicons name="people" size={32} color="#fff" />
-                  {(hasNewFriends || hasNewRequests) && (
-                    <View style={styles.actionCardBadge}>
-                      <View style={styles.actionCardBadgeDot} />
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.actionCardTitle}>Friends</Text>
-                <Text style={styles.actionCardSubtitle}>Manage your connections</Text>
-                <View style={styles.actionCardStats}>
-                  <Text style={styles.actionCardStatsText}>{friends.length} friends • {friendRequests.length} requests</Text>
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
 
             {/* Create Event Card */}
             <TouchableOpacity style={styles.actionCard} onPress={handleCreateEvent}>
@@ -1278,6 +1323,7 @@ export default memo(function Profile({
         onRequestsUpdate={setFriendRequests}
         onFollowCountsUpdate={refreshAllSocialCounts}
         onRefreshRequests={refreshAllSocialCounts}
+        initialTab={friendsModalTab}
       />
 
       {/* Legal Document Modals */}
@@ -1485,12 +1531,24 @@ export default memo(function Profile({
                 ) : (
                   <View style={styles.eventsList}>
                     {userEvents.map((event) => (
-                      <TouchableOpacity 
+                      <View 
                         key={event.id} 
                         style={[styles.eventCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}
-                        onPress={() => handleEventCardPress(event)}
-                        activeOpacity={0.7}
                       >
+                        {/* Delete Button */}
+                        <TouchableOpacity 
+                          style={styles.deleteButton}
+                          onPress={() => handleDeleteEvent(event)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="close" size={20} color="#FF4444" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          style={styles.eventCardContent}
+                          onPress={() => handleEventCardPress(event)}
+                          activeOpacity={0.7}
+                        >
                         {/* Event Image with sophisticated fallback logic */}
                         {(() => {
                           const currentImageUrl = getCurrentEventImageUrl(event);
@@ -1575,6 +1633,7 @@ export default memo(function Profile({
                           )}
                         </View>
                       </TouchableOpacity>
+                      </View>
                     ))}
                   </View>
                 )}
@@ -2205,6 +2264,27 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
     marginBottom: 8,
+    position: 'relative',
+  },
+  deleteButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  eventCardContent: {
+    flex: 1,
   },
   eventImage: {
     width: '100%',

@@ -95,7 +95,7 @@ export default function CreateAccountLocation({ route }: { route: CreateAccountL
       await AsyncStorage.setItem('userLocation', JSON.stringify(locationData));
       // Include default preferences since we're skipping the preferences step
       const defaultPreferences = {
-        eventTypes: ['Food & Drink', 'Outdoor / Nature', 'Leisure & Social', 'Games & Entertainment', 'Arts & Culture', 'Nightlife & Parties', 'Wellness & Low-Energy', 'Experiences & Activities', 'Travel & Discovery'],
+        eventTypes: ['Bars', 'Party life', 'Clubbing', 'Happy hours'],
         timePreferences: { start: '9:00', end: '22:00' },
         locationPreferences: [],
         travelDistance: 10,

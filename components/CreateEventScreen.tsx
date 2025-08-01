@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 
 
 const EVENT_TYPES = [
@@ -405,23 +406,23 @@ export default function CreateEventScreen() {
         Alert.alert('Error', 'Website/Link is required when reservation is needed');
         return;
       }
-      // Get current user's email and username
-      const { data: { user } } = await supabase.auth.getUser();
+      // Get current user's email and username using optimized service with caching
+      const services = OptimizedComponentServices.getInstance();
+      const userResult = await services.getCurrentUser();
+      const user = (userResult as any)?.data?.user;
+      
       if (!user) {
         Alert.alert('Error', 'You must be logged in to create an event');
         return;
       }
       
-      // Get user's username from profiles table
+      // Get user's username from profiles table using optimized service
       let username = user.email; // fallback to email if username not found
       try {
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('username')
-          .eq('id', user.id)
-          .single();
+        const profileResult = await services.getUserByEmail(user.email);
+        const profileData = (profileResult as any)?.data;
         
-        if (!profileError && profileData && profileData.username) {
+        if (profileData && profileData.username) {
           username = profileData.username;
         }
       } catch (error) {
@@ -496,30 +497,22 @@ export default function CreateEventScreen() {
       if (eventForm.images.length > 0) {
         console.log(`Uploading ${eventForm.images.length} images for event ${eventId}`);
 
-        // --- NEW: Delete existing images for this eventId before uploading new ones ---
+        // --- OPTIMIZED: Delete existing images using batched operations ---
         try {
-          const { data: existingFiles, error: listError } = await supabase.storage
-            .from('event-images')
-            .list(`${eventId}`);
-          if (listError) {
-            console.warn('Could not list existing images:', listError);
-          } else if (existingFiles && existingFiles.length > 0) {
-            const filesToDelete = existingFiles.map(file => `${eventId}/${file.name}`);
-            const { error: deleteError } = await supabase.storage
-              .from('event-images')
-              .remove(filesToDelete);
-            if (deleteError) {
-              console.warn('Could not delete existing images:', deleteError);
-            } else {
-              console.log(`Deleted existing images for event ${eventId}`);
-            }
+          const existingFilesResult = await services.listFiles('event-images', eventId.toString());
+          const existingFiles = (existingFilesResult as any)?.data;
+          
+          if (existingFiles && existingFiles.length > 0) {
+            const filesToDelete = existingFiles.map((file: any) => `${eventId}/${file.name}`);
+            await services.deleteFiles('event-images', filesToDelete);
+            console.log(`Deleted ${filesToDelete.length} existing images for event ${eventId}`);
           }
         } catch (deleteCatchError) {
-          console.warn('Error during image folder cleanup:', deleteCatchError);
+          console.warn('Error during optimized image folder cleanup:', deleteCatchError);
         }
         // --- END NEW ---
 
-        // --- REFACTORED: Use robust upload strategy from EditImages.tsx ---
+        // --- OPTIMIZED: Use optimized upload service with built-in retry and fallback logic ---
         const uploadImageToSupabase = async (imageUri: string, imagePath: string): Promise<boolean> => {
           try {
             // Validate the image URI
@@ -528,88 +521,24 @@ export default function CreateEventScreen() {
               return false;
             }
 
-            // --- FormData approach (React Native) ---
-            try {
-              const formData = new FormData();
-              formData.append('file', {
-                uri: imageUri,
-                type: 'image/jpeg',
-                name: imagePath.split('/').pop() || 'image.jpg',
-              } as any);
-              // @ts-ignore: Supabase Storage JS client may not support FormData in React Native
-              const { data, error } = await supabase.storage
-                .from('event-images')
-                .upload(imagePath, formData, {
-                  contentType: 'image/jpeg',
-                  upsert: true,
-                });
-              if (!error && data) {
-                console.log('FormData upload successful:', data);
-                return true;
-              }
-              console.log('FormData method failed:', error);
-            } catch (formDataError) {
-              console.log('FormData method error:', formDataError);
+            // Convert URI to file data for upload service
+            const response = await fetch(imageUri);
+            const fileData = await response.blob();
+            
+            const uploadResult = await services.uploadFile('event-images', imagePath, fileData, {
+              contentType: 'image/jpeg',
+              upsert: true
+            });
+            
+            if ((uploadResult as any)?.error) {
+              console.error('Optimized upload failed:', (uploadResult as any).error);
+              return false;
             }
-
-            // --- ArrayBuffer approach ---
-            try {
-              const response = await fetch(imageUri);
-              if (!response.ok) {
-                console.error('Failed to fetch image:', response.status, response.statusText);
-                return false;
-              }
-              const arrayBuffer = await response.arrayBuffer();
-              if (arrayBuffer.byteLength === 0) {
-                console.error('ArrayBuffer is empty');
-                return false;
-              }
-              const { data, error } = await supabase.storage
-                .from('event-images')
-                .upload(imagePath, arrayBuffer, {
-                  contentType: 'image/jpeg',
-                  upsert: true,
-                });
-              if (!error && data) {
-                console.log('ArrayBuffer upload successful:', data);
-                return true;
-              }
-              console.log('ArrayBuffer method failed:', error);
-            } catch (arrayBufferError) {
-              console.log('ArrayBuffer method error:', arrayBufferError);
-            }
-
-            // --- Blob approach ---
-            try {
-              const response = await fetch(imageUri);
-              if (!response.ok) {
-                console.error('Failed to fetch image:', response.status, response.statusText);
-                return false;
-              }
-              const blob = await response.blob();
-              if (!blob || blob.size === 0) {
-                console.error('Invalid or empty blob');
-                return false;
-              }
-              const { data, error } = await supabase.storage
-                .from('event-images')
-                .upload(imagePath, blob, {
-                  contentType: blob.type || 'image/jpeg',
-                  upsert: true,
-                });
-              if (!error && data) {
-                console.log('Blob upload successful:', data);
-                return true;
-              }
-              console.log('Blob method failed:', error);
-            } catch (blobError) {
-              console.log('Blob method error:', blobError);
-            }
-
-            console.error('All upload methods failed for', imagePath);
-            return false;
+            
+            console.log('Optimized upload successful:', imagePath);
+            return true;
           } catch (error) {
-            console.error('Error in uploadImageToSupabase:', error);
+            console.error('Error in optimized uploadImageToSupabase:', error);
             return false;
           }
         };

@@ -293,10 +293,10 @@ export default function UserProfileModal({
       const postedBy = userProfile?.username || userEmail;
       console.log('🔍 Fetching events for user:', { username: userProfile?.username, email: userEmail, using: postedBy });
       
-      // Fetch events posted by this user - get ALL fields
+      // Fetch events posted by this user - get specific fields (excluding image)
       const { data: eventsData, error: eventsError } = await supabase
         .from('new_events')
-        .select('*')
+        .select('id, created_at, name, organization, location, cost, age_restriction, reservation, description, start_date, end_date, occurrence, latitude, longitude, days_of_the_week, event_type, link, times, featured, posted_by, posted_by_email')
         .eq('posted_by', postedBy)
         .order('created_at', { ascending: false });
 

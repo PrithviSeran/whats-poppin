@@ -18,9 +18,9 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import LegalDocumentViewer from './LegalDocumentViewer';
-// import { GoogleSignin } from '@react-native-google-signin/google-signin';
-// import GlobalDataManager from '@/lib/GlobalDataManager';
-// import { supabase } from '@/lib/supabase';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import GlobalDataManager from '@/lib/GlobalDataManager';
+import { supabase } from '@/lib/supabase';
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -52,16 +52,16 @@ const SignInScreen = () => {
   const colorScheme = useColorScheme();
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
-  // const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
 
   // Configure Google Sign-In
-  // useEffect(() => {
-  //   GoogleSignin.configure({
-  //     iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
-  //     // Add Android client ID if needed
-  //     // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
-  //   });
-  // }, []);
+  useEffect(() => {
+    GoogleSignin.configure({
+      iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
+      // Add Android client ID if needed
+      // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
+    });
+  }, []);
 
   const handleOpenTerms = () => {
     setShowTermsModal(true);
@@ -71,83 +71,83 @@ const SignInScreen = () => {
     setShowPrivacyModal(true);
   };
 
-  // const handleGoogleSignIn = async () => {
-  //   try {
-  //     setIsGoogleSigningIn(true);
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsGoogleSigningIn(true);
       
-  //     // Check if Google Play Services are available (Android)
-  //     if (Platform.OS === 'android') {
-  //       await GoogleSignin.hasPlayServices();
-  //     }
+      // Check if Google Play Services are available (Android)
+      if (Platform.OS === 'android') {
+        await GoogleSignin.hasPlayServices();
+      }
       
-  //     // Sign in with Google
-  //     const userInfo = await GoogleSignin.signIn() as any;
-  //     console.log('Google Sign-In successful:', userInfo);
+      // Sign in with Google
+      const userInfo = await GoogleSignin.signIn() as any;
+      console.log('Google Sign-In successful:', userInfo);
       
-  //     if (!userInfo.data?.idToken) {
-  //       throw new Error('No ID token received from Google');
-  //     }
+      if (!userInfo.data?.idToken) {
+        throw new Error('No ID token received from Google');
+      }
       
-  //     // Sign in with Supabase using Google token
-  //     const { data, error } = await supabase.auth.signInWithIdToken({
-  //       provider: 'google',
-  //       token: userInfo.data.idToken,
-  //     });
+      // Sign in with Supabase using Google token
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: userInfo.data.idToken,
+      });
       
-  //     if (error) {
-  //       console.error('Supabase Google Sign-In error:', error);
-  //       throw error;
-  //     }
+      if (error) {
+        console.error('Supabase Google Sign-In error:', error);
+        throw error;
+      }
       
-  //     if (data.user) {
-  //       console.log('✅ Google Sign-In successful, user:', data.user.email);
+      if (data.user) {
+        console.log('✅ Google Sign-In successful, user:', data.user.email);
         
-  //       // Check if user already has a username
-  //       const { data: userProfile, error: profileError } = await supabase
-  //         .from('all_users')
-  //         .select('username')
-  //         .eq('email', data.user.email)
-  //         .single();
+        // Check if user already has a username
+        const { data: userProfile, error: profileError } = await supabase
+          .from('all_users')
+          .select('username')
+          .eq('email', data.user.email)
+          .single();
         
-  //       if (profileError && profileError.code !== 'PGRST116') {
-  //         console.error('Error checking user profile:', profileError);
-  //       }
+        if (profileError && profileError.code !== 'PGRST116') {
+          console.error('Error checking user profile:', profileError);
+        }
         
-  //       // Set user in GlobalDataManager
-  //       GlobalDataManager.getInstance().setCurrentUser(data.user);
+        // Set user in GlobalDataManager
+        GlobalDataManager.getInstance().setCurrentUser(data.user);
 
-  //       navigation.navigate('create-account-username', {
-  //         userData: JSON.stringify({
-  //           email: data.user.email,
-  //           googleUserInfo: userInfo.data,
-  //           supabaseUser: data.user
-  //         }),
-  //         isGoogleSignIn: true
-  //       });
+        navigation.navigate('create-account-username', {
+          userData: JSON.stringify({
+            email: data.user.email,
+            googleUserInfo: userInfo.data,
+            supabaseUser: data.user
+          }),
+          isGoogleSignIn: true
+        });
         
-  //       /*
-  //       if (userProfile?.username) {
-  //         // User already has a username, go directly to SuggestedEvents
-  //         navigation.navigate('suggested-events');
-  //       } else {
-  //         // User doesn't have a username, go to CreateAccountUsername
-  //         navigation.navigate('create-account-username', {
-  //           userData: JSON.stringify({
-  //             email: data.user.email,
-  //             googleUserInfo: userInfo.data,
-  //             supabaseUser: data.user
-  //           }),
-  //           isGoogleSignIn: true
-  //         });
-  //       }*/
-  //     }
-  //   } catch (error) {
-  //     console.error('❌ Google Sign-In error:', error);
-  //     // Handle error appropriately
-  //   } finally {
-  //     setIsGoogleSigningIn(false);
-  //   }
-  // };
+        /*
+        if (userProfile?.username) {
+          // User already has a username, go directly to SuggestedEvents
+          navigation.navigate('suggested-events');
+        } else {
+          // User doesn't have a username, go to CreateAccountUsername
+          navigation.navigate('create-account-username', {
+            userData: JSON.stringify({
+              email: data.user.email,
+              googleUserInfo: userInfo.data,
+              supabaseUser: data.user
+            }),
+            isGoogleSignIn: true
+          });
+        }*/
+      }
+    } catch (error) {
+      console.error('❌ Google Sign-In error:', error);
+      // Handle error appropriately
+    } finally {
+      setIsGoogleSigningIn(false);
+    }
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -203,7 +203,7 @@ const SignInScreen = () => {
           </Text>
           
           {/* Google Sign-In Button */}
-          {/* <TouchableOpacity 
+          <TouchableOpacity 
             onPress={handleGoogleSignIn}
             disabled={isGoogleSigningIn}
             style={[styles.googleButton, isGoogleSigningIn && styles.disabledButton]}
@@ -223,7 +223,7 @@ const SignInScreen = () => {
                 {isGoogleSigningIn ? 'Signing in...' : 'Continue with Google'}
               </Text>
             </View>
-          </TouchableOpacity> */}
+          </TouchableOpacity>
           
           <View style={styles.dividerContainer}>
             <View style={styles.dividerLine} />
