@@ -89,6 +89,8 @@ export default memo(function Profile({
   const [expandedEvent, setExpandedEvent] = useState<any>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [eventImageStates, setEventImageStates] = useState<{ [eventId: number]: { currentImageIndex: number; hasError: boolean } }>({});
+  
+
 
   // Username validation functions
   const validateUsernameFormat = (text: string) => {
@@ -910,6 +912,13 @@ export default memo(function Profile({
     }
   };
 
+  const handleEditEvent = (event: any) => {
+    // Open the event in EventDetailModal with edit mode
+    setExpandedEvent({ ...event, isEditMode: true });
+  };
+
+
+
   // Function to fetch user location
   const fetchUserLocation = async () => {
     try {
@@ -1535,14 +1544,26 @@ export default memo(function Profile({
                         key={event.id} 
                         style={[styles.eventCard, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}
                       >
-                        {/* Delete Button */}
-                        <TouchableOpacity 
-                          style={styles.deleteButton}
-                          onPress={() => handleDeleteEvent(event)}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="close" size={20} color="#FF4444" />
-                        </TouchableOpacity>
+                        {/* Action Buttons */}
+                        <View style={styles.eventActionButtons}>
+                          {/* Edit Button */}
+                          <TouchableOpacity 
+                            style={styles.editEventButton}
+                            onPress={() => handleEditEvent(event)}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="create" size={18} color="#4CAF50" />
+                          </TouchableOpacity>
+                          
+                          {/* Delete Button */}
+                          <TouchableOpacity 
+                            style={styles.deleteButton}
+                            onPress={() => handleDeleteEvent(event)}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="close" size={20} color="#FF4444" />
+                          </TouchableOpacity>
+                        </View>
 
                         <TouchableOpacity 
                           style={styles.eventCardContent}
@@ -1652,6 +1673,8 @@ export default memo(function Profile({
           />
         )}
       </Modal>
+
+
 
     </View>
   );
@@ -2266,17 +2289,34 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     position: 'relative',
   },
-  deleteButton: {
+  eventActionButtons: {
     position: 'absolute',
     top: 8,
     right: 8,
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 10,
+  },
+  editEventButton: {
     width: 28,
     height: 28,
     borderRadius: 14,
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  deleteButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
@@ -2324,5 +2364,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+
+
 
 }); 

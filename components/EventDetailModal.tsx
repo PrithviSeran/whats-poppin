@@ -12,9 +12,16 @@ import {
   Linking,
   Share,
   ActivityIndicator,
+  Alert,
+  TextInput,
+  Modal,
+  SafeAreaView,
+  Platform,
 } from 'react-native';
+
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -22,6 +29,9 @@ import { EventCard } from '../lib/GlobalDataManager';
 import GlobalDataManager from '../lib/GlobalDataManager';
 import { supabase } from '@/lib/supabase';
 import UserProfileModal from './UserProfileModal';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
+import * as ImagePicker from 'expo-image-picker';
+
 
 const { width, height } = Dimensions.get('window');
 
@@ -86,6 +96,19 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedEvent, setEditedEvent] = useState<any>(null);
+  
+  // Image management state
+  const [eventImages, setEventImages] = useState<string[]>([]);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  // Time picker state
+
+
+  
   // Creator profile modal state
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false);
   const [creatorInfo, setCreatorInfo] = useState<{
@@ -100,24 +123,66 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const [likeLoading, setLikeLoading] = useState(false);
   const dataManager = GlobalDataManager.getInstance();
 
-  // Check if event is already saved when modal opens
+
+
+  // Check if event is already saved when modal opens and initialize edit mode
   useEffect(() => {
-    const checkIfEventIsSaved = async () => {
+    const checkEventData = async () => {
       if (!event?.id) return;
       
       try {
+        // Check if event is saved
         const savedEvents = await dataManager.getSavedEvents();
         const isEventSaved = savedEvents.some(savedEvent => savedEvent.id === event.id);
         setIsLiked(isEventSaved);
+
+        // Check if this is edit mode (from My Events modal)
+        if ((event as any).isEditMode) {
+          setIsEditMode(true);
+          // Initialize edited event data with safe defaults
+          setEditedEvent({
+            name: event.name || '',
+            organization: event.organization || '',
+            location: event.location || '',
+            cost: event.cost || 0,
+            age_restriction: event.age_restriction || null,
+            reservation: event.reservation || 'no',
+            description: event.description || '',
+            start_date: event.start_date || '',
+            end_date: event.end_date || '',
+            occurrence: event.occurrence || '',
+            latitude: event.latitude || 0,
+            longitude: event.longitude || 0,
+            days_of_the_week: event.days_of_the_week || [],
+            event_type: event.event_type || '',
+            link: event.link || '',
+            times: event.times || {},
+            featured: event.featured || false
+          });
+        } else {
+          setIsEditMode(false);
+        }
       } catch (error) {
-        console.error('Error checking if event is saved:', error);
+        console.error('Error checking event data:', error);
       }
     };
 
     if (visible && event) {
-      checkIfEventIsSaved();
+      checkEventData();
+      loadEventImages();
     }
   }, [visible, event, dataManager]);
+
+  // Reset edit mode when modal closes
+  useEffect(() => {
+    if (!visible) {
+      setIsEditMode(false);
+      setEditedEvent(null);
+      setIsEditing(false);
+    }
+  }, [visible]);
+
+
 
   // Function to handle like/unlike
   const handleLike = async () => {
@@ -145,6 +210,288 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       setLikeLoading(false);
     }
   };
+
+  // Function to handle field updates
+  const handleFieldUpdate = (field: string, value: any) => {
+    setEditedEvent((prev: any) => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Function to save edited event
+  const handleSaveEvent = async () => {
+    if (!event?.id || !editedEvent) return;
+
+    // Validate time formats before saving
+    if (editedEvent.times) {
+      for (const [day, dayTimes] of Object.entries(editedEvent.times)) {
+        if (Array.isArray(dayTimes)) {
+          const [startTime, endTime] = dayTimes;
+          
+          if (startTime && !validateTimeFormat(startTime)) {
+            Alert.alert('Invalid Time Format', `Start time for ${day} must be in HH:MM format (e.g., 09:30, 14:00)`);
+            return;
+          }
+          
+          if (endTime && !validateTimeFormat(endTime)) {
+            Alert.alert('Invalid Time Format', `End time for ${day} must be in HH:MM format (e.g., 09:30, 14:00)`);
+            return;
+          }
+        }
+      }
+    }
+
+    setIsEditing(true);
+    try {
+      const services = OptimizedComponentServices.getInstance();
+      
+      // Update the event in the database
+      await services.updateEvent(event.id, editedEvent);
+      
+      // Update the local event object
+      Object.assign(event, editedEvent);
+      
+      // Show success message and close modal
+      Alert.alert('Success', 'Event updated successfully!');
+      
+      // Close the modal immediately
+      onClose();
+      
+    } catch (error) {
+      console.error('Error updating event:', error);
+      Alert.alert('Error', 'Failed to update event. Please try again.');
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+
+
+  // Helper function to validate time input format HH:MM
+  const validateTimeFormat = (input: string): boolean => {
+    if (!input) return true; // Empty input is valid (optional field)
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    return timeRegex.test(input);
+  };
+
+  // Image management functions - using proven code from CreateEventScreen
+  const loadEventImages = async () => {
+    if (!event?.id) return;
+    
+    try {
+      // Use direct Supabase call to debug the issue
+      const { data: files, error } = await supabase.storage
+        .from('event-images')
+        .list(event.id.toString());
+      
+      if (error) {
+        console.error('Error listing files:', error);
+        return;
+      }
+      
+      console.log('Found files for event:', event.id, files);
+      
+      if (!files || files.length === 0) {
+        console.log('No files found in directory:', event.id.toString());
+        setEventImages([]);
+        return;
+      }
+      
+      // Get public URLs for all images
+      const imageUrls = await Promise.all(
+        files.map(async (file: any) => {
+          try {
+            const { data } = supabase.storage
+              .from('event-images')
+              .getPublicUrl(`${event.id}/${file.name}`);
+            
+            const publicUrl = data.publicUrl;
+            console.log('Image URL for', file.name, ':', publicUrl);
+            return publicUrl;
+          } catch (error) {
+            console.error('Error getting URL for', file.name, ':', error);
+            return null;
+          }
+        })
+      );
+      
+      // Filter out null URLs and set state
+      const validUrls = imageUrls.filter((url): url is string => url !== null && url !== '');
+      console.log('Setting event images:', validUrls);
+      setEventImages(validUrls);
+    } catch (error) {
+      console.error('Error loading event images:', error);
+    }
+  };
+
+  const pickImage = async () => {
+    if (!event?.id) return;
+    
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const imageUri = result.assets[0].uri;
+        console.log('Current eventImages.length:', eventImages.length);
+        console.log('Current eventImages:', eventImages);
+        
+        if (eventImages.length < 5) {
+          await uploadImage(imageUri);
+        } else {
+          Alert.alert('Limit Reached', `You can upload up to 5 images per event. Current count: ${eventImages.length}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const uploadImage = async (imageUri: string) => {
+    if (!event?.id) return;
+    
+    setIsUploadingImage(true);
+    try {
+      // Get current image count to determine filename
+      const currentImages = eventImages.length;
+      const fileName = `${currentImages}.jpg`;
+      const filePath = `${event.id}/${fileName}`;
+      
+      // Use the same upload logic as EditImages.tsx
+      const uploadImageToSupabase = async (imageUri: string, imagePath: string): Promise<boolean> => {
+        try {
+          console.log('Starting upload for:', imagePath);
+          console.log('Image URI:', imageUri);
+          
+          // Validate the image URI
+          if (!imageUri || !imageUri.startsWith('file://')) {
+            console.error('Invalid image URI:', imageUri);
+            return false;
+          }
+
+          // Simple direct upload using FormData (React Native standard) - same as EditImages.tsx
+          console.log('📤 Uploading with FormData...');
+          const formData = new FormData();
+          formData.append('file', {
+            uri: imageUri,
+            type: 'image/jpeg',
+            name: imagePath.split('/').pop() || 'image.jpg',
+          } as any);
+
+          const { data, error } = await supabase.storage
+            .from('event-images')
+            .upload(imagePath, formData, {
+              contentType: 'image/jpeg',
+              upsert: true,
+            });
+
+          if (error) {
+            console.error('Upload failed:', error);
+            return false;
+          }
+
+          console.log('✅ Upload successful:', data);
+          return true;
+        } catch (error) {
+          console.error('Error in uploadImageToSupabase:', error);
+          return false;
+        }
+      };
+
+      const success = await uploadImageToSupabase(imageUri, filePath);
+      
+      if (success) {
+        // Reload all images to ensure we have the latest state
+        await loadEventImages();
+        Alert.alert('Success', 'Image uploaded successfully!');
+      } else {
+        Alert.alert('Error', 'Failed to upload image. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      Alert.alert('Error', 'Failed to upload image. Please try again.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const removeImage = async (index: number) => {
+    if (!event?.id) return;
+    
+    try {
+      const services = OptimizedComponentServices.getInstance();
+      const fileName = `${index}.jpg`;
+      const filePath = `${event.id}/${fileName}`;
+      
+      // Delete from storage
+      await services.deleteFile('event-images', filePath);
+      
+      // Reload all images to ensure we have the latest state
+      await loadEventImages();
+      
+      Alert.alert('Success', 'Image removed successfully!');
+    } catch (error) {
+      console.error('Error removing image:', error);
+      Alert.alert('Error', 'Failed to remove image. Please try again.');
+    }
+  };
+
+  // Function to clean up orphaned images and reset the count
+  const cleanupOrphanedImages = async () => {
+    if (!event?.id) return;
+    
+    try {
+      console.log('🧹 Cleaning up orphaned images...');
+      
+      // Get all files in the event directory
+      const { data: files, error } = await supabase.storage
+        .from('event-images')
+        .list(event.id.toString());
+      
+      if (error) {
+        console.error('Error listing files for cleanup:', error);
+        return;
+      }
+      
+      console.log('Found files for cleanup:', files);
+      
+      if (!files || files.length === 0) {
+        console.log('No files to clean up');
+        return;
+      }
+      
+      // Delete all files in the directory
+      const filesToDelete = files.map((file: any) => `${event.id}/${file.name}`);
+      const { error: deleteError } = await supabase.storage
+        .from('event-images')
+        .remove(filesToDelete);
+      
+      if (deleteError) {
+        console.error('Error deleting files during cleanup:', deleteError);
+        return;
+      }
+      
+      console.log('✅ Cleanup completed, deleted', filesToDelete.length, 'files');
+      
+      // Reset the eventImages state
+      setEventImages([]);
+      
+      Alert.alert('Cleanup Complete', `Removed ${filesToDelete.length} orphaned images. You can now upload fresh images.`);
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+      Alert.alert('Error', 'Failed to cleanup images. Please try again.');
+    }
+  };
+
+
+
+
 
   // Helper function to get current day name
   const getCurrentDayName = () => {
@@ -621,39 +968,435 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   if (!visible || !event) return null;
 
   return (
-    <View style={styles.expandedOverlay}>
-      {/* Separate overlay background with delayed fade-in */}
-      <Animated.View 
-        style={[
-          styles.overlayBackground,
-          { 
-            opacity: overlayOpacity,
-          }
-        ]}
-      />
+    <>
+      {/* Full-screen modal for edit mode */}
+      {isEditMode ? (
+        <Modal
+          visible={visible}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={onClose}
+        >
+          <SafeAreaView style={[styles.fullScreenContainer, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
+            {/* Header */}
+            <View style={styles.fullScreenHeader}>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+              </TouchableOpacity>
+              <View style={styles.headerSpacer} />
+              <TouchableOpacity 
+                onPress={handleSaveEvent} 
+                style={styles.saveButton}
+                disabled={isEditing}
+              >
+                {isEditing ? (
+                  <ActivityIndicator size="small" color={Colors[colorScheme ?? 'light'].accent} />
+                ) : (
+                  <Ionicons name="checkmark" size={24} color={Colors[colorScheme ?? 'light'].accent} />
+                )}
+              </TouchableOpacity>
+            </View>
 
-      <Animated.View 
-        style={[
-          styles.expandedCard,
-          { 
-            backgroundColor: Colors[colorScheme ?? 'light'].background,
-            // Add shadow and border to prevent bleed-through
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-            elevation: 16,
-            borderWidth: 1,
-            borderColor: Colors[colorScheme ?? 'light'].background,
-            opacity: fadeAnim,
-            transform: [
-              { scale: expandScale },
-              { translateX: translateX },
-              { translateY: translateY }
-            ],
-          }
-        ]}
-      >
+            <ScrollView style={styles.fullScreenContent} showsVerticalScrollIndicator={false}>
+              {/* Event Name */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Event Name</Text>
+                <TextInput
+                  style={[styles.editTextInput, { color: Colors[colorScheme ?? 'light'].text }]}
+                  value={editedEvent?.name || ''}
+                  onChangeText={(text) => handleFieldUpdate('name', text)}
+                  placeholder="Event name"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                />
+              </View>
+
+              {/* Organization */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Organization</Text>
+                <TextInput
+                  style={[styles.editTextInput, { color: Colors[colorScheme ?? 'light'].text }]}
+                  value={editedEvent?.organization || ''}
+                  onChangeText={(text) => handleFieldUpdate('organization', text)}
+                  placeholder="Organization"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                />
+              </View>
+
+              {/* Description */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Description</Text>
+                <TextInput
+                  style={[styles.editTextInput, styles.editTextArea, { color: Colors[colorScheme ?? 'light'].text }]}
+                  value={editedEvent?.description || ''}
+                  onChangeText={(text) => handleFieldUpdate('description', text)}
+                  placeholder="Event description"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              {/* Days and Times */}
+              <View style={[styles.modernHoursCard, { backgroundColor: Colors[colorScheme ?? 'light'].card, margin: 20 }]}>
+                <View style={styles.modernHoursHeader}>
+                  <View style={[styles.modernInfoIconBadge, { backgroundColor: 'rgba(158, 149, 189, 0.1)' }]}>
+                    <Ionicons name="time" size={18} color="#9E95BD" />
+                  </View>
+                  <View style={styles.modernHoursHeaderText}>
+                    <Text style={[styles.modernInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Opening Hours</Text>
+                    <Text style={[styles.modernInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {editedEvent?.times && Object.keys(editedEvent.times).length > 0 ? 
+                        `${Object.keys(editedEvent.times).length} days configured` : 
+                        'No days configured'
+                      }
+                    </Text>
+                  </View>
+                </View>
+                
+                {/* Weekly Hours */}
+                <View style={styles.modernWeeklyHours}>
+                  {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => {
+                    const dayTimes = editedEvent?.times?.[day];
+                    const isCurrentDay = day === getCurrentDayName();
+                    
+                    return (
+                      <View key={day} style={[
+                        styles.modernDayRow,
+                        { backgroundColor: isCurrentDay ? 'rgba(103, 126, 234, 0.1)' : 'transparent' }
+                      ]}>
+                        <TouchableOpacity
+                          style={styles.dayToggleContainer}
+                          onPress={() => {
+                            const currentTimes = editedEvent?.times || {};
+                            if (currentTimes[day]) {
+                              // Remove day if already selected
+                              const newTimes = { ...currentTimes };
+                              delete newTimes[day];
+                              handleFieldUpdate('times', newTimes);
+                            } else {
+                              // Add day with default times
+                              handleFieldUpdate('times', {
+                                ...currentTimes,
+                                [day]: ['09:00', '17:00']
+                              });
+                            }
+                          }}
+                        >
+                          <Text style={[
+                            styles.modernDayText,
+                            { 
+                              color: Colors[colorScheme ?? 'light'].text,
+                              fontWeight: isCurrentDay ? 'bold' : '500'
+                            }
+                          ]}>
+                            {day.slice(0, 3)}
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        <View style={styles.modernHoursText}>
+                          {dayTimes ? (
+                            <View style={styles.cleanTimeContainer}>
+                              <View style={styles.timeRangeRow}>
+                                <TextInput
+                                  style={[styles.timeInput, { 
+                                    borderColor: (dayTimes[0] && !validateTimeFormat(dayTimes[0])) ? '#ff4444' : Colors[colorScheme ?? 'light'].text + '30',
+                                    color: Colors[colorScheme ?? 'light'].text,
+                                    backgroundColor: (dayTimes[0] && !validateTimeFormat(dayTimes[0])) ? 'rgba(255, 68, 68, 0.05)' : 'rgba(158, 149, 189, 0.05)'
+                                  }]}
+                                  value={dayTimes[0] || ''}
+                                  onChangeText={(text) => {
+                                    const currentTimes = editedEvent.times || {};
+                                    const updatedTimes = [...(currentTimes[day] || ['', ''])];
+                                    updatedTimes[0] = text;
+                                    handleFieldUpdate('times', {
+                                      ...currentTimes,
+                                      [day]: updatedTimes
+                                    });
+                                  }}
+                                  placeholder="09:00"
+                                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '50'}
+                                  maxLength={5}
+                                  keyboardType="numeric"
+                                />
+                                
+                                <Text style={[styles.timeSeparatorClean, { color: Colors[colorScheme ?? 'light'].text }]}>to</Text>
+                                
+                                <TextInput
+                                  style={[styles.timeInput, { 
+                                    borderColor: (dayTimes[1] && !validateTimeFormat(dayTimes[1])) ? '#ff4444' : Colors[colorScheme ?? 'light'].text + '30',
+                                    color: Colors[colorScheme ?? 'light'].text,
+                                    backgroundColor: (dayTimes[1] && !validateTimeFormat(dayTimes[1])) ? 'rgba(255, 68, 68, 0.05)' : 'rgba(158, 149, 189, 0.05)'
+                                  }]}
+                                  value={dayTimes[1] || ''}
+                                  onChangeText={(text) => {
+                                    const currentTimes = editedEvent.times || {};
+                                    const updatedTimes = [...(currentTimes[day] || ['', ''])];
+                                    updatedTimes[1] = text;
+                                    handleFieldUpdate('times', {
+                                      ...currentTimes,
+                                      [day]: updatedTimes
+                                    });
+                                  }}
+                                  placeholder="17:00"
+                                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '50'}
+                                  maxLength={5}
+                                  keyboardType="numeric"
+                                />
+                              </View>
+                            </View>
+                          ) : (
+                            <Text style={[
+                              styles.modernHoursText,
+                              { 
+                                color: Colors[colorScheme ?? 'light'].text + '80',
+                                fontWeight: isCurrentDay ? 'bold' : '500'
+                              }
+                            ]}>
+                              Closed
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Location */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
+                <TextInput
+                  style={[styles.editTextInput, { color: Colors[colorScheme ?? 'light'].text }]}
+                  value={editedEvent?.location || ''}
+                  onChangeText={(text) => handleFieldUpdate('location', text)}
+                  placeholder="Location"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                />
+              </View>
+
+              {/* Cost */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Cost</Text>
+                <TextInput
+                  style={[styles.editTextInput, { color: Colors[colorScheme ?? 'light'].text }]}
+                  value={editedEvent?.cost ? editedEvent.cost.toString() : ''}
+                  onChangeText={(text) => handleFieldUpdate('cost', parseFloat(text) || 0)}
+                  placeholder="Cost (0 for free)"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                  keyboardType="numeric"
+                />
+              </View>
+
+              {/* Age Restriction */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Age Restriction</Text>
+                <TextInput
+                  style={[styles.editTextInput, { color: Colors[colorScheme ?? 'light'].text }]}
+                  value={editedEvent?.age_restriction ? editedEvent.age_restriction.toString() : ''}
+                  onChangeText={(text) => handleFieldUpdate('age_restriction', parseFloat(text) || null)}
+                  placeholder="Age restriction (leave empty for none)"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                  keyboardType="numeric"
+                />
+              </View>
+
+              {/* Reservation */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Reservation</Text>
+                <View style={styles.editToggleContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.editToggleButton,
+                      editedEvent?.reservation === 'required' && styles.editToggleButtonActive
+                    ]}
+                    onPress={() => handleFieldUpdate('reservation', 'required')}
+                  >
+                    <Text style={[
+                      styles.editToggleText,
+                      editedEvent?.reservation === 'required' && styles.editToggleTextActive
+                    ]}>
+                      Required
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.editToggleButton,
+                      editedEvent?.reservation === 'no' && styles.editToggleButtonActive
+                    ]}
+                    onPress={() => handleFieldUpdate('reservation', 'no')}
+                  >
+                    <Text style={[
+                      styles.editToggleText,
+                      editedEvent?.reservation === 'no' && styles.editToggleTextActive
+                    ]}>
+                      No
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.editToggleButton,
+                      editedEvent?.reservation === 'recommended' && styles.editToggleButtonActive
+                    ]}
+                    onPress={() => handleFieldUpdate('reservation', 'recommended')}
+                  >
+                    <Text style={[
+                      styles.editToggleText,
+                      editedEvent?.reservation === 'recommended' && styles.editToggleTextActive
+                    ]}>
+                      Recommended
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Link */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Event Link</Text>
+                <TextInput
+                  style={[styles.editTextInput, { color: Colors[colorScheme ?? 'light'].text }]}
+                  value={editedEvent?.link || ''}
+                  onChangeText={(text) => handleFieldUpdate('link', text)}
+                  placeholder="Event website or link"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                />
+              </View>
+
+              {/* Event Images */}
+              <View style={styles.editFieldContainer}>
+                <Text style={[styles.editFieldLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Event Images</Text>
+                <Text style={[styles.editFieldSubLabel, { color: Colors[colorScheme ?? 'light'].text + '80' }]}>
+                  Upload images to showcase your event
+                </Text>
+                
+                <View style={styles.imageUploadContainer}>
+                  {/* Image Grid */}
+                  <View style={styles.imageGrid}>
+                    {eventImages.map((imageUrl, index) => (
+                      <View key={index} style={styles.imagePreviewContainer}>
+                        <Image source={{ uri: imageUrl }} style={styles.imagePreview} />
+                        <TouchableOpacity
+                          style={styles.removeImageButton}
+                          onPress={() => removeImage(index)}
+                          activeOpacity={0.8}
+                        >
+                          <LinearGradient
+                            colors={['#ff4444', '#ff6666']}
+                            style={styles.removeImageGradient}
+                          >
+                            <Ionicons name="close" size={14} color="white" />
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    
+                    {/* Add Image Button */}
+                    {eventImages.length < 5 && (
+                      <TouchableOpacity
+                        style={[styles.addImageButton, { 
+                          backgroundColor: Colors[colorScheme ?? 'light'].card,
+                          borderColor: colorScheme === 'dark' ? '#333' : '#ddd'
+                        }]}
+                        onPress={pickImage}
+                        activeOpacity={0.8}
+                        disabled={isUploadingImage}
+                      >
+                      <LinearGradient
+                        colors={['#9E95BD', '#B97AFF', '#9E95BD']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.addImageGradient}
+                      >
+                        {isUploadingImage ? (
+                          <ActivityIndicator size="small" color="white" />
+                        ) : (
+                          <>
+                            <Ionicons name="camera" size={24} color="white" />
+                            <Text style={styles.addImageText}>Add Photo</Text>
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    )}
+                    
+                    {/* Image Limit Message */}
+                    {eventImages.length >= 5 && (
+                      <View style={styles.imageLimitMessage}>
+                        <Text style={[styles.imageLimitText, { color: Colors[colorScheme ?? 'light'].text + '70' }]}>
+                          Maximum 5 images reached
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  
+                  {/* Upload Tips */}
+                  <View style={styles.uploadTips}>
+                    <View style={styles.tipRow}>
+                      <Ionicons name="information-circle-outline" size={16} color="#9E95BD" />
+                      <Text style={[styles.tipText, { color: Colors[colorScheme ?? 'light'].text + '70' }]}>
+                        High-quality images help attract more participants
+                      </Text>
+                    </View>
+                    <View style={styles.tipRow}>
+                      <Ionicons name="image-outline" size={16} color="#9E95BD" />
+                      <Text style={[styles.tipText, { color: Colors[colorScheme ?? 'light'].text + '70' }]}>
+                        Recommended size: 1200×675 pixels (16:9 ratio)
+                      </Text>
+                    </View>
+                    
+                    {/* Debug Info and Cleanup Button */}
+                    <View style={styles.debugRow}>
+                      <Text style={[styles.debugText, { color: Colors[colorScheme ?? 'light'].text + '60' }]}>
+                        Current images: {eventImages.length}/5
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.cleanupButton}
+                        onPress={cleanupOrphanedImages}
+                      >
+                        <Text style={styles.cleanupButtonText}>Reset Images</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      ) : (
+        /* Original modal for view mode */
+        <View style={styles.expandedOverlay}>
+          {/* Separate overlay background with delayed fade-in */}
+          <Animated.View 
+            style={[
+              styles.overlayBackground,
+              { 
+                opacity: overlayOpacity,
+              }
+            ]}
+          />
+
+          <Animated.View 
+            style={[
+              styles.expandedCard,
+              { 
+                backgroundColor: Colors[colorScheme ?? 'light'].background,
+                // Add shadow and border to prevent bleed-through
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 16,
+                borderWidth: 1,
+                borderColor: Colors[colorScheme ?? 'light'].background,
+                opacity: fadeAnim,
+                transform: [
+                  { scale: expandScale },
+                  { translateX: translateX },
+                  { translateY: translateY }
+                ],
+              }
+            ]}
+          >
         {/* Close button at top of modal */}
         <TouchableOpacity
           style={styles.integratedBackButton}
@@ -673,6 +1416,31 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             <Ionicons name="close" size={22} color="white" />
           </LinearGradient>
         </TouchableOpacity>
+
+        {/* Save button when in edit mode */}
+        {isEditMode && (
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={handleSaveEvent}
+            activeOpacity={0.8}
+            disabled={isEditing}
+          >
+            <LinearGradient
+              colors={['#4CAF50', '#66BB6A']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.saveButtonGradient}
+            >
+              {isEditing ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Ionicons name="checkmark" size={22} color="white" />
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
+
 
         {/* Always render image immediately for smooth scaling */}
         <View style={styles.imageContainer}>
@@ -770,13 +1538,34 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             {/* Modern Header Section */}
             <View style={styles.modernHeaderSection}>
               <View style={styles.titleContainer}>
-                <Text style={[styles.modernTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                {event.name}
-              </Text>
-                {event.organization && (
-                  <Text style={[styles.modernOrganization, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    by {event.organization}
-              </Text>
+                {isEditMode ? (
+                  <>
+                    <TextInput
+                      style={[styles.modernTitle, styles.editTextInput, { color: Colors[colorScheme ?? 'light'].text }]}
+                      value={editedEvent?.name || ''}
+                      onChangeText={(text) => handleFieldUpdate('name', text)}
+                      placeholder="Event name"
+                      placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                    />
+                    <TextInput
+                      style={[styles.modernOrganization, styles.editTextInput, { color: Colors[colorScheme ?? 'light'].text }]}
+                      value={editedEvent?.organization || ''}
+                      onChangeText={(text) => handleFieldUpdate('organization', text)}
+                      placeholder="Organization"
+                      placeholderTextColor={Colors[colorScheme ?? 'light'].text + '80'}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Text style={[styles.modernTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      {event.name}
+                    </Text>
+                    {event.organization && (
+                      <Text style={[styles.modernOrganization, { color: Colors[colorScheme ?? 'light'].text }]}>
+                        by {event.organization}
+                      </Text>
+                    )}
+                  </>
                 )}
                 
                 {/* Event Creator Section */}
@@ -1117,7 +1906,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                   <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location</Text>
                   <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
                     {event.location}
-                      </Text>
+                  </Text>
                     </View>
                   </View>
 
@@ -1335,8 +2124,13 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
             )}
           </LinearGradient>
         </TouchableOpacity>
-      </Animated.View>
-      
+          </Animated.View>
+        </View>
+      )}
+
+
+
+
       {/* User Profile Modal for Creator */}
       {creatorInfo && (
         <UserProfileModal
@@ -1347,7 +2141,9 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           userEmail={creatorInfo.email}
         />
       )}
-    </View>
+
+
+    </>
   );
 }
 
@@ -1384,6 +2180,18 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     zIndex: 202, // Above the overlay background
   },
+  expandedCardFullScreen: {
+    width: width,
+    height: height,
+    borderRadius: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 10,
+    overflow: 'hidden',
+    zIndex: 202, // Above the overlay background
+  },
   expandedContent: {
     flex: 1,
   },
@@ -1412,6 +2220,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  saveButton: {
+    padding: 5,
+  },
+  saveButtonGradient: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   expandedHeader: {
     padding: 20,
     borderBottomWidth: 1,
@@ -1559,6 +2378,16 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  timePicker: {
+    flex: 1,
+    height: 120, // Adjust height as needed
+  },
+  timeSeparator: {
+    alignSelf: 'center',
+    marginHorizontal: 10,
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   imageNavLeft: {
     left: 10,
@@ -1903,6 +2732,314 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     fontWeight: '500',
   },
+  editTextInput: {
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    marginBottom: 8,
+  },
+
+  // Full-screen edit modal styles
+  fullScreenContainer: {
+    flex: 1,
+  },
+  fullScreenHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  headerSpacer: {
+    flex: 1,
+  },
+  closeButton: {
+    padding: 5,
+  },
+  fullScreenTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  fullScreenContent: {
+    flex: 1,
+    padding: 20,
+  },
+  editFieldContainer: {
+    marginBottom: 20,
+  },
+  editFieldLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  editTextArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  editToggleContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  editToggleButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.3)',
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+  },
+  editToggleButtonActive: {
+    backgroundColor: '#9E95BD',
+    borderColor: '#9E95BD',
+  },
+  editToggleText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(158, 149, 189, 0.8)',
+  },
+  editToggleTextActive: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  
+  // Image management styles
+  editFieldSubLabel: {
+    fontSize: 14,
+    marginBottom: 12,
+    opacity: 0.8,
+  },
+  imageUploadContainer: {
+    marginTop: 8,
+  },
+  imageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    width: 100,
+    height: 75,
+  },
+  imagePreview: {
+    width: 100,
+    height: 75,
+    borderRadius: 12,
+    resizeMode: 'cover',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    zIndex: 1,
+  },
+  removeImageGradient: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  addImageButton: {
+    width: 100,
+    height: 75,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    overflow: 'hidden',
+  },
+  addImageGradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  addImageText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  imageLimitMessage: {
+    width: 100,
+    height: 75,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#ccc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+  },
+  imageLimitText: {
+    fontSize: 11,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  uploadTips: {
+    marginTop: 16,
+    gap: 8,
+  },
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tipText: {
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+  debugRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(158, 149, 189, 0.1)',
+  },
+  debugText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  cleanupButton: {
+    backgroundColor: '#ff4444',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  cleanupButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  // Days and Times styles
+  dayToggleContainer: {
+    minWidth: 60,
+  },
+    // Clean Time Input Styles
+  cleanTimeContainer: {
+    width: '100%',
+  },
+  timeRangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 4,
+  },
+  singleTimeInput: {
+    flex: 1,
+  },
+  timeInput: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '500',
+    minWidth: 65,
+    minHeight: 40,
+  },
+  timePickerButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  timeSeparatorClean: {
+    fontSize: 12,
+    fontWeight: '500',
+    paddingHorizontal: 4,
+    opacity: 0.7,
+    minWidth: 20,
+  },
+  
+  // Time Picker Modal Styles
+  timePickerModal: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 10000,
+    elevation: 10000,
+  },
+  timePickerModalContainer: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+  },
+  timePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  timePickerCancel: {
+    padding: 5,
+  },
+  timePickerCancelText: {
+    fontSize: 16,
+    color: '#999',
+  },
+  timePickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  timePickerDone: {
+    padding: 5,
+  },
+  timePickerDoneText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#9E95BD',
+  },
+  timePicker: {
+    height: 200,
+    width: '100%',
+  },
+
+  timeInputGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  timeDigitInput: {
+    width: 45,
+    height: 55,
+    borderWidth: 1,
+    borderColor: 'rgba(158, 149, 189, 0.3)',
+    borderRadius: 6,
+    backgroundColor: 'rgba(158, 149, 189, 0.05)',
+    fontSize: 22,
+    textAlign: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
+  timeColon: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginHorizontal: 4,
+  },
+
+  
   
   // Modern Tags
   modernTagsContainer: {

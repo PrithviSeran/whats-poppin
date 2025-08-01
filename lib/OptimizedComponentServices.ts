@@ -206,6 +206,19 @@ class OptimizedComponentServices {
       maxRetries: 2
     });
   }
+
+  /**
+   * Update an event by ID
+   */
+  async updateEvent(eventId: number, eventData: any) {
+    return this.apiService.queueRequest('update', {
+      table: 'new_events',
+      data: eventData,
+      filters: { eq: { id: eventId } },
+      priority: 'high',
+      maxRetries: 2
+    });
+  }
   
   /**
    * Get events with intelligent caching
