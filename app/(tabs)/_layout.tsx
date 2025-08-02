@@ -7,9 +7,11 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useAnalyticsTest } from '@/hooks/useAnalyticsTest';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const { trackTabSwitch } = useAnalyticsTest();
 
   return (
     <Tabs
@@ -19,6 +21,14 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
         tabBarStyle: { display: 'none' },
+      }}
+      screenListeners={{
+        tabPress: (e) => {
+          const routeName = e.target?.split('-')[0];
+          if (routeName) {
+            trackTabSwitch(routeName);
+          }
+        },
       }}>
       <Tabs.Screen
         name="index"

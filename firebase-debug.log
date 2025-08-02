@@ -1,0 +1,28 @@
+[debug] [2025-07-30T00:05:29.892Z] ----------------------------------------------------------------------
+[debug] [2025-07-30T00:05:29.895Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\16479\AppData\Local\npm-cache\_npx\7750544ccf494d8b\node_modules\firebase-tools\lib\bin\firebase.js projects:create whatspoppin-app
+[debug] [2025-07-30T00:05:29.896Z] CLI Version:   14.11.1
+[debug] [2025-07-30T00:05:29.896Z] Platform:      win32
+[debug] [2025-07-30T00:05:29.896Z] Node Version:  v20.14.0
+[debug] [2025-07-30T00:05:29.896Z] Time:          Tue Jul 29 2025 20:05:29 GMT-0400 (Eastern Daylight Saving Time)
+[debug] [2025-07-30T00:05:29.897Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-07-30T00:05:29.905Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-07-30T00:05:29.905Z] > authorizing via signed-in user (shaungithub123@gmail.com)
+[debug] [2025-07-30T00:05:40.451Z] Checked if tokens are valid: true, expires at: 1753837490813
+[debug] [2025-07-30T00:05:40.451Z] Checked if tokens are valid: true, expires at: 1753837490813
+[debug] [2025-07-30T00:05:40.453Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects [none]
+[debug] [2025-07-30T00:05:40.453Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects {"projectId":"whatspoppin-app","name":"whatspoppin"}
+[debug] [2025-07-30T00:05:40.772Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects 200
+[debug] [2025-07-30T00:05:40.772Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects {"name":"operations/create_project.global.7277781113356536851"}
+[debug] [2025-07-30T00:05:40.773Z] Checked if tokens are valid: true, expires at: 1753837490813
+[debug] [2025-07-30T00:05:40.773Z] Checked if tokens are valid: true, expires at: 1753837490813
+[debug] [2025-07-30T00:05:40.774Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/operations/create_project.global.7277781113356536851 [none]
+[debug] [2025-07-30T00:05:40.955Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/operations/create_project.global.7277781113356536851 200
+[debug] [2025-07-30T00:05:40.955Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/operations/create_project.global.7277781113356536851 {"name":"operations/create_project.global.7277781113356536851","metadata":{"@type":"type.googleapis.com/google.cloudresourcemanager.v1.ProjectCreationStatus","ready":true},"done":true,"error":{"code":9,"message":"Callers must accept Terms of Service","details":[{"@type":"type.googleapis.com/google.rpc.PreconditionFailure","violations":[{"type":"TOS","subject":"cloud","description":"Callers must accept Terms of Service"}]}]}}
+[debug] [2025-07-30T00:05:41.037Z] FirebaseError: Callers must accept Terms of Service
+    at OperationPoller.poll (C:\Users\16479\AppData\Local\npm-cache\_npx\7750544ccf494d8b\node_modules\firebase-tools\lib\operation-poller.js:24:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async createCloudProject (C:\Users\16479\AppData\Local\npm-cache\_npx\7750544ccf494d8b\node_modules\firebase-tools\lib\management\projects.js:215:29)
+    at async createFirebaseProjectAndLog (C:\Users\16479\AppData\Local\npm-cache\_npx\7750544ccf494d8b\node_modules\firebase-tools\lib\management\projects.js:83:9)
+[error] 
+[error] Error: Failed to create project. See firebase-debug.log for more info.

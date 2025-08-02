@@ -135,15 +135,19 @@ module.exports = {
         "expo-notifications",
         {
           icon: "./assets/images/balloons.png",
-          color: "#FF0005",
-          sounds: ["./assets/sounds/notification.wav"]
+          color: "#FF0005"
         }
       ],
+      [
+        "expo-firebase-core",
+        {
+          // Firebase configuration will be added here
+          // You'll need to add your Firebase project configuration
+        }
+      ],
+      "expo-firebase-analytics",
       "expo-font",
-      "expo-web-browser",
-
-
-      // Critical: React Native Maps plugin for proper iOS compilation
+      "expo-web-browser"
     ],
     experiments: {
       typedRoutes: true

@@ -8,6 +8,8 @@ import SuggestedEvents from '@/components/SuggestedEvents';
 import { supabase } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import GlobalDataManager from '@/lib/GlobalDataManager';
+import { useScreenTrackingTest } from '@/hooks/useAnalyticsTest';
+import { ScreenName } from '@/lib/firebase-analytics-test';
 
 export default function HomeScreen() {
   const [session, setSession] = useState<Session | null>(null);
@@ -15,6 +17,9 @@ export default function HomeScreen() {
   const [isDataLoading, setIsDataLoading] = useState(false);
   
   const colorScheme = useColorScheme();
+  
+  // Track screen view
+  useScreenTrackingTest(ScreenName.HOME);
 
   // Get the singleton instance
   const dataManager = GlobalDataManager.getInstance();

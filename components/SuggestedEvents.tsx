@@ -16,6 +16,8 @@ import EventDetailModal from './EventDetailModal';
 import { EventCard } from '../lib/GlobalDataManager';
 import { supabase } from '@/lib/supabase';
 import { useRoute, useFocusEffect } from '@react-navigation/native';
+import { useAnalyticsTest } from '@/hooks/useAnalyticsTest';
+import { ScreenName } from '@/lib/firebase-analytics-test';
 
 
 const { width, height } = Dimensions.get('window');
@@ -141,6 +143,7 @@ export default function SuggestedEvents() {
   //supabase.auth.signOut();
 
   const dataManager = GlobalDataManager.getInstance();
+  const { trackEventInteraction, trackSwipeAction, trackCustomEvent } = useAnalyticsTest();
 
 
   // Simple cache functions
@@ -924,6 +927,9 @@ export default function SuggestedEvents() {
       return;
     }
     
+    // Track event view
+    trackEventInteraction(card.id, card.name, 'view');
+    
     // Keep swiper visible - don't hide it when modal opens
     // This prevents race conditions and provides smoother UX
     
@@ -998,6 +1004,10 @@ export default function SuggestedEvents() {
     // Do save operations with proper tracking
     (async () => {
       try {
+        // Track swipe action
+        trackSwipeAction('right', likedEvent.id, likedEvent.name);
+        trackEventInteraction(likedEvent.id, likedEvent.name, 'save');
+        
         // Save the event and ensure it's synced to database
         await dataManager.addEventToSavedEvents(likedEvent.id);
         
@@ -1308,6 +1318,10 @@ export default function SuggestedEvents() {
     console.log(`❌ Starting reject operation for event ${rejectedEvent.id}`);
 
     try {
+      // Track swipe action
+      trackSwipeAction('left', rejectedEvent.id, rejectedEvent.name);
+      trackEventInteraction(rejectedEvent.id, rejectedEvent.name, 'reject');
+      
       // Update rejected events in AsyncStorage
       await dataManager.updateRejectedEvents(rejectedEvent);
       
