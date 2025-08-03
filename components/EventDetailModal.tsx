@@ -817,7 +817,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       translateX.setValue(initialX);
       translateY.setValue(initialY);
       contentOpacity.setValue(0);
-      fadeAnim.setValue(1); // Card is immediately visible
+      fadeAnim.setValue(0); // Start invisible to prevent flash
       overlayOpacity.setValue(0); // Overlay starts transparent
       imageControlsOpacity.setValue(0); // Image controls start hidden
 
@@ -828,6 +828,13 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           toValue: 0.8,
           duration: 200,
           easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        // Modal fade in
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         // Modal expansion

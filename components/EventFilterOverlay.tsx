@@ -45,8 +45,8 @@ const EVENT_TYPES = [
   'Happy hours'
 ];
 
-const defaultStart = '21:00';
-const defaultEnd = '3:00';
+const defaultStart = '00:00';
+const defaultEnd = '23:59';
 
 const DAYS_OF_WEEK = [
   'Monday',
@@ -69,8 +69,8 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [manualLocation, setManualLocation] = useState('');
   const [travelDistance, setTravelDistance] = useState(8);
-  const [startTime, setStartTime] = useState(21 * 60);
-  const [endTime, setEndTime] = useState(3 * 60);
+  const [startTime, setStartTime] = useState(0); // 00:00
+  const [endTime, setEndTime] = useState(23 * 60 + 59); // 23:59
   const colorScheme = useColorScheme();
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(0)).current;
@@ -444,10 +444,26 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       await AsyncStorage.setItem('isCalendarMode', isCalendarMode.toString());
       
       if (isCalendarMode) {
-        // In calendar mode, save selected dates and clear preferred_days
+        // In calendar mode, save selected dates and extract days of the week from those dates
         await AsyncStorage.setItem('selectedDates', JSON.stringify(selectedDates));
-        await AsyncStorage.setItem('userPreferredDays', JSON.stringify([])); // Clear days when using calendar mode
-        console.log('✅ OFFLINE-FIRST: Saved calendar mode with dates:', selectedDates);
+        
+        // Extract days of the week from selected dates
+        const daysFromDates: string[] = [];
+        selectedDates.forEach(dateStr => {
+          try {
+            const date = new Date(dateStr);
+            const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }); // Monday, Tuesday, etc.
+            if (!daysFromDates.includes(dayName)) {
+              daysFromDates.push(dayName);
+            }
+          } catch (error) {
+            console.error('Error parsing date:', dateStr, error);
+          }
+        });
+        
+        // Save the extracted days as preferred days for backend filtering
+        await AsyncStorage.setItem('userPreferredDays', JSON.stringify(daysFromDates));
+        console.log('✅ OFFLINE-FIRST: Saved calendar mode with dates:', selectedDates, 'and extracted days:', daysFromDates);
       } else {
         // In days mode, save preferred days and clear selected dates
         const daysToSave = selectedDayPreferences.length > 0 ? selectedDayPreferences : DAYS_OF_WEEK;
@@ -512,8 +528,8 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     // Reset local state
     setSelectedEventTypes([]);
     setSelectedDayPreferences([]);
-    setStartTime(21 * 60);
-    setEndTime(3 * 60);
+    setStartTime(0); // 00:00
+    setEndTime(23 * 60 + 59); // 23:59
     setTravelDistance(8);
     setManualLocation('');
     setFeaturedEventsOnly(false);
@@ -529,8 +545,8 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
     try {
       // OFFLINE-FIRST: Clear all preferences from AsyncStorage
       await AsyncStorage.setItem('userPreferences', JSON.stringify([]));
-      await AsyncStorage.setItem('userStartTime', '21:00');
-      await AsyncStorage.setItem('userEndTime', '03:00');
+      await AsyncStorage.setItem('userStartTime', '00:00');
+      await AsyncStorage.setItem('userEndTime', '23:59');
       await AsyncStorage.setItem('userLocation', '');
       await AsyncStorage.setItem('userLocationMode', 'current'); // Reset location mode
       await AsyncStorage.setItem('userTravelDistance', '8');

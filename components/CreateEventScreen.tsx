@@ -373,10 +373,6 @@ export default function CreateEventScreen() {
         Alert.alert('Error', 'Event name is required');
         return;
       }
-      if (!eventForm.organization.trim()) {
-        Alert.alert('Error', 'Organization is required');
-        return;
-      }
       if (!eventForm.location.trim()) {
         Alert.alert('Error', 'Location is required');
         return;
@@ -676,6 +672,19 @@ export default function CreateEventScreen() {
             </View>
 
             {/* Organization */}
+            <View style={styles.formGroup}>
+              <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Organization (Optional)</Text>
+              <TextInput
+                style={[styles.formInput, { 
+                  color: Colors[colorScheme ?? 'light'].text,
+                  backgroundColor: Colors[colorScheme ?? 'light'].card
+                }]}
+                placeholder="Enter organization name"
+                placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
+                value={eventForm.organization}
+                onChangeText={(text) => setEventForm({ ...eventForm, organization: text })}
+              />
+            </View>
 
             {/* Location */}
             <View style={styles.formGroup}>

@@ -531,20 +531,41 @@ class EventRecommendationSystem:
         return filtered_events
 
     def filter_by_occurrence(self, events, preferred_days):
-        """Filter events by occurrence days - implement your logic"""
+        """Filter events by days_of_the_week - simple and reliable filtering"""
         user_preferred_days = self.parse_days(preferred_days)
+        
+        # If no preferred days specified, return all events
+        if not user_preferred_days:
+            print("No preferred days specified, returning all events")
+            return events
+            
+        print(f"Filtering events by preferred days: {user_preferred_days}")
+        
         filtered_by_occurrence = []
         for event in events:
-            occurrence = event.get("occurrence", "")
-            if occurrence != "Weekly":
-                filtered_by_occurrence.append(event)
-            else:
-                event_days = self.parse_days(event.get("days_of_the_week", []))
-                # Check for intersection
-                if any(day in user_preferred_days for day in event_days):
+            event_id = event.get("id", "unknown")
+            event_name = event.get("name", "unknown")
+            
+            # Get the event's days_of_the_week
+            event_days = self.parse_days(event.get("days_of_the_week", []))
+            
+            # If event has days_of_the_week data, check for intersection
+            if event_days:
+                # Convert to lowercase for case-insensitive comparison
+                event_days_lower = [day.lower() for day in event_days]
+                user_preferred_days_lower = [day.lower() for day in user_preferred_days]
+                
+                if any(day in user_preferred_days_lower for day in event_days_lower):
                     filtered_by_occurrence.append(event)
-        events = filtered_by_occurrence
-        return events
+                    print(f"✅ Event {event_id} ({event_name}) included - days {event_days} match preferred {user_preferred_days}")
+                else:
+                    print(f"❌ Event {event_id} ({event_name}) excluded - days {event_days} don't match preferred {user_preferred_days}")
+            else:
+                # If no days_of_the_week data, exclude the event
+                print(f"❌ Event {event_id} ({event_name}) excluded - no days_of_the_week data")
+                
+        print(f"Day filtering: {len(events)} -> {len(filtered_by_occurrence)} events")
+        return filtered_by_occurrence
     
     def apply_distance_filter(self, events, lat, lng, filter_by_distance, max_distance):
         """Apply distance filtering - implement your logic"""
@@ -936,10 +957,26 @@ class EventRecommendationSystem:
                     # Use traditional day preference filtering
                     final_user_preferred_days = user_preferred_days if user_preferred_days is not None else []
                     print(f"Using traditional day filtering with preferred days: {final_user_preferred_days}")
+                    print(f"User preferred days type: {type(final_user_preferred_days)}, length: {len(final_user_preferred_days) if isinstance(final_user_preferred_days, list) else 'N/A'}")
+                    
+                    # Debug: Show sample events before filtering
+                    if new_events_raw:
+                        sample_events = new_events_raw[:3]
+                        print("Sample events before day filtering:")
+                        for event in sample_events:
+                            print(f"  Event {event.get('id')}: {event.get('name', 'Unknown')} - Occurrence: {event.get('occurrence')}, Days: {event.get('days_of_the_week')}, Start Date: {event.get('start_date')}")
+                    
                     events_before_day = len(new_events_raw)
                     new_events_raw = self.filter_by_occurrence(new_events_raw, final_user_preferred_days)
                     events_after_day = len(new_events_raw)
                     print(f"Day preference filter: {events_before_day} -> {events_after_day} events (filtered out: {events_before_day - events_after_day})")
+                    
+                    # Debug: Show sample events after filtering
+                    if new_events_raw:
+                        sample_events_after = new_events_raw[:3]
+                        print("Sample events after day filtering:")
+                        for event in sample_events_after:
+                            print(f"  Event {event.get('id')}: {event.get('name', 'Unknown')} - Occurrence: {event.get('occurrence')}, Days: {event.get('days_of_the_week')}, Start Date: {event.get('start_date')}")
                 
                 new_events_filtered = self.apply_distance_filter(
                     new_events_raw, latitude, longitude, 

@@ -4,7 +4,7 @@ module.exports = {
     slug: "whats-poppin",
     version: "1.5.0",
     orientation: "portrait",
-    icon: "./assets/images/balloons.png",
+    icon: "./assets/images/logo-light.png",
     scheme: "whatspoppin",
     userInterfaceStyle: "automatic",
     splash: {
@@ -135,12 +135,17 @@ module.exports = {
         "expo-notifications",
         {
           icon: "./assets/images/balloons.png",
-          color: "#FF0005",
-          sounds: ["./assets/sounds/notification.wav"]
+          color: "#FF0005"
         }
       ],
       "expo-font",
       "expo-web-browser",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn"
+        }
+      ]
 
 
       // Critical: React Native Maps plugin for proper iOS compilation

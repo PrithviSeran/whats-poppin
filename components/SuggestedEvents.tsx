@@ -999,6 +999,9 @@ export default function SuggestedEvents() {
       })
     ]).start();
     
+    // Reset swipeX to clear any color overlay from the previous swipe
+    swipeX.setValue(0);
+    
     // Do save operations with proper tracking
     (async () => {
       try {
@@ -1380,6 +1383,9 @@ export default function SuggestedEvents() {
         useNativeDriver: true,
       })
     ]).start();
+    
+    // Reset swipeX to clear any color overlay from the previous swipe
+    swipeX.setValue(0);
   };
 
   // Add refs for measuring card positions
@@ -2102,32 +2108,25 @@ export default function SuggestedEvents() {
                   </LinearGradient>
                 </TouchableOpacity>
 
-                {/* Refresh Card */}
-                <TouchableOpacity
-                  style={styles.actionCard}
-                  onPress={async () => {
-                    setLoading(true);
-                    await clearEventsCache();
-                    fetchTokenAndCallBackend();
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={['#f093fb', '#f5576c']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.actionCardGradient}
-                  >
-                    <View style={styles.actionCardIcon}>
-                      <Ionicons name="refresh" size={20} color="white" />
-                    </View>
-                    <View style={styles.actionCardContent}>
-                      <Text style={styles.actionCardTitle}>Refresh Events</Text>
-                      <Text style={styles.actionCardSubtitle}>Get new recommendations</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.8)" />
-                  </LinearGradient>
-                </TouchableOpacity>
+                                 {/* Refresh Card */}
+                 <TouchableOpacity
+                   style={styles.actionCard}
+                   onPress={async () => {
+                     setLoading(true);
+                     await clearEventsCache();
+                     fetchTokenAndCallBackend();
+                   }}
+                   activeOpacity={0.8}
+                 >
+                   <LinearGradient
+                     colors={['#f093fb', '#f5576c']}
+                     start={{ x: 0, y: 0 }}
+                     end={{ x: 1, y: 1 }}
+                     style={[styles.actionCardGradient, { justifyContent: 'center', alignItems: 'center' }]}
+                   >
+                     <Ionicons name="refresh" size={24} color="white" />
+                   </LinearGradient>
+                 </TouchableOpacity>
               </View>
 
               {/* Bottom Suggestion */}
