@@ -46,22 +46,22 @@ jobs:
         import os
         from datetime import datetime, timedelta
         from supabase import create_client, Client
-        
+
         # Initialize Supabase client with service role for admin operations
         url = os.environ.get('SUPABASE_URL')
         # Use service role key for admin operations
         key = os.environ.get('SERVICE_ROLE_KEY') or os.environ.get('SUPABASE_ANON_KEY')
         dry_run = os.environ.get('DRY_RUN', 'false').lower() == 'true'
         days_buffer = int(os.environ.get('DAYS_BUFFER', '1'))
-        
+
         if not url or not key:
             print('❌ Missing required environment variables')
             exit(1)
-        
+
         supabase: Client = create_client(url, key)
-        
+
         print(f'🔍 Starting cleanup process (DRY_RUN: {dry_run}, DAYS_BUFFER: {days_buffer})')
-        
+
         try:
             # Calculate cutoff timestamp (today - buffer days)
             cutoff_timestamp = int((datetime.now() - timedelta(days=days_buffer)).timestamp())
