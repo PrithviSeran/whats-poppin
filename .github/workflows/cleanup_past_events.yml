@@ -65,7 +65,7 @@ jobs:
         try:
             # Calculate cutoff timestamp (today - buffer days)
             cutoff_timestamp = int((datetime.now() - timedelta(days=days_buffer)).timestamp())
-            print(f'📅 Cutoff timestamp: {cutoff_timestamp} ({datetime.fromtimestamp(cutoff_timestamp).strftime("%Y-%m-%d")})')
+            print(f'📅 Cutoff timestamp: {cutoff_timestamp} ({datetime.fromtimestamp(cutoff_timestamp).strftime(\"%Y-%m-%d\")})')
             
             # Query for past one-time events
             # We only delete one-time events, keep recurring/weekly events
