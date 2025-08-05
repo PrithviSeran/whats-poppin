@@ -25,6 +25,8 @@ export default function NotificationSettings({ visible, onClose }: NotificationS
     enabled: true,
     friendRequests: true,
     eventReminders: true,
+    newFollowers: true,
+    newEventsFromFollowing: true,
     marketing: false,
   });
   const [loading, setLoading] = useState(false);
@@ -83,6 +85,8 @@ export default function NotificationSettings({ visible, onClose }: NotificationS
               enabled: true,
               friendRequests: true,
               eventReminders: true,
+              newFollowers: true,
+              newEventsFromFollowing: true,
               marketing: false,
             };
             setSettings(defaultSettings);
@@ -184,6 +188,60 @@ export default function NotificationSettings({ visible, onClose }: NotificationS
                 <Switch
                   value={settings.eventReminders}
                   onValueChange={(value) => updateSetting('eventReminders', value)}
+                  trackColor={{ false: '#767577', true: Colors[colorScheme ?? 'light'].primary }}
+                  thumbColor={'#fff'}
+                />
+              </View>
+            </View>
+
+            {/* New Followers */}
+            <View style={[styles.section, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <Ionicons 
+                    name="person-add" 
+                    size={24} 
+                    color={Colors[colorScheme ?? 'light'].accent} 
+                  />
+                  <View style={styles.settingText}>
+                    <Text style={[styles.settingTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      New Followers
+                    </Text>
+                    <Text style={[styles.settingDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      When someone starts following you
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={settings.newFollowers}
+                  onValueChange={(value) => updateSetting('newFollowers', value)}
+                  trackColor={{ false: '#767577', true: Colors[colorScheme ?? 'light'].primary }}
+                  thumbColor={'#fff'}
+                />
+              </View>
+            </View>
+
+            {/* New Events from Following */}
+            <View style={[styles.section, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <Ionicons 
+                    name="star" 
+                    size={24} 
+                    color={Colors[colorScheme ?? 'light'].success} 
+                  />
+                  <View style={styles.settingText}>
+                    <Text style={[styles.settingTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Events from Following
+                    </Text>
+                    <Text style={[styles.settingDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      When someone you follow creates an event
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={settings.newEventsFromFollowing}
+                  onValueChange={(value) => updateSetting('newEventsFromFollowing', value)}
                   trackColor={{ false: '#767577', true: Colors[colorScheme ?? 'light'].primary }}
                   thumbColor={'#fff'}
                 />

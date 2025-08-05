@@ -63,9 +63,9 @@ jobs:
         print(f'🔍 Starting cleanup process (DRY_RUN: {dry_run}, DAYS_BUFFER: {days_buffer})')
         
         try:
-            # Calculate cutoff date (today - buffer days)
-            cutoff_date = (datetime.now() - timedelta(days=days_buffer)).strftime('%Y-%m-%d')
-            print(f'📅 Cutoff date: {cutoff_date}')
+                    # Calculate cutoff timestamp (today - buffer days)
+        cutoff_timestamp = int((datetime.now() - timedelta(days=days_buffer)).timestamp())
+        print(f'📅 Cutoff timestamp: {cutoff_timestamp} ({datetime.fromtimestamp(cutoff_timestamp).strftime("%Y-%m-%d")})')
             
             # Query for past one-time events
             # We only delete one-time events, keep recurring/weekly events
@@ -88,15 +88,22 @@ jobs:
                 # Only consider deleting one-time events
                 if occurrence in ['one-time', 'single']:
                     # Use end_date if available, otherwise use start_date
-                    event_date = end_date if end_date else start_date
+                    event_timestamp = end_date if end_date else start_date
                     
-                    if event_date and event_date < cutoff_date:
-                        events_to_delete.append({
-                            'id': event_id,
-                            'name': event_name,
-                            'date': event_date,
-                            'occurrence': occurrence
-                        })
+                    # Convert timestamp to date for comparison
+                    if event_timestamp and isinstance(event_timestamp, (int, float)):
+                        # Convert Unix timestamp to datetime
+                        event_datetime = datetime.fromtimestamp(event_timestamp)
+                        event_date_str = event_datetime.strftime('%Y-%m-%d')
+                        
+                        if event_timestamp < cutoff_timestamp:
+                            events_to_delete.append({
+                                'id': event_id,
+                                'name': event_name,
+                                'date': event_date_str,
+                                'timestamp': event_timestamp,
+                                'occurrence': occurrence
+                            })
             
             print(f'📊 Found {len(events_to_delete)} past events out of {total_events} total events')
             
@@ -107,7 +114,7 @@ jobs:
             # Display events to be deleted
             print('📋 Events to be deleted:')
             for event in events_to_delete[:10]:  # Show first 10
-                print(f'  - ID: {event[\"id\"]}, Date: {event[\"date\"]}, Name: {event[\"name\"][:50]}...')
+                print(f'  - ID: {event[\"id\"]}, Date: {event[\"date\"]} (timestamp: {event[\"timestamp\"]}), Name: {event[\"name\"][:50]}...')
             
             if len(events_to_delete) > 10:
                 print(f'  ... and {len(events_to_delete) - 10} more events')

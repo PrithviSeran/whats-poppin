@@ -17,6 +17,7 @@ interface SavedActivitiesProps {
   visible: boolean;
   onClose: () => void;
   userLocation: { latitude: number; longitude: number } | null;
+  onRef?: (ref: { refresh: () => void }) => void;
 }
 
 // Memoized event card component to prevent unnecessary re-renders
@@ -35,7 +36,8 @@ const SavedEventCard = React.memo(({
   onToggleSelect,
   multiSelectSlideAnim,
   fadeAnim,
-  scaleAnim
+  scaleAnim,
+  creatorInfo
 }: {
   event: EventCard;
   index: number;
@@ -52,6 +54,7 @@ const SavedEventCard = React.memo(({
   multiSelectSlideAnim?: RNAnimated.Value;
   fadeAnim?: RNAnimated.Value;
   scaleAnim?: RNAnimated.Value;
+  creatorInfo?: { name: string; username?: string };
 }) => {
   const formatDaysOfWeek = useCallback((days: string[] | null | undefined): string => {
     if (!days || days.length === 0) return '';
@@ -236,6 +239,7 @@ const SavedEventCard = React.memo(({
                     </>
                   )}
                 </View>
+
               </View>
             </View>
           </TouchableOpacity>
@@ -263,6 +267,7 @@ export default function SavedActivities({
   visible,
   onClose,
   userLocation,
+  onRef,
 }: SavedActivitiesProps) {
   const colorScheme = useColorScheme();
   const dataManager = GlobalDataManager.getInstance();
@@ -280,6 +285,9 @@ export default function SavedActivities({
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [isDeletingEvents, setIsDeletingEvents] = useState(false);
   
+  // Creator info state
+  const [creatorInfo, setCreatorInfo] = useState<{ [eventId: number]: { name: string; username?: string } }>({});
+  
   // Initialize animation values
   const slideAnim = useRef(new RNAnimated.Value(0)).current;
   const savedActivitiesFadeAnim = useRef(new RNAnimated.Value(0)).current;
@@ -296,6 +304,44 @@ export default function SavedActivities({
   const cardFadeAnims = useRef<{ [key: number]: RNAnimated.Value }>({}).current;
   const cardScaleAnims = useRef<{ [key: number]: RNAnimated.Value }>({}).current;
   const CARD_WIDTH = useMemo(() => Dimensions.get('window').width - 40, []);
+
+  // Function to fetch creator information for events
+  const fetchCreatorInfo = useCallback(async (events: EventCard[]) => {
+    const newCreatorInfo: { [eventId: number]: { name: string; username?: string } } = {};
+    
+    for (const event of events) {
+      if (event.posted_by_email) {
+        try {
+          // First check if we already have creator_info from the event
+          if (event.creator_info) {
+            newCreatorInfo[event.id] = {
+              name: event.creator_info.name,
+              username: event.creator_info.username
+            };
+            continue;
+          }
+          
+          // Otherwise fetch from database
+          const { data: userData, error } = await supabase
+            .from('all_users')
+            .select('name, username')
+            .eq('email', event.posted_by_email)
+            .single();
+          
+          if (userData && !error) {
+            newCreatorInfo[event.id] = {
+              name: userData.name,
+              username: userData.username
+            };
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch creator info for event ${event.id}:`, error);
+        }
+      }
+    }
+    
+    setCreatorInfo(newCreatorInfo);
+  }, []);
 
   // Memoized distance calculation
   const eventsWithDistances = useMemo(() => {
@@ -365,6 +411,9 @@ export default function SavedActivities({
         }));
         
         setSavedActivitiesEvents(eventsWithFriendsData);
+        
+        // Fetch creator information for all events
+        await fetchCreatorInfo(eventsWithFriendsData);
       } else {
         setSavedActivitiesEvents(savedEvents);
       }
@@ -376,10 +425,11 @@ export default function SavedActivities({
     } finally {
       setSavedActivitiesLoading(false);
     }
-  }, [dataManager]);
+  }, [dataManager, fetchCreatorInfo]);
 
   useEffect(() => {
     if (visible) {
+      console.log('🔄 SavedActivities: Component became visible, refreshing data...');
       fetchSavedEvents();
     }
   }, [visible, fetchSavedEvents]);
@@ -426,6 +476,15 @@ export default function SavedActivities({
       dataManager.off('savedEventsUpdated', handleSavedEventsUpdated);
     };
   }, [dataManager, isDeletingEvents]);
+
+  // Expose refresh method via ref
+  useEffect(() => {
+    if (onRef) {
+      onRef({
+        refresh: fetchSavedEvents
+      });
+    }
+  }, [onRef, fetchSavedEvents]);
 
   // Create pan responder for a specific event (memoized)
   const createPanResponder = useCallback((eventId: number) => {
@@ -1140,6 +1199,7 @@ export default function SavedActivities({
                   multiSelectSlideAnim={multiSelectSlideAnim}
                   fadeAnim={cardFadeAnims[event.id]}
                   scaleAnim={cardScaleAnims[event.id]}
+                  creatorInfo={creatorInfo[event.id]}
                 />
               );
             }).filter(Boolean)}

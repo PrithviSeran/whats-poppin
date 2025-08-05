@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -115,6 +115,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
     id: number;
     name: string;
     email: string;
+    username?: string;
   } | null>(null);
   const [creatorLoading, setCreatorLoading] = useState(false);
 
@@ -604,8 +605,12 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       const timer = setTimeout(() => {
         // Determine actual image count
         determineActualImageCount();
-        // Fetch creator info if posted_by exists
-        if (event.posted_by) {
+        // Always fetch fresh creator info instead of using cached data
+        if (event.posted_by_email) {
+          console.log('🔄 Fetching fresh creator info using email...');
+          fetchCreatorInfo(event.posted_by_email);
+        } else if (event.posted_by) {
+          console.log('🔄 Fetching fresh creator info using posted_by...');
           fetchCreatorInfo(event.posted_by);
         } else {
           setCreatorInfo(null);
@@ -640,16 +645,14 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   const fetchCreatorInfo = async (creatorIdentifier: string) => {
     setCreatorLoading(true);
     try {
-      // First try to find by username (new format)
-      let { data, error } = await supabase
-        .from('all_users')
-        .select('id, name, email, username')
-        .eq('username', creatorIdentifier)
-        .single();
-
-      // If not found by username, try by email (old format)
-      if (error && error.code === 'PGRST116') {
-        console.log('Creator not found by username, trying email...');
+      console.log('🔍 Fetching creator info for:', creatorIdentifier);
+      
+      // Check if the identifier looks like an email
+      const isEmail = creatorIdentifier.includes('@');
+      
+      if (isEmail) {
+        // If it's an email, search by email first
+        console.log('Identifier appears to be an email, searching by email...');
         const { data: emailData, error: emailError } = await supabase
           .from('all_users')
           .select('id, name, email, username')
@@ -657,19 +660,47 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           .single();
         
         if (emailError) {
-          console.error('Error fetching creator info by email:', emailError);
+          console.log('⚠️ Creator not found by email. Creator may have been deleted or email is invalid:', creatorIdentifier);
           setCreatorInfo(null);
         } else {
+          console.log('✅ Creator found by email:', emailData);
           setCreatorInfo(emailData);
         }
-      } else if (error) {
-        console.error('Error fetching creator info by username:', error);
-        setCreatorInfo(null);
       } else {
-        setCreatorInfo(data);
+        // If it's not an email, try by username first, then by email
+        console.log('Identifier appears to be a username, searching by username first...');
+        let { data, error } = await supabase
+          .from('all_users')
+          .select('id, name, email, username')
+          .eq('username', creatorIdentifier)
+          .single();
+
+        // If not found by username, try by email (in case it's an old format)
+        if (error && error.code === 'PGRST116') {
+          console.log('Creator not found by username, trying email...');
+          const { data: emailData, error: emailError } = await supabase
+            .from('all_users')
+            .select('id, name, email, username')
+            .eq('email', creatorIdentifier)
+            .single();
+          
+          if (emailError) {
+            console.log('⚠️ Creator not found by email either. Creator may have been deleted or identifier is invalid:', creatorIdentifier);
+            setCreatorInfo(null);
+          } else {
+            console.log('✅ Creator found by email:', emailData);
+            setCreatorInfo(emailData);
+          }
+        } else if (error) {
+          console.error('❌ Error fetching creator info by username:', error);
+          setCreatorInfo(null);
+        } else {
+          console.log('✅ Creator found by username:', data);
+          setCreatorInfo(data);
+        }
       }
     } catch (error) {
-      console.error('Error fetching creator info:', error);
+      console.error('❌ Error fetching creator info:', error);
       setCreatorInfo(null);
     } finally {
       setCreatorLoading(false);
@@ -682,6 +713,19 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       setUserProfileModalVisible(true);
     }
   };
+
+  // Function to refresh creator info
+  const refreshCreatorInfo = useCallback(async () => {
+    if (event?.posted_by_email) {
+      console.log('🔄 Refreshing creator info for email:', event.posted_by_email);
+      await fetchCreatorInfo(event.posted_by_email);
+    } else if (event?.posted_by) {
+      console.log('🔄 Refreshing creator info for posted_by:', event.posted_by);
+      await fetchCreatorInfo(event.posted_by);
+    }
+  }, [event?.posted_by_email, event?.posted_by]);
+
+
 
   // Function to check if an image exists at a given index
   const checkImageExists = async (index: number): Promise<boolean> => {
@@ -1618,7 +1662,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                                 Created by {creatorInfo.name}
                               </Text>
                               <Text style={[styles.creatorSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                                Tap to view profile
+                                {creatorInfo.username ? `@${creatorInfo.username}` : 'Tap to view profile'}
                               </Text>
                             </>
                           ) : (
@@ -3018,10 +3062,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#9E95BD',
   },
-  timePicker: {
-    height: 200,
-    width: '100%',
-  },
+
 
   timeInputGroup: {
     flexDirection: 'row',
@@ -3419,5 +3460,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     opacity: 0.7,
     fontWeight: '500',
+  },
+  creatorActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  refreshButton: {
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(158, 149, 189, 0.1)',
   },
 }); 

@@ -567,6 +567,39 @@ export default function CreateEventScreen() {
 
 
 
+      // Send notifications to followers about the new event
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          // Get user's profile to get their name
+          const { data: userProfile } = await supabase
+            .from('all_users')
+            .select('id, name')
+            .eq('email', user.email)
+            .single();
+
+          if (userProfile) {
+            // Call the Supabase function to send notifications to followers
+            const { error: notificationError } = await supabase.functions.invoke('send-event-notifications', {
+              body: {
+                eventId: eventId,
+                eventName: eventForm.name,
+                creatorId: userProfile.id,
+                creatorName: userProfile.name || username
+              }
+            });
+
+            if (notificationError) {
+              console.warn('⚠️ Error sending notifications to followers:', notificationError);
+            } else {
+              console.log('✅ Notifications sent to followers');
+            }
+          }
+        }
+      } catch (notificationError) {
+        console.warn('⚠️ Error in notification process:', notificationError);
+      }
+
       Alert.alert('Success', successMessage, [
         {
           text: 'OK',

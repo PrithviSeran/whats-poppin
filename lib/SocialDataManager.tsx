@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import NotificationService from './NotificationService';
 
 // Social data interfaces
 export interface Friend {
@@ -526,6 +527,28 @@ class SocialDataManager {
         });
 
       if (followError) throw followError;
+
+      // Send notification to the followed user
+      try {
+        const notificationService = NotificationService.getInstance();
+        const settings = await notificationService.getNotificationSettings();
+        
+        if (settings.enabled && settings.newFollowers) {
+          // Get follower's name for the notification
+          const { data: followerData } = await supabase
+            .from('all_users')
+            .select('name')
+            .eq('id', followerId)
+            .single();
+
+          if (followerData?.name) {
+            await notificationService.scheduleNewFollowerNotification(followerData.name);
+            console.log('🔔 New follower notification sent');
+          }
+        }
+      } catch (notificationError) {
+        console.warn('⚠️ Error sending new follower notification:', notificationError);
+      }
 
       // Refresh cache for both users
       await this.refreshAllSocialData(followerId, true);

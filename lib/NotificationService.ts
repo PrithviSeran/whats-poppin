@@ -3,7 +3,7 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
-import { create_client } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -11,6 +11,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -26,6 +28,8 @@ export interface NotificationSettings {
   enabled: boolean;
   friendRequests: boolean;
   eventReminders: boolean;
+  newFollowers: boolean;
+  newEventsFromFollowing: boolean;
   marketing: boolean;
 }
 
@@ -154,10 +158,22 @@ class NotificationService {
         return;
       }
 
+      // Get user's profile from all_users table to get their ID
+      const { data: userProfile, error: profileError } = await supabase
+        .from('all_users')
+        .select('id')
+        .eq('email', user.email)
+        .single();
+
+      if (profileError || !userProfile) {
+        console.error('❌ Error getting user profile:', profileError);
+        return;
+      }
+
       const { error } = await supabase
         .from('user_push_tokens')
         .upsert({
-          user_id: user.id,
+          user_id: user.id, // This is the auth.users UUID
           email: user.email,
           push_token: token,
           platform: Platform.OS,
@@ -215,6 +231,12 @@ class NotificationService {
       // Navigate to specific event
       this.navigateToEvent(data.eventId as string);
     } else if (data?.type === 'new_event') {
+      // Navigate to events list
+      this.navigateToEvents();
+    } else if (data?.type === 'new_follower') {
+      // Navigate to friends modal (followers tab)
+      this.navigateToFriendsModal();
+    } else if (data?.type === 'new_event_following') {
       // Navigate to events list
       this.navigateToEvents();
     }
@@ -283,6 +305,8 @@ class NotificationService {
         enabled: true,
         friendRequests: true,
         eventReminders: true,
+        newFollowers: true,
+        newEventsFromFollowing: true,
         marketing: false,
       };
 
@@ -294,6 +318,8 @@ class NotificationService {
         enabled: true,
         friendRequests: true,
         eventReminders: true,
+        newFollowers: true,
+        newEventsFromFollowing: true,
         marketing: false,
       };
     }
@@ -331,7 +357,6 @@ class NotificationService {
         eventId: eventId,
       },
       trigger: {
-        type: 'date',
         date: reminderTime,
       },
     });
@@ -357,7 +382,6 @@ class NotificationService {
         eventId: eventId,
       },
       trigger: {
-        type: 'date',
         date: reminderTime,
       },
     });
@@ -415,6 +439,39 @@ class NotificationService {
       data: {
         type: 'friend_request',
         senderName: senderName,
+      },
+      trigger: null, // Show immediately
+    });
+  }
+
+  /**
+   * Schedule new follower notification
+   */
+  async scheduleNewFollowerNotification(followerName: string): Promise<string> {
+    return await this.scheduleNotification({
+      id: `new_follower_${Date.now()}`,
+      title: 'New Follower! 🎉',
+      body: `${followerName} started following you`,
+      data: {
+        type: 'new_follower',
+        followerName: followerName,
+      },
+      trigger: null, // Show immediately
+    });
+  }
+
+  /**
+   * Schedule new event from following notification
+   */
+  async scheduleNewEventFromFollowingNotification(eventName: string, creatorName: string): Promise<string> {
+    return await this.scheduleNotification({
+      id: `new_event_following_${Date.now()}`,
+      title: 'New Event from Someone You Follow! 🎈',
+      body: `${creatorName} created "${eventName}"`,
+      data: {
+        type: 'new_event_following',
+        eventName: eventName,
+        creatorName: creatorName,
       },
       trigger: null, // Show immediately
     });
@@ -507,10 +564,14 @@ class NotificationService {
         trigger: null,
       });
       
-
-      
       // Test friend request notification
       await this.scheduleFriendRequestNotification('Test Friend');
+      
+      // Test new follower notification
+      await this.scheduleNewFollowerNotification('Test Follower');
+      
+      // Test new event from following notification
+      await this.scheduleNewEventFromFollowingNotification('Test Event', 'Test Creator');
       
       // Test event reminder (5 minutes from now)
       const reminderTime = new Date();

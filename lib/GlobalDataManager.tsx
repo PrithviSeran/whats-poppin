@@ -38,6 +38,12 @@ export interface EventCard {
   friendsWhoSaved?: { id: number; name: string; email: string }[];  // People you follow who have saved this event
   posted_by?: string;  // Email of the user who created this event
   posted_by_email?: string;  // Email of the user who created this event
+  creator_info?: {
+    id: number;
+    name: string;
+    email: string;
+    username?: string;
+  };
 };
 
 export interface UserProfile {
@@ -236,14 +242,34 @@ class GlobalDataManager extends EventEmitter {
       const events = await this.makeApiCall(cacheKey, async () => {
         const { data: events, error } = await supabase
           .from('new_events')
-          .select('id, created_at, name, organization, location, cost, age_restriction, reservation, description, start_date, end_date, occurrence, latitude, longitude, days_of_the_week, event_type, link, times, featured, posted_by, posted_by_email');
+          .select(`
+            id, created_at, name, organization, location, cost, age_restriction, 
+            reservation, description, start_date, end_date, occurrence, latitude, 
+            longitude, days_of_the_week, event_type, link, times, featured, 
+            posted_by, posted_by_email,
+            all_users!new_events_posted_by_fkey (
+              id, name, email, username
+            )
+          `);
 
         if (error) throw error;
-        return events;
+        
+        // Transform the data to include creator_info
+        const eventsWithCreatorInfo = events?.map(event => ({
+          ...event,
+          creator_info: event.all_users && Array.isArray(event.all_users) && event.all_users.length > 0 ? {
+            id: event.all_users[0].id,
+            name: event.all_users[0].name,
+            email: event.all_users[0].email,
+            username: event.all_users[0].username
+          } : null
+        })) || [];
+
+        return eventsWithCreatorInfo;
       });
 
       await AsyncStorage.setItem('allEvents', JSON.stringify(events));
-      console.log('Events stored successfully (cached)');
+      console.log('Events stored successfully with creator info (cached)');
     } catch (error) {
       console.error('Error fetching and storing events:', error);
       throw error;

@@ -1206,6 +1206,9 @@ export default function SuggestedEvents() {
     }
   };
 
+  // Ref for SavedActivities component
+  const savedActivitiesRef = useRef<{ refresh: () => void } | null>(null);
+
   // Simplified animation state management - SavedActivities handles its own animations
   useEffect(() => {
     if (isSavedLikesVisible) {
@@ -1214,6 +1217,27 @@ export default function SuggestedEvents() {
       console.log('SavedActivities closed');
     }
   }, [isSavedLikesVisible]);
+
+  // Listen for saved events updates and refresh SavedActivities if it's visible
+  useEffect(() => {
+    const handleSavedEventsUpdated = () => {
+      if (isSavedLikesVisible && savedActivitiesRef.current) {
+        console.log('🔄 SuggestedEvents: Refreshing SavedActivities due to saved events update');
+        // Add a small delay to ensure database operations complete
+        setTimeout(() => {
+          savedActivitiesRef.current?.refresh();
+        }, 100);
+      }
+    };
+
+    // Add event listener
+    dataManager.on('savedEventsUpdated', handleSavedEventsUpdated);
+
+    // Cleanup listener on unmount
+    return () => {
+      dataManager.off('savedEventsUpdated', handleSavedEventsUpdated);
+    };
+  }, [dataManager, isSavedLikesVisible]);
 
   // Update the close button handler
   const handleCloseSavedActivities = () => {
@@ -1231,7 +1255,17 @@ export default function SuggestedEvents() {
     
     console.log('Opening Saved Activities');
     setIsSavedLikesVisible(true);
+    
+    // Trigger a refresh after a short delay to ensure the component is mounted
+    setTimeout(() => {
+      if (savedActivitiesRef.current) {
+        console.log('🔄 SuggestedEvents: Manual refresh on SavedActivities open');
+        savedActivitiesRef.current.refresh();
+      }
+    }, 200);
   };
+
+
 
   // Add this effect for the saved activity expanded card animation
   useEffect(() => {
@@ -1448,6 +1482,8 @@ export default function SuggestedEvents() {
             <Ionicons name="filter" size={24} color="white" />
           </LinearGradient>
         </TouchableOpacity>
+        
+
       </View>
         {/* Loading Spinner and Text */}
         <View style={styles.loadingContainer}>
@@ -2177,6 +2213,9 @@ export default function SuggestedEvents() {
         visible={isSavedLikesVisible}
         onClose={handleCloseSavedActivities}
         userLocation={userLocation}
+        onRef={(ref) => {
+          savedActivitiesRef.current = ref;
+        }}
       />
 
       {/* Add the expanded saved activity overlay */}
