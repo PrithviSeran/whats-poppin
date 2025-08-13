@@ -34,6 +34,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           NOTIFICATION_TYPE: ${{ github.event.inputs.notification_type || 'auto' }}
         run: |
           echo "🚀 Starting weekend notifications..."
@@ -54,9 +55,10 @@ jobs:
           
           echo "📱 Sending $NOTIFICATION_TYPE notification..."
           
-          # Call the Supabase Edge Function
+          # Call the Supabase Edge Function with service role key
           curl -X POST "$SUPABASE_URL/functions/v1/send-weekend-notifications" \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "apikey: $SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             -d "{\"type\": \"$NOTIFICATION_TYPE\"}" \
             -w "\nHTTP Status: %{http_code}\n"
