@@ -20,6 +20,7 @@ import { Colors } from '@/constants/Colors';
 import LegalDocumentViewer from './LegalDocumentViewer';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import GlobalDataManager from '@/lib/GlobalDataManager';
+import NotificationService from '@/lib/NotificationService';
 import { supabase } from '@/lib/supabase';
 
 type RootStackParamList = {
@@ -115,6 +116,16 @@ const SignInScreen = () => {
         
         // Set user in GlobalDataManager
         GlobalDataManager.getInstance().setCurrentUser(data.user);
+
+        // Trigger notification service initialization for Google Sign-In
+        try {
+          console.log('🔔 SignInScreen: Triggering notification service initialization for Google Sign-In...');
+          const notificationService = NotificationService.getInstance();
+          await notificationService.handleUserLogin();
+          console.log('✅ SignInScreen: Notification service initialized for Google Sign-In');
+        } catch (error) {
+          console.error('❌ SignInScreen: Error initializing notification service for Google Sign-In:', error);
+        }
 
         navigation.navigate('create-account-username', {
           userData: JSON.stringify({

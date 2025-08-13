@@ -1235,15 +1235,7 @@ export default memo(function Profile({
 
               <View style={[styles.profileInfoDivider, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]} />
 
-              <View style={styles.profileInfoRow}>
-                <View style={styles.profileInfoIconContainer}>
-                  <Ionicons name="person-outline" size={20} color={Colors[colorScheme ?? 'light'].info} />
-                </View>
-                <View style={styles.profileInfoDetails}>
-                  <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Gender</Text>
-                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.gender || 'Not provided'}</Text>
-                </View>
-              </View>
+
             </View>
           </View>
 

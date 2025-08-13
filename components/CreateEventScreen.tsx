@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Animated, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Animated, Image, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -10,6 +10,7 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
+
 
 
 const EVENT_TYPES = [
@@ -256,6 +257,14 @@ export default function CreateEventScreen() {
     images: []
   });
 
+  // Location validation state
+  const [locationValidation, setLocationValidation] = useState<{
+    status: 'idle' | 'validating' | 'valid' | 'invalid';
+    message?: string;
+    fullAddress?: string;
+  }>({ status: 'idle' });
+  const [validationTimeout, setValidationTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+
   // Helper function to format time from "HH:MM" string to Date object
   const timeStringToDate = (timeString: string): Date => {
     const date = new Date();
@@ -314,6 +323,86 @@ export default function CreateEventScreen() {
     const ampm = hours >= 12 ? 'PM' : 'AM';
     const displayHours = hours % 12 || 12;
     return `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+  };
+
+  // Handle scroll to dismiss keyboard
+  const handleScrollBeginDrag = () => {
+    Keyboard.dismiss();
+  };
+
+  // Function to validate address using OpenStreetMap Nominatim API (same as EventFilterOverlay)
+  const validateLocation = async (address: string) => {
+    if (!address.trim()) {
+      setLocationValidation({ status: 'idle' });
+      return;
+    }
+
+    setLocationValidation({ status: 'validating', message: 'Checking address...' });
+
+    try {
+      // Use the same geocoding service as EventFilterOverlay
+      const encodedAddress = encodeURIComponent(address.trim());
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&limit=1&addressdetails=1`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Geocoding service unavailable');
+      }
+
+      const data = await response.json();
+      
+      if (data && data.length > 0) {
+        const result = data[0];
+        const displayName = result.display_name;
+        
+        // Store the full address for later use
+        setLocationValidation({ 
+          status: 'valid', 
+          message: `✓ Found: ${displayName.length > 50 ? displayName.substring(0, 50) + '...' : displayName}`,
+          fullAddress: displayName
+        });
+      } else {
+        setLocationValidation({ 
+          status: 'invalid', 
+          message: 'Address not found. Please check spelling and try again.' 
+        });
+      }
+    } catch (error) {
+      console.error('Address validation error:', error);
+      setLocationValidation({ 
+        status: 'invalid', 
+        message: 'Unable to validate address. Please check your internet connection.' 
+      });
+    }
+  };
+
+  // Debounced address validation (same as EventFilterOverlay)
+  const handleLocationChange = (text: string) => {
+    setEventForm({ ...eventForm, location: text });
+    
+    // Clear existing timeout
+    if (validationTimeout) {
+      clearTimeout(validationTimeout);
+    }
+    
+    // Set new timeout for validation
+    if (text.trim()) {
+      const timeout = setTimeout(() => {
+        validateLocation(text);
+      }, 1000); // Wait 1 second after user stops typing
+      setValidationTimeout(timeout);
+    } else {
+      setLocationValidation({ status: 'idle' });
+    }
+  };
+
+  // Handle when user clicks off the location input field
+  const handleLocationBlur = () => {
+    // If location is valid and we have a full address, replace the input text
+    if (locationValidation.status === 'valid' && locationValidation.fullAddress) {
+      setEventForm({ ...eventForm, location: locationValidation.fullAddress });
+    }
   };
 
   // Handle date picker change
@@ -377,6 +466,10 @@ export default function CreateEventScreen() {
         Alert.alert('Error', 'Location is required');
         return;
       }
+      if (locationValidation.status !== 'valid') {
+        Alert.alert('Error', 'Please enter a valid location. The location must be validated successfully before creating an event.');
+        return;
+      }
       if (!eventForm.description.trim()) {
         Alert.alert('Error', 'Description is required');
         return;
@@ -405,6 +498,9 @@ export default function CreateEventScreen() {
       // Get current user's email and username using optimized service with caching
       const services = OptimizedComponentServices.getInstance();
       const userResult = await services.getCurrentUser();
+
+      console.log('🔍 User result:', userResult);
+
       const user = (userResult as any)?.data?.user;
       
       if (!user) {
@@ -415,26 +511,38 @@ export default function CreateEventScreen() {
       // Get user's username from profiles table using optimized service
       let username = user.email; // fallback to email if username not found
       try {
+        console.log('🔍 Fetching profile for email:', user.email);
         const profileResult = await services.getUserByEmail(user.email);
-        const profileData = (profileResult as any)?.data;
+
+        username = (profileResult as any)[0].username;
+
+        console.log('🔍 Username:', username);
         
-        if (profileData && profileData.username) {
-          username = profileData.username;
-        }
+        
       } catch (error) {
         console.warn('Could not fetch username, using email as fallback:', error);
       }
-      // Get coordinates for location
+      // Get coordinates for location using OpenStreetMap API (same as validation)
       let latitude: number | null = null;
       let longitude: number | null = null;
+      
       try {
-        const geocodedLocation = await Location.geocodeAsync(eventForm.location);
-        if (geocodedLocation && geocodedLocation.length > 0) {
-          latitude = geocodedLocation[0].latitude;
-          longitude = geocodedLocation[0].longitude;
+        const encodedAddress = encodeURIComponent(eventForm.location.trim());
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&limit=1`
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.length > 0) {
+            const result = data[0];
+            latitude = parseFloat(result.lat);
+            longitude = parseFloat(result.lon);
+          }
         }
       } catch (geocodeError) {
-        console.warn('Could not geocode location:', geocodeError);
+        console.warn('Could not get coordinates for validated location:', geocodeError);
+        // This shouldn't happen since location was already validated
       }
       // --- NEW LOGIC FOR TIMES FIELD ---
       let times = null;
@@ -457,6 +565,10 @@ export default function CreateEventScreen() {
       }
       // --- END NEW LOGIC ---
       // Prepare event data for insert (remove start_time field)
+      console.log('🔍 Creating event data with:');
+      console.log('  - posted_by:', username);
+      console.log('  - posted_by_email:', user.email);
+      
       const eventData = {
         name: eventForm.name.trim(),
         organization: eventForm.organization.trim(),
@@ -467,8 +579,8 @@ export default function CreateEventScreen() {
         reservation: eventForm.reservation,
         occurrence: eventForm.occurrence,
         event_type: [eventForm.event_type],
-        start_date: eventForm.occurrence === 'one-time' ? eventForm.start_date : null,
-        end_date: eventForm.occurrence === 'one-time' ? eventForm.end_date || eventForm.start_date : null,
+        start_date: eventForm.occurrence === 'one-time' ? Math.floor(new Date(eventForm.start_date).getTime() / 1000) : null,
+        end_date: eventForm.occurrence === 'one-time' ? Math.floor(new Date(eventForm.end_date || eventForm.start_date).getTime() / 1000) : null,
         days_of_the_week: eventForm.occurrence === 'Weekly' ? eventForm.days_of_the_week : null,
         times: times,
         featured: eventForm.featured,
@@ -476,6 +588,7 @@ export default function CreateEventScreen() {
         latitude,
         longitude,
         posted_by: username,
+        posted_by_email: user.email, // Use the actual email from the user session
         created_at: new Date().toISOString()
       };
       // Insert event into Supabase
@@ -487,70 +600,51 @@ export default function CreateEventScreen() {
         throw error;
       }
       const eventId = data[0].id;
+      console.log(`🎉 Event created successfully with ID: ${eventId}`);
+      console.log(`📋 Event data:`, eventData);
 
       // Upload images to Supabase storage if any were selected
       let uploadedImages = 0;
       if (eventForm.images.length > 0) {
-        console.log(`Uploading ${eventForm.images.length} images for event ${eventId}`);
+        console.log(`📸 Uploading ${eventForm.images.length} images for event ${eventId}`);
+        
 
-        // --- OPTIMIZED: Delete existing images using batched operations ---
-        try {
-          const existingFilesResult = await services.listFiles('event-images', eventId.toString());
-          const existingFiles = (existingFilesResult as any)?.data;
-          
-          if (existingFiles && existingFiles.length > 0) {
-            const filesToDelete = existingFiles.map((file: any) => `${eventId}/${file.name}`);
-            await services.deleteFiles('event-images', filesToDelete);
-            console.log(`Deleted ${filesToDelete.length} existing images for event ${eventId}`);
-          }
-        } catch (deleteCatchError) {
-          console.warn('Error during optimized image folder cleanup:', deleteCatchError);
-        }
-        // --- END NEW ---
-
-        // --- OPTIMIZED: Use optimized upload service with built-in retry and fallback logic ---
-        const uploadImageToSupabase = async (imageUri: string, imagePath: string): Promise<boolean> => {
-          try {
-            // Validate the image URI
-            if (!imageUri || !imageUri.startsWith('file://')) {
-              console.error('Invalid image URI:', imageUri);
-              return false;
-            }
-
-            // Convert URI to file data for upload service
-            const response = await fetch(imageUri);
-            const fileData = await response.blob();
-            
-            const uploadResult = await services.uploadFile('event-images', imagePath, fileData, {
-              contentType: 'image/jpeg',
-              upsert: true
-            });
-            
-            if ((uploadResult as any)?.error) {
-              console.error('Optimized upload failed:', (uploadResult as any).error);
-              return false;
-            }
-            
-            console.log('Optimized upload successful:', imagePath);
-            return true;
-          } catch (error) {
-            console.error('Error in optimized uploadImageToSupabase:', error);
-            return false;
-          }
-        };
 
         for (let i = 0; i < eventForm.images.length; i++) {
           const imageUri = eventForm.images[i];
           const fileName = `${eventId}/${i}.jpg`;
-          const success = await uploadImageToSupabase(imageUri, fileName);
-          if (success) {
-            uploadedImages++;
-            console.log(`Successfully uploaded image ${i} for event ${eventId}`);
-          } else {
-            console.error(`Error uploading image ${i} for event ${eventId}`);
+          
+          try {
+            console.log(`🔄 Uploading image ${i + 1}/${eventForm.images.length}: ${fileName}`);
+            
+            // Use FormData like EditImages does (React Native standard)
+            const formData = new FormData();
+            formData.append('file', {
+              uri: imageUri,
+              type: 'image/jpeg',
+              name: fileName.split('/').pop() || 'image.jpg',
+            } as any);
+            
+            // Upload directly to Supabase Storage
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('event-images')
+              .upload(fileName, formData, {
+                contentType: 'image/jpeg',
+                upsert: true
+              });
+            
+            if (uploadError) {
+              console.error(`❌ Failed to upload image ${fileName}:`, uploadError);
+            } else {
+              console.log(`✅ Successfully uploaded image ${fileName}`);
+              uploadedImages++;
+            }
+          } catch (error) {
+            console.error(`❌ Error uploading image ${fileName}:`, error);
           }
         }
-        // --- END REFACTORED ---
+        
+        console.log(`📊 Upload complete: ${uploadedImages}/${eventForm.images.length} images uploaded successfully`);
       }
 
       // Create success message based on image upload results
@@ -677,6 +771,7 @@ export default function CreateEventScreen() {
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={handleScrollBeginDrag}
         >
           {/* Simple header that scrolls with content */}
           <View style={styles.simpleHeader}>
@@ -689,6 +784,7 @@ export default function CreateEventScreen() {
           </View>
 
           <View style={styles.form}>
+
             {/* Event Name */}
             <View style={styles.formGroup}>
               <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Event Name *</Text>
@@ -722,16 +818,56 @@ export default function CreateEventScreen() {
             {/* Location */}
             <View style={styles.formGroup}>
               <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Location *</Text>
-              <TextInput
-                style={[styles.formInput, { 
-                  color: Colors[colorScheme ?? 'light'].text,
-                  backgroundColor: Colors[colorScheme ?? 'light'].card
-                }]}
-                placeholder="Enter event location"
-                placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
-                value={eventForm.location}
-                onChangeText={(text) => setEventForm({ ...eventForm, location: text })}
-              />
+              <View style={styles.locationInputContainer}>
+                <TextInput
+                  style={[
+                    styles.formInput, 
+                    { 
+                      color: Colors[colorScheme ?? 'light'].text,
+                      backgroundColor: Colors[colorScheme ?? 'light'].card,
+                      borderColor: locationValidation.status === 'valid' ? '#4CAF50' : locationValidation.status === 'invalid' ? '#F44336' : 'transparent',
+                      borderWidth: locationValidation.status !== 'idle' ? 2 : 0
+                    }
+                  ]}
+                  placeholder="Enter event location (e.g., 123 Main St, City, State)"
+                  placeholderTextColor={Colors[colorScheme ?? 'light'].text + '60'}
+                  value={eventForm.location}
+                  onChangeText={handleLocationChange}
+                  onBlur={handleLocationBlur}
+                />
+                
+                {/* Validation indicator */}
+                {locationValidation.status === 'validating' && (
+                  <View style={styles.locationIndicator}>
+                    <ActivityIndicator size="small" color="#9E95BD" />
+                  </View>
+                )}
+                
+                {locationValidation.status === 'valid' && (
+                  <View style={styles.locationIndicator}>
+                    <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+                  </View>
+                )}
+                
+                {locationValidation.status === 'invalid' && (
+                  <View style={styles.locationIndicator}>
+                    <Ionicons name="close-circle" size={20} color="#F44336" />
+                  </View>
+                )}
+              </View>
+              
+              {/* Location validation message */}
+              {locationValidation.status === 'validating' && (
+                <Text style={styles.locationValidatingText}>{locationValidation.message}</Text>
+              )}
+              
+              {locationValidation.status === 'invalid' && (
+                <Text style={styles.locationErrorText}>{locationValidation.message}</Text>
+              )}
+              
+              {locationValidation.status === 'valid' && (
+                <Text style={styles.locationSuccessText}>{locationValidation.message}</Text>
+              )}
             </View>
 
             {/* Event Type */}
@@ -1887,4 +2023,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  
+  // Location validation styles
+  locationInputContainer: {
+    position: 'relative',
+  },
+  locationIndicator: {
+    position: 'absolute',
+    right: 15,
+    top: '50%',
+    transform: [{ translateY: -10 }],
+    zIndex: 1,
+  },
+  locationErrorText: {
+    color: '#F44336',
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  locationSuccessText: {
+    color: '#4CAF50',
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  locationValidatingText: {
+    color: '#9E95BD',
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+
 }); 

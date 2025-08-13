@@ -28,6 +28,7 @@ export default function NotificationSettings({ visible, onClose }: NotificationS
     newFollowers: true,
     newEventsFromFollowing: true,
     marketing: false,
+    weekendReminders: true,
   });
   const [loading, setLoading] = useState(false);
 
@@ -88,6 +89,7 @@ export default function NotificationSettings({ visible, onClose }: NotificationS
               newFollowers: true,
               newEventsFromFollowing: true,
               marketing: false,
+              weekendReminders: true,
             };
             setSettings(defaultSettings);
             await notificationService.saveNotificationSettings(defaultSettings);
@@ -248,7 +250,32 @@ export default function NotificationSettings({ visible, onClose }: NotificationS
               </View>
             </View>
 
-
+            {/* Weekend Reminders */}
+            <View style={[styles.section, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <Ionicons 
+                    name="calendar-outline" 
+                    size={24} 
+                    color={Colors[colorScheme ?? 'light'].primary} 
+                  />
+                  <View style={styles.settingText}>
+                    <Text style={[styles.settingTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Weekend Reminders
+                    </Text>
+                    <Text style={[styles.settingDescription, { color: Colors[colorScheme ?? 'light'].text }]}>
+                      Creative reminders to check what's happening in your city
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={settings.weekendReminders}
+                  onValueChange={(value) => updateSetting('weekendReminders', value)}
+                  trackColor={{ false: '#767577', true: Colors[colorScheme ?? 'light'].primary }}
+                  thumbColor={'#fff'}
+                />
+              </View>
+            </View>
 
             {/* Marketing */}
             <View style={[styles.section, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>

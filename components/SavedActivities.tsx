@@ -222,14 +222,7 @@ const SavedEventCard = React.memo(({
                       </Text>
                     </>
                   )}
-                  {event.days_of_the_week && event.days_of_the_week.length > 0 && (
-                    <>
-                      <Ionicons name="time-outline" size={18} color={Colors[colorScheme ?? 'light'].text} style={{ marginLeft: 12 }} />
-                      <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}>
-                        {formatDaysOfWeek(event.days_of_the_week)}
-                      </Text>
-                    </>
-                  )}
+
                   {typeof event.distance === 'number' && (
                     <>
                       <Ionicons name="walk-outline" size={18} color={Colors[colorScheme ?? 'light'].text} style={{ marginLeft: 12 }} />

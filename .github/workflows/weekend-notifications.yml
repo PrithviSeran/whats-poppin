@@ -1,0 +1,76 @@
+name: Weekend Notifications
+
+on:
+  schedule:
+    # Friday at 2:00 PM UTC (10:00 AM EST, 7:00 AM PST)
+    - cron: '0 14 * * 5'
+    # Saturday at 12:00 PM UTC (8:00 AM EST, 5:00 AM PST)  
+    - cron: '0 12 * * 6'
+    # Tuesday at 5:40 PM UTC (1:40 PM EST, 10:40 AM PST)
+    - cron: '40 17 * * 2'
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      notification_type:
+        description: 'Type of notification to send'
+        required: true
+        default: 'weekend'
+        type: choice
+        options:
+          - weekend_friday
+          - weekend_saturday
+          - weekend_tuesday
+          - all
+
+jobs:
+  send-notifications:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Send Weekend Notifications
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NOTIFICATION_TYPE: ${{ github.event.inputs.notification_type || 'auto' }}
+        run: |
+          echo "🚀 Starting weekend notifications..."
+          echo "📅 Current time: $(date)"
+          echo "🌍 Timezone: $(date +%Z)"
+          echo "🔔 Notification type: $NOTIFICATION_TYPE"
+          
+          # Determine notification type based on current day
+          if [ "$NOTIFICATION_TYPE" = "auto" ]; then
+            DAY_OF_WEEK=$(date +%u)
+            case $DAY_OF_WEEK in
+              5) NOTIFICATION_TYPE="weekend_friday" ;;    # Friday
+              6) NOTIFICATION_TYPE="weekend_saturday" ;;  # Saturday  
+              2) NOTIFICATION_TYPE="weekend_tuesday" ;;   # Tuesday
+              *) echo "⚠️ Not a notification day, skipping"; exit 0 ;;
+            esac
+          fi
+          
+          echo "📱 Sending $NOTIFICATION_TYPE notification..."
+          
+          # Call the Supabase Edge Function
+          curl -X POST "$SUPABASE_URL/functions/v1/send-weekend-notifications" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\": \"$NOTIFICATION_TYPE\"}" \
+            -w "\nHTTP Status: %{http_code}\n"
+            
+      - name: Notification Summary
+        run: |
+          echo "✅ Weekend notification job completed!"
+          echo "📱 Check your phone for notifications"
+          echo "📊 Check Supabase logs for delivery status"

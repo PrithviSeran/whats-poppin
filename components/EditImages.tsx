@@ -17,7 +17,6 @@ interface UserProfile {
   name: string;
   email: string;
   birthday: string;
-  gender: string;
   saved_events?: string[];
   preferences?: string[];
   profileImage?: string;
@@ -396,16 +395,9 @@ export default function EditImages() {
                 />
               </View>
             ) : (
-              <LinearGradient
-                colors={['#9E95BD', '#9E95BD', '#9E95BD', '#9E95BD']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                locations={[0, 0.3, 0.7, 1]}
-                style={styles.bannerPlaceholder}
-              >
-                <Ionicons name="image-outline" size={40} color="#fff" />
-                <Text style={styles.placeholderText}>Tap to add banner image</Text>
-              </LinearGradient>
+              <View style={styles.bannerPlaceholder}>
+                <Ionicons name="image-outline" size={40} color={Colors[colorScheme ?? 'light'].text} />
+              </View>
             )}
           </TouchableOpacity>
 
@@ -458,9 +450,6 @@ export default function EditImages() {
             ) : (
               <View style={styles.profilePlaceholder}>
                 <Ionicons name="person-outline" size={40} color={Colors[colorScheme ?? 'light'].text} />
-                <Text style={[styles.placeholderText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  Tap to add profile image
-                </Text>
               </View>
             )}
           </TouchableOpacity>
@@ -585,7 +574,6 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
   },
   placeholderText: {
     marginTop: 10,

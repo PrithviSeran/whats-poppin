@@ -530,20 +530,35 @@ class SocialDataManager {
 
       // Send notification to the followed user
       try {
-        const notificationService = NotificationService.getInstance();
-        const settings = await notificationService.getNotificationSettings();
-        
-        if (settings.enabled && settings.newFollowers) {
-          // Get follower's name for the notification
-          const { data: followerData } = await supabase
-            .from('all_users')
-            .select('name')
-            .eq('id', followerId)
-            .single();
+        // Get follower's name for the notification
+        const { data: followerData } = await supabase
+          .from('all_users')
+          .select('name')
+          .eq('id', followerId)
+          .single();
 
-          if (followerData?.name) {
-            await notificationService.scheduleNewFollowerNotification(followerData.name);
-            console.log('🔔 New follower notification sent');
+        // Get followed user's email for the notification
+        const { data: followedUserData } = await supabase
+          .from('all_users')
+          .select('email')
+          .eq('id', followedId)
+          .single();
+
+        if (followerData?.name && followedUserData?.email) {
+          // Call the Supabase Edge Function to send push notification
+          const { error: notificationError } = await supabase.functions.invoke('send-follow-notification', {
+            body: {
+              followerId: followerId,
+              followerName: followerData.name,
+              followedId: followedId,
+              followedEmail: followedUserData.email
+            }
+          });
+
+          if (notificationError) {
+            console.warn('⚠️ Error sending new follower notification:', notificationError);
+          } else {
+            console.log('🔔 New follower notification sent via push notification');
           }
         }
       } catch (notificationError) {

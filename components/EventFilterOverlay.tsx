@@ -80,6 +80,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
   const [addressValidation, setAddressValidation] = useState<{
     status: 'idle' | 'validating' | 'valid' | 'invalid';
     message?: string;
+    fullAddress?: string;
   }>({ status: 'idle' });
   const [validationTimeout, setValidationTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [locationBubbleAnim] = useState(new Animated.Value(filterByDistance ? 1 : 0));
@@ -629,7 +630,8 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
         const displayName = result.display_name;
         setAddressValidation({ 
           status: 'valid', 
-          message: `✓ Found: ${displayName.length > 50 ? displayName.substring(0, 50) + '...' : displayName}` 
+          message: `✓ Found: ${displayName.length > 50 ? displayName.substring(0, 50) + '...' : displayName}`,
+          fullAddress: displayName
         });
       } else {
         setAddressValidation({ 
@@ -663,6 +665,14 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
       setValidationTimeout(timeout);
     } else {
       setAddressValidation({ status: 'idle' });
+    }
+  };
+
+  // Handle when user clicks off the address input field
+  const handleAddressBlur = () => {
+    // If address is valid and we have a full address, replace the input text
+    if (addressValidation.status === 'valid' && addressValidation.fullAddress) {
+      setManualLocation(addressValidation.fullAddress);
     }
   };
 
@@ -1030,7 +1040,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                             backgroundColor: Colors[colorScheme ?? 'light'].card,
                             color: Colors[colorScheme ?? 'light'].text,
                             borderColor: addressValidation.status === 'valid' ? '#22C55E' : 
-                                        addressValidation.status === 'invalid' ? '#EF4444' : 
+                                        addressValidation.status === 'invalid' ? '#F44336' : 
                                         Colors[colorScheme ?? 'light'].secondary
                           }
                         ]}
@@ -1039,6 +1049,7 @@ export default function EventFilterOverlay({ visible, onClose, setLoading, fetch
                         value={manualLocation}
                         onChangeText={handleAddressChange}
                         onFocus={handleLocationInputFocus}
+                        onBlur={handleAddressBlur}
                         returnKeyType="done"
                         autoCapitalize="words"
                         autoCorrect={false}

@@ -26,7 +26,7 @@ const LOGO_IMAGE_LIGHT = require('../assets/images/logo-light.png');
 const LOGO_IMAGE_DARK = require('../assets/images/logo.png');
 
 type RootStackParamList = {
-  'create-account-gender': { userData: string };
+  'create-account-password': { userData: string };
 };
 
 type CreateAccountBirthdayRouteProp = RouteProp<{
@@ -75,7 +75,7 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
 
   const handleNext = () => {
     if (selectedDate && validateBirthday(selectedDate)) {
-      navigation.navigate('create-account-gender', {
+      navigation.navigate('create-account-password', {
         userData: JSON.stringify({ ...userData, birthday }),
       });
     }
@@ -92,8 +92,8 @@ const CreateAccountBirthday = ({ route }: { route: CreateAccountBirthdayRoutePro
 
       <CreateAccountProgressBar
         currentStep={4}
-        totalSteps={7}
-        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+        totalSteps={6}
+        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Password', 'Location']}
       />
 
       <ScrollView

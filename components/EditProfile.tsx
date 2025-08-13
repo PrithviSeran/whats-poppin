@@ -15,7 +15,6 @@ interface UserProfile {
   name: string;
   email: string;
   birthday: string;
-  gender: string;
   saved_events?: string[];
   preferences?: string[];
   profileImage?: string;
@@ -113,7 +112,7 @@ export default function EditProfile() {
       
       // Get the current user
       const result = await services.getCurrentUser();
-      const user = result?.data?.user;
+      const user = (result as any)?.data?.user;
       if (!user) {
         console.error('No authenticated user found');
         Alert.alert('Error', 'You must be logged in to update your profile');
@@ -125,7 +124,6 @@ export default function EditProfile() {
       await services.updateUserProfile(user.email, {
         name: editedProfile.name,
         birthday: editedProfile.birthday,
-        gender: editedProfile.gender,
       });
 
       console.log('✅ Profile updated successfully with optimistic updates');
@@ -238,62 +236,7 @@ export default function EditProfile() {
           </TouchableOpacity>
         </View>
 
-        {/* Gender Section */}
-        <View style={[styles.modernSection, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
-          <View style={styles.modernSectionHeader}>
-            <View style={styles.modernSectionIconContainer}>
-              <Ionicons name="people-outline" size={24} color="#4ECDC4" />
-            </View>
-            <Text style={[styles.modernSectionTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-              Gender
-            </Text>
-          </View>
-          <View style={styles.modernGenderContainer}>
-            <TouchableOpacity
-              style={[styles.modernGenderButton, editedProfile.gender === 'Male' && styles.modernGenderButtonActive]}
-              onPress={() => setEditedProfile({ ...editedProfile, gender: 'Male' })}
-            >
-              {editedProfile.gender === 'Male' ? (
-                <LinearGradient
-                  colors={['#667eea', '#764ba2']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.modernGenderButtonGradient}
-                >
-                  <Ionicons name="male" size={20} color="#fff" style={styles.modernGenderIcon} />
-                  <Text style={styles.modernGenderButtonTextActive}>Male</Text>
-                </LinearGradient>
-              ) : (
-                <View style={styles.modernGenderButtonInactive}>
-                  <Ionicons name="male" size={20} color={Colors[colorScheme ?? 'light'].text + '60'} style={styles.modernGenderIcon} />
-                  <Text style={[styles.modernGenderButtonTextInactive, { color: Colors[colorScheme ?? 'light'].text }]}>Male</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.modernGenderButton, editedProfile.gender === 'Female' && styles.modernGenderButtonActive]}
-              onPress={() => setEditedProfile({ ...editedProfile, gender: 'Female' })}
-            >
-              {editedProfile.gender === 'Female' ? (
-                <LinearGradient
-                  colors={['#f093fb', '#f5576c']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.modernGenderButtonGradient}
-                >
-                  <Ionicons name="female" size={20} color="#fff" style={styles.modernGenderIcon} />
-                  <Text style={styles.modernGenderButtonTextActive}>Female</Text>
-                </LinearGradient>
-              ) : (
-                <View style={styles.modernGenderButtonInactive}>
-                  <Ionicons name="female" size={20} color={Colors[colorScheme ?? 'light'].text + '60'} style={styles.modernGenderIcon} />
-                  <Text style={[styles.modernGenderButtonTextInactive, { color: Colors[colorScheme ?? 'light'].text }]}>Female</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
+
       </ScrollView>
 
       {/* Date Picker Modal */}
@@ -449,55 +392,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  
-  // Modern Gender Button Styles
-  modernGenderContainer: {
-    flexDirection: 'row',
-    gap: 15,
-  },
-  modernGenderButton: {
-    flex: 1,
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(158, 149, 189, 0.15)',
-  },
-  modernGenderButtonActive: {
-    borderColor: 'transparent',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  modernGenderButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-  },
-  modernGenderButtonInactive: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    backgroundColor: 'rgba(158, 149, 189, 0.05)',
-  },
-  modernGenderIcon: {
-    marginRight: 8,
-  },
-  modernGenderButtonTextActive: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modernGenderButtonTextInactive: {
-    fontSize: 16,
-    fontWeight: '600',
-    opacity: 0.8,
-  },
+
   
   // Loading Styles
   loadingContainer: {

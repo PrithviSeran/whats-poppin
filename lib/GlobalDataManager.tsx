@@ -53,7 +53,6 @@ export interface UserProfile {
   username?: string;
   email: string;
   birthday: string;
-  gender: string;
   preferences?: string[] | string;
   'start-time'?: string;
   'end-time'?: string;
@@ -128,7 +127,7 @@ class GlobalDataManager extends EventEmitter {
       // Increase timeout and add timeout protection
       const initializationPromise = this.performInitialization();
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Initialization timeout after 60 seconds')), 500);
+        setTimeout(() => reject(new Error('Initialization timeout after 60 seconds')), 60000);
       });
       
       await Promise.race([initializationPromise, timeoutPromise]);

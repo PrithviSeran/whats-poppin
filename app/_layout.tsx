@@ -2,12 +2,13 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { setupDeepLinking } from '@/lib/deepLinking';
 import GlobalDataManager from '@/lib/GlobalDataManager';
+import { supabase } from '@/lib/supabase';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -17,12 +18,76 @@ export default function RootLayout() {
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
+  const [isAppReady, setIsAppReady] = useState(false);
 
   useEffect(() => {
-    if (loaded) {
+    const initializeApp = async () => {
+      try {
+        console.log('🚀 RootLayout: Starting app initialization...');
+        
+        // Wait for fonts to load
+        if (!loaded) {
+          console.log('⏳ RootLayout: Waiting for fonts to load...');
+          return;
+        }
+        
+        // Check if user has a session
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('🔐 RootLayout: Session check result:', session ? 'Found session' : 'No session');
+        
+        if (session) {
+          // User has session, initialize GlobalDataManager
+          console.log('📊 RootLayout: User has session, initializing GlobalDataManager...');
+          const dataManager = GlobalDataManager.getInstance();
+          await dataManager.setCurrentUser(session.user);
+          await dataManager.initialize();
+          console.log('✅ RootLayout: GlobalDataManager initialized');
+        }
+        
+        // Set up auth state change listener
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+          async (event, session) => {
+            console.log('🔄 RootLayout: Auth state changed:', event, session ? 'Session exists' : 'No session');
+            
+            if (session) {
+              // User just signed in, initialize data
+              console.log('📊 RootLayout: User signed in, initializing GlobalDataManager...');
+              const dataManager = GlobalDataManager.getInstance();
+              await dataManager.setCurrentUser(session.user);
+              await dataManager.initialize();
+              console.log('✅ RootLayout: GlobalDataManager initialized after sign in');
+            } else {
+              // User signed out, cleanup
+              console.log('🧹 RootLayout: User signed out, cleaning up data...');
+              const dataManager = GlobalDataManager.getInstance();
+              await dataManager.clearAllUserData();
+            }
+          }
+        );
+        
+        console.log('✅ RootLayout: App initialization complete');
+        setIsAppReady(true);
+        
+        // Clean up subscription on unmount
+        return () => {
+          subscription.unsubscribe();
+        };
+      } catch (error) {
+        console.error('❌ RootLayout: Error initializing app:', error);
+        // Still set as ready to prevent infinite loading
+        setIsAppReady(true);
+      }
+    };
+
+    initializeApp();
+  }, [loaded]);
+
+  useEffect(() => {
+    if (loaded && isAppReady) {
+      console.log('🎨 RootLayout: Hiding splash screen');
       SplashScreen.hideAsync();
     }
-  }, [loaded]);
+  }, [loaded, isAppReady]);
 
   // Set up deep linking
   useEffect(() => {
@@ -48,7 +113,6 @@ export default function RootLayout() {
           <Stack.Screen name="create-account-username" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-email" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-birthday" options={{ headerShown: false, gestureEnabled: false }} />
-          <Stack.Screen name="create-account-gender" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-password" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-location" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="create-account-finished" options={{ headerShown: false, gestureEnabled: false }} />

@@ -56,7 +56,6 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
         hasPassword: !!userData.password,
         hasName: !!userData.name,
         hasBirthday: !!userData.birthday,
-        hasGender: !!userData.gender,
         hasPreferences: !!userData.preferences,
         isEmailVerified: !!userData.emailVerified
       });
@@ -81,7 +80,6 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
       const signupResult = await services.signUp(userData.email, userData.password, {
         username: userData.username || undefined,
         name: userData.name || undefined,
-        gender: userData.gender || undefined,
         birthday: userData.birthday || undefined,
         preferences: userData.preferences || undefined,
         email_verified: true
@@ -169,7 +167,6 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
           username: userData.username,
           email: userData.email,
           birthday: userData.birthday,
-          gender: userData.gender,
           hasPreferences: !!userData.preferences,
           hasTimePreferences: !!userData.preferences?.timePreferences,
           hasLocationPreferences: !!userData.preferences?.locationPreferences
@@ -186,7 +183,6 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
           username: userData.username,
           email: userData.email,
           birthday: userData.birthday,
-          gender: userData.gender,
           saved_events: saved_events,
           preferences: userData.preferences?.eventTypes || [],
           ['start-time']: userData.preferences?.timePreferences?.start || null,

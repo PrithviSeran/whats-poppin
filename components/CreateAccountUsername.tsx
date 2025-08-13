@@ -231,7 +231,6 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
               username: userProfile.username,
               name: userProfile.name,
               birthday: userProfile.birthday,
-              gender: userProfile.gender,
               profileImage: userProfile.profile_image,
               bannerImage: userProfile.banner_image,
               location: userProfile.location,
@@ -351,8 +350,8 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
       {!isGoogleSignIn && (
         <CreateAccountProgressBar
           currentStep={2}
-          totalSteps={7}
-          stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+          totalSteps={6}
+          stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Password', 'Location']}
         />
       )}
 

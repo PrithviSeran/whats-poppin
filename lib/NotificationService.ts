@@ -31,6 +31,7 @@ export interface NotificationSettings {
   newFollowers: boolean;
   newEventsFromFollowing: boolean;
   marketing: boolean;
+  weekendReminders: boolean;
 }
 
 class NotificationService {
@@ -67,6 +68,12 @@ class NotificationService {
 
       // Set up notification listeners
       this.setupNotificationListeners();
+
+      // Schedule weekend notifications
+      await this.scheduleRecurringWeekendNotifications();
+
+      // Debug: Check what notifications were scheduled
+      await this.debugScheduledNotifications();
 
       console.log('✅ Notification service initialized successfully');
     } catch (error) {
@@ -158,6 +165,13 @@ class NotificationService {
         return;
       }
 
+      // Check if user has notification settings enabled
+      const settings = await this.getNotificationSettings();
+      if (!settings.enabled) {
+        console.log('⚠️ Notifications disabled for user, skipping token save');
+        return;
+      }
+
       // Get user's profile from all_users table to get their ID
       const { data: userProfile, error: profileError } = await supabase
         .from('all_users')
@@ -170,20 +184,66 @@ class NotificationService {
         return;
       }
 
-      const { error } = await supabase
+      // Check if this user already has a token for this platform
+      const { data: existingToken, error: checkError } = await supabase
         .from('user_push_tokens')
-        .upsert({
-          user_id: user.id, // This is the auth.users UUID
+        .select('id, push_token')
+        .eq('user_id', user.id)
+        .eq('platform', Platform.OS)
+        .eq('is_active', true)
+        .single();
+
+      if (checkError) {
+        if (checkError.code === 'PGRST116' || checkError.message.includes('No rows found')) {
+          // No existing token found - this is expected for new users
+          console.log('ℹ️ No existing token found for user, will create new one');
+        } else {
+          // Actual error occurred
+          console.error('❌ Error checking existing token:', checkError);
+          return;
+        }
+      }
+
+      if (existingToken && existingToken.push_token === token) {
+        console.log('✅ Push token already exists and is current');
+        return;
+      }
+
+      // Deactivate any existing tokens for this user and platform
+      if (existingToken) {
+        console.log('🔄 Deactivating existing token for user...');
+        const { error: deactivateError } = await supabase
+          .from('user_push_tokens')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('user_id', user.id)
+          .eq('platform', Platform.OS);
+
+        if (deactivateError) {
+          console.warn('⚠️ Error deactivating old token:', deactivateError);
+        } else {
+          console.log('✅ Existing token deactivated successfully');
+        }
+      } else {
+        console.log('🆕 No existing token found, proceeding with new token creation');
+      }
+
+      // Insert new token
+      const { error: insertError } = await supabase
+        .from('user_push_tokens')
+        .insert({
+          user_id: user.id,
           email: user.email,
           push_token: token,
           platform: Platform.OS,
+          is_active: true,
+          created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
 
-      if (error) {
-        console.error('❌ Error saving push token to database:', error);
+      if (insertError) {
+        console.error('❌ Error saving push token to database:', insertError);
       } else {
-        console.log('✅ Push token saved to database');
+        console.log('✅ Push token saved to database for user:', user.email);
       }
     } catch (error) {
       console.error('❌ Error saving push token:', error);
@@ -256,7 +316,7 @@ class NotificationService {
           badge: 1,
         },
         trigger: notification.trigger || null,
-      });
+      } as any);
 
       console.log('✅ Notification scheduled:', notificationId);
       return notificationId;
@@ -308,6 +368,7 @@ class NotificationService {
         newFollowers: true,
         newEventsFromFollowing: true,
         marketing: false,
+        weekendReminders: true,
       };
 
       await this.saveNotificationSettings(defaultSettings);
@@ -321,6 +382,7 @@ class NotificationService {
         newFollowers: true,
         newEventsFromFollowing: true,
         marketing: false,
+        weekendReminders: true,
       };
     }
   }
@@ -357,8 +419,9 @@ class NotificationService {
         eventId: eventId,
       },
       trigger: {
+        type: 'date',
         date: reminderTime,
-      },
+      } as any,
     });
   }
 
@@ -382,8 +445,9 @@ class NotificationService {
         eventId: eventId,
       },
       trigger: {
+        type: 'date',
         date: reminderTime,
-      },
+      } as any,
     });
   }
 
@@ -532,14 +596,44 @@ class NotificationService {
   }
 
   /**
-   * Cleanup listeners
+   * Cleanup listeners and deactivate push token
    */
-  cleanup(): void {
-    if (this.notificationListener) {
-      Notifications.removeNotificationSubscription(this.notificationListener);
-    }
-    if (this.responseListener) {
-      Notifications.removeNotificationSubscription(this.responseListener);
+  async cleanup(): Promise<void> {
+    try {
+      // Remove notification listeners
+      if (this.notificationListener) {
+        Notifications.removeNotificationSubscription(this.notificationListener);
+      }
+      if (this.responseListener) {
+        Notifications.removeNotificationSubscription(this.responseListener);
+      }
+
+      // Deactivate current user's push token
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        console.log('🔔 User signing out, deactivating push token...');
+        
+        const { error: deactivateError } = await supabase
+          .from('user_push_tokens')
+          .update({ 
+            is_active: false, 
+            updated_at: new Date().toISOString() 
+          })
+          .eq('user_id', user.id)
+          .eq('platform', Platform.OS);
+
+        if (deactivateError) {
+          console.warn('⚠️ Error deactivating push token on sign-out:', deactivateError);
+        } else {
+          console.log('✅ Push token deactivated on sign-out');
+        }
+      }
+
+      // Clear local token reference
+      this.expoPushToken = null;
+      
+    } catch (error) {
+      console.error('❌ Error in cleanup:', error);
     }
   }
 
@@ -550,38 +644,204 @@ class NotificationService {
     return this.expoPushToken;
   }
 
-  // Test all notification types
-  async testAllNotifications(): Promise<void> {
+  /**
+   * Handle user login - reinitialize notification service for new user
+   */
+  async handleUserLogin(): Promise<void> {
     try {
-      console.log('🧪 Testing all notification types...');
+      console.log('🔔 User logged in, reinitializing notification service...');
       
-      // Test basic notification
+      // Clear any existing tokens
+      this.expoPushToken = null;
+      
+      // Reinitialize the service for the new user
+      await this.initialize();
+      
+      console.log('✅ Notification service reinitialized for new user');
+    } catch (error) {
+      console.error('❌ Error reinitializing notification service:', error);
+    }
+  }
+
+  
+
+  /**
+   * Schedule weekend reminder notifications
+   */
+  async scheduleWeekendReminderNotification(): Promise<string> {
+    const creativeMessages = [
+      "🎉 Weekend vibes are calling! Check out what's poppin' in your city today!",
+      "🌟 Your city is buzzing with excitement! Discover amazing events happening right now!",
+      "🎊 The weekend is here and so are the adventures! See what's happening around you!",
+      "✨ Magic happens on weekends! Explore the incredible events in your area!",
+      "🎈 Ready for some weekend fun? Your city has amazing events waiting for you!",
+      "🔥 The weekend energy is real! Check out what's hot in your city today!",
+      "🎪 Adventure awaits! Discover the coolest events happening in your area!",
+      "💫 Weekend mode activated! See what's poppin' in your city right now!",
+      "🎭 Your city is alive with events! Don't miss out on the weekend fun!",
+      "🚀 Weekend goals: Find amazing events! Check out what's happening in your area!"
+    ];
+
+    const randomMessage = creativeMessages[Math.floor(Math.random() * creativeMessages.length)];
+    
+    return await this.scheduleNotification({
+      id: `weekend_reminder_${Date.now()}`,
+      title: 'Weekend Vibes! 🎉',
+      body: randomMessage,
+      data: {
+        type: 'weekend_reminder',
+      },
+      trigger: null, // Show immediately for testing
+    });
+  }
+
+  /**
+   * Schedule recurring weekend and midweek notifications
+   */
+  async scheduleRecurringWeekendNotifications(): Promise<void> {
+    try {
+      const settings = await this.getNotificationSettings();
+      console.log('🔍 Notification settings:', settings);
+      console.log('🔍 Weekend reminders enabled:', settings.weekendReminders);
+      
+      if (!settings.enabled || !settings.weekendReminders) {
+        console.log('⚠️ Weekend reminders are disabled');
+        return;
+      }
+
+      // Cancel any existing weekend notifications
+      await this.cancelWeekendNotifications();
+
+      const now = new Date();
+      const currentDay = now.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+      const currentHour = now.getHours();
+      
+      console.log('🔍 Current time:', now.toLocaleString());
+      console.log('🔍 Current day (0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat):', currentDay);
+      console.log('🔍 Current hour:', currentHour);
+
+      // Schedule Friday afternoon notification (2 PM)
+      if (currentDay === 5 && currentHour < 14) {
+        const fridayTime = new Date(now);
+        fridayTime.setHours(14, 0, 0, 0); // 2 PM
+        
+        await this.scheduleNotification({
+          id: 'weekend_friday_reminder',
+          title: 'TGIF! 🎉',
+          body: "Friday afternoon vibes! Check out what's poppin' in your city this weekend!",
+          data: { type: 'weekend_reminder' },
+          trigger: { type: 'date', date: fridayTime } as any,
+        });
+      }
+
+      // Schedule Saturday notification (12 PM)
+      const saturdayTime = new Date(now);
+      saturdayTime.setDate(saturdayTime.getDate() + (6 - currentDay)); // Next Saturday
+      saturdayTime.setHours(12, 0, 0, 0); // 12 PM
+
       await this.scheduleNotification({
-        id: 'test_basic',
-        title: 'Basic Test',
-        body: 'This is a basic notification test',
-        data: { type: 'test_basic' },
-        trigger: null,
+        id: 'weekend_saturday_reminder',
+        title: 'Saturday Fun! 🌟',
+        body: "Weekend mode activated! Discover amazing events happening in your city today!",
+        data: { type: 'weekend_reminder' },
+        trigger: { type: 'date', date: saturdayTime } as any,
+      });
+
+      // Schedule Tuesday notification (5:40 PM)
+      const tuesdayTime = new Date(now);
+      const daysUntilTuesday = (2 - currentDay + 7) % 7;
+      tuesdayTime.setDate(tuesdayTime.getDate() + daysUntilTuesday); // Next Tuesday
+      tuesdayTime.setHours(17, 40, 0, 0); // 5:40 PM
+      
+      console.log('🔍 Tuesday notification calculation:');
+      console.log('  - Current day:', currentDay);
+      console.log('  - Days until Tuesday:', daysUntilTuesday);
+      console.log('  - Tuesday notification time:', tuesdayTime.toLocaleString());
+      console.log('  - Is Tuesday time in the future?', tuesdayTime > now);
+
+      await this.scheduleNotification({
+        id: 'weekend_tuesday_reminder',
+        title: 'Tuesday Vibes! 🌟',
+        body: "Midweek motivation! Check out what's happening in your city today!",
+        data: { type: 'weekend_reminder' },
+        trigger: { type: 'date', date: tuesdayTime } as any,
       });
       
-      // Test friend request notification
-      await this.scheduleFriendRequestNotification('Test Friend');
-      
-      // Test new follower notification
-      await this.scheduleNewFollowerNotification('Test Follower');
-      
-      // Test new event from following notification
-      await this.scheduleNewEventFromFollowingNotification('Test Event', 'Test Creator');
-      
-      // Test event reminder (5 minutes from now)
-      const reminderTime = new Date();
-      reminderTime.setMinutes(reminderTime.getMinutes() + 5);
-      await this.scheduleEventReminder('test_event_456', 'Test Event Reminder', reminderTime);
-      
-      console.log('✅ All notification tests completed successfully');
+      console.log('✅ Tuesday notification scheduled for:', tuesdayTime.toLocaleString());
+
+      console.log('✅ Weekend and midweek notifications scheduled');
     } catch (error) {
-      console.error('❌ Error testing notifications:', error);
-      throw error;
+      console.error('❌ Error scheduling weekend notifications:', error);
+    }
+  }
+
+  /**
+   * Cancel weekend notifications
+   */
+  async cancelWeekendNotifications(): Promise<void> {
+    try {
+      await this.cancelNotification('weekend_friday_reminder');
+      await this.cancelNotification('weekend_saturday_reminder');
+      await this.cancelNotification('weekend_tuesday_reminder');
+      console.log('✅ Weekend notifications cancelled');
+    } catch (error) {
+      console.error('❌ Error cancelling weekend notifications:', error);
+    }
+  }
+
+  /**
+   * Debug: Check all scheduled notifications
+   */
+  async debugScheduledNotifications(): Promise<void> {
+    try {
+      const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+      console.log('🔍 All scheduled notifications:', scheduledNotifications);
+      
+      if (scheduledNotifications.length === 0) {
+        console.log('⚠️ No scheduled notifications found');
+      } else {
+        scheduledNotifications.forEach((notification, index) => {
+          console.log(`📅 Notification ${index + 1}:`);
+          console.log(`  - ID: ${notification.identifier}`);
+          console.log(`  - Title: ${notification.content.title}`);
+          console.log(`  - Body: ${notification.content.body}`);
+          console.log(`  - Trigger:`, notification.trigger);
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error checking scheduled notifications:', error);
+    }
+  }
+
+  /**
+   * Debug: Test immediate notification
+   */
+  async testImmediateNotification(): Promise<void> {
+    try {
+      console.log('🧪 Testing immediate notification...');
+      const testId = await this.scheduleNotification({
+        id: 'test_notification',
+        title: 'Test Notification! 🧪',
+        body: 'This is a test notification to verify the system is working.',
+        data: { type: 'test' },
+        trigger: null, // Show immediately
+      });
+      console.log('✅ Test notification scheduled with ID:', testId);
+      
+      // Also try scheduling a notification for 10 seconds from now
+      const futureTime = new Date(Date.now() + 10000); // 10 seconds from now
+      const futureTestId = await this.scheduleNotification({
+        id: 'test_future_notification',
+        title: 'Future Test! ⏰',
+        body: 'This notification was scheduled for 10 seconds in the future.',
+        data: { type: 'test_future' },
+        trigger: { type: 'date', date: futureTime } as any,
+      });
+      console.log('✅ Future test notification scheduled with ID:', futureTestId);
+      console.log('⏰ Future test notification will appear at:', futureTime.toLocaleString());
+      
+    } catch (error) {
+      console.error('❌ Error scheduling test notification:', error);
     }
   }
 

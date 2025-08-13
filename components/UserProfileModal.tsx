@@ -30,7 +30,6 @@ interface UserProfile {
   username?: string;
   email: string;
   birthday: string;
-  gender: string;
   saved_events?: string[];
   preferences?: string[];
   profileImage?: string;
@@ -312,7 +311,7 @@ export default function UserProfileModal({
           const { imageUrl, allImages } = getEventImageUrls(event.id);
           return {
             ...event,
-            image: event.image || imageUrl, // Use existing image or generate first one
+            image: imageUrl, // Use generated image URL
             allImages // Add allImages array for fallback logic
           };
         });

@@ -140,8 +140,8 @@ const CreateAccount = () => {
 
       <CreateAccountProgressBar
         currentStep={1}
-        totalSteps={7}
-        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+        totalSteps={6}
+        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Password', 'Location']}
       />
 
       <KeyboardAvoidingView

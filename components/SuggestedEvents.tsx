@@ -580,8 +580,7 @@ export default function SuggestedEvents() {
         user_travel_distance: userTravelDistance,
         user_saved_events: savedEventIds, // Keep saved events from GlobalDataManager
         user_preferred_days: userPreferredDays,
-        user_birthday: userProfile?.birthday, // Keep basic profile info from database
-        user_gender: userProfile?.gender
+        user_birthday: userProfile?.birthday // Keep basic profile info from database
       };
       
       console.log('🚀 OFFLINE-FIRST: Sending AsyncStorage preferences + minimal profile to backend');
@@ -592,7 +591,6 @@ export default function SuggestedEvents() {
         saved_events_count: savedEventIds.length,
         preferred_days_count: userPreferredDays.length,
         has_birthday: !!userProfile?.birthday,
-        has_gender: !!userProfile?.gender,
         preferences_source: 'AsyncStorage',
         database_queries_eliminated: 'user preferences, time settings, location, travel distance, preferred days'
       });

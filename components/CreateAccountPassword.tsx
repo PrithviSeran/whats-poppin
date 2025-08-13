@@ -143,9 +143,9 @@ const CreateAccountPassword = ({ route }: { route: CreateAccountPasswordRoutePro
       </TouchableOpacity>
 
       <CreateAccountProgressBar
-        currentStep={6}
-        totalSteps={7}
-        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Gender', 'Password', 'Location']}
+        currentStep={5}
+        totalSteps={6}
+        stepLabels={['Name', 'Username', 'Email', 'Birthday', 'Password', 'Location']}
       />
 
       <KeyboardAvoidingView
