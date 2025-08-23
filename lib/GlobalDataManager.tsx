@@ -153,40 +153,49 @@ class GlobalDataManager extends EventEmitter {
   }
 
   private async performInitialization() {
-    // Wait for user to be properly set
-    if (!this.currentUser) {
-      console.log('⏳ Waiting for user to be set...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      if (!this.currentUser) {
+    try {
+      const user = this.currentUser;
+      if (!user) {
         console.log('⚠️ No user set - continuing with guest mode');
         return;
       }
+
+      console.log('🚀 Starting parallel data initialization...');
+      const startTime = Date.now();
+
+      // PRIORITIZE: Run user profile first, then others in parallel
+      try {
+        console.log('📋 Fetching user profile first (high priority)...');
+        await this.fetchAndStoreUserProfile();
+        console.log('✅ User profile fetched successfully');
+      } catch (error) {
+        console.error('❌ User profile fetch failed, but continuing with other data:', error);
+      }
+
+      // Run remaining initialization methods in parallel
+      const remainingInitPromises = [
+        this.initializeWithGracefulFailure('fetchAndStoreSavedEvents', () => this.fetchAndStoreSavedEvents()),
+        this.initializeWithGracefulFailure('fetchAndStoreRejectedEvents', () => this.fetchAndStoreRejectedEvents())
+      ];
+
+      await Promise.all(remainingInitPromises);
+      
+      const endTime = Date.now();
+      console.log(`✅ Parallel initialization completed in ${endTime - startTime}ms`);
+    } catch (error) {
+      console.error('❌ Critical error during initialization:', error);
+      // Continue with empty data rather than failing completely
     }
-
-    console.log('🚀 Starting parallel data initialization...');
-    const startTime = Date.now();
-
-    // OPTIMIZED: Run all initialization methods in parallel instead of sequentially
-    const initPromises = [
-      this.initializeWithGracefulFailure('fetchAndStoreUserProfile', () => this.fetchAndStoreUserProfile()),
-      this.initializeWithGracefulFailure('fetchAndStoreSavedEvents', () => this.fetchAndStoreSavedEvents()),
-      this.initializeWithGracefulFailure('fetchAndStoreRejectedEvents', () => this.fetchAndStoreRejectedEvents())
-    ];
-
-    await Promise.all(initPromises);
-    
-    const endTime = Date.now();
-    console.log(`✅ Parallel initialization completed in ${endTime - startTime}ms`);
   }
 
   private async initializeWithGracefulFailure(methodName: string, method: () => Promise<void>) {
     try {
       console.log(`📋 ${methodName}...`);
       
-      // Add timeout for individual methods
+      // Add timeout for individual methods - reduced from 20s to 10s for better UX
       const methodPromise = method();
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`${methodName} timeout after 20 seconds`)), 20000);
+        setTimeout(() => reject(new Error(`${methodName} timeout after 10 seconds`)), 10000);
       });
       
       await Promise.race([methodPromise, timeoutPromise]);
@@ -338,13 +347,48 @@ class GlobalDataManager extends EventEmitter {
         await AsyncStorage.setItem('userProfile', JSON.stringify(profileWithImages));
         console.log('User profile stored successfully with image URLs');
       } else {
-        // Store empty profile if none found
-        await AsyncStorage.setItem('userProfile', JSON.stringify(null));
-        console.log('No profile found, stored null');
+        // NEW USER: Create a basic profile structure instead of storing null
+        console.log('No profile found for new user, creating basic profile structure');
+        const basicProfile = {
+          id: user.id,
+          email: user.email,
+          name: user.user_metadata?.full_name || user.email.split('@')[0],
+          username: user.email.split('@')[0],
+          created_at: new Date().toISOString(),
+          profileImage: null,
+          bannerImage: null,
+          saved_events: [],
+          rejected_events: [],
+          preferences: []
+        };
+        
+        await AsyncStorage.setItem('userProfile', JSON.stringify(basicProfile));
+        console.log('Basic profile structure created for new user');
       }
     } catch (error) {
       console.error('Error fetching and storing user profile:', error);
-      throw error;
+      
+      // If it's a timeout or network error, create a basic profile instead of throwing
+      if (error instanceof Error && (error.message?.includes('timeout') || error.message?.includes('network'))) {
+        console.log('Creating fallback profile due to timeout/network error');
+        const fallbackProfile = {
+          id: this.currentUser?.id,
+          email: this.currentUser?.email,
+          name: this.currentUser?.user_metadata?.full_name || this.currentUser?.email?.split('@')[0],
+          username: this.currentUser?.email?.split('@')[0],
+          created_at: new Date().toISOString(),
+          profileImage: null,
+          bannerImage: null,
+          saved_events: [],
+          rejected_events: [],
+          preferences: []
+        };
+        
+        await AsyncStorage.setItem('userProfile', JSON.stringify(fallbackProfile));
+        console.log('Fallback profile created successfully');
+      } else {
+        throw error; // Re-throw non-timeout errors
+      }
     }
   }
 
@@ -809,28 +853,56 @@ class GlobalDataManager extends EventEmitter {
         // Update with optimistic UI update
         const updatedSavedEvents = [...currentSavedEvents, optimizedEvent];
         
-        await this.apiService.queueRequest('update', {
-          table: 'all_users',
-          data: { 
-            saved_events: savedEventIds,
-            saved_events_all_time: savedEventsAllTime
-          },
-          filters: { eq: { email: user.email } },
-          priority: 'high',
-          batch: 'event_operations',
-          optimisticUpdate: async () => {
-            // Update AsyncStorage immediately
-            await AsyncStorage.setItem('savedEvents', JSON.stringify(updatedSavedEvents));
-            this.emit('savedEventsUpdated', updatedSavedEvents);
-            console.log('⚡ Optimistic save event applied');
-          },
-          rollback: async () => {
-            // Rollback to original state
-            await AsyncStorage.setItem('savedEvents', JSON.stringify(currentSavedEvents));
-            this.emit('savedEventsUpdated', currentSavedEvents);
-            console.log('🔄 Save event rolled back');
+        // Update AsyncStorage immediately (optimistic update)
+        await AsyncStorage.setItem('savedEvents', JSON.stringify(updatedSavedEvents));
+        console.log('⚡ AsyncStorage updated with new saved event');
+        
+        // Clear cached data to prevent stale cache issues
+        const keysToDelete = [];
+        for (const [key] of this.requestCache.entries()) {
+          if (key.includes('saved_events') || key.includes('user_saved_events') || key.includes('events_batch')) {
+            keysToDelete.push(key);
           }
-        });
+        }
+        keysToDelete.forEach(key => this.requestCache.delete(key));
+        console.log(`🧹 Cleared ${keysToDelete.length} cached entries`);
+        
+        // Emit event immediately after optimistic update
+        this.emit('savedEventsUpdated', updatedSavedEvents);
+        console.log('📡 Emitted savedEventsUpdated event with', updatedSavedEvents.length, 'events');
+        
+        // Update database
+        try {
+          await this.apiService.queueRequest('update', {
+            table: 'all_users',
+            data: { 
+              saved_events: savedEventIds,
+              saved_events_all_time: savedEventsAllTime
+            },
+            filters: { eq: { email: user.email } },
+            priority: 'high',
+            batch: 'event_operations'
+          });
+          console.log('✅ Database updated successfully for event like');
+        } catch (dbError) {
+          console.error('❌ Database update failed, rolling back:', dbError);
+          
+          // Rollback to original state
+          await AsyncStorage.setItem('savedEvents', JSON.stringify(currentSavedEvents));
+          
+          // Clear cached data during rollback as well
+          const rollbackKeysToDelete = [];
+          for (const [key] of this.requestCache.entries()) {
+            if (key.includes('saved_events') || key.includes('user_saved_events') || key.includes('events_batch')) {
+              rollbackKeysToDelete.push(key);
+            }
+          }
+          rollbackKeysToDelete.forEach(key => this.requestCache.delete(key));
+          
+          this.emit('savedEventsUpdated', currentSavedEvents);
+          console.log('🔄 Save event rolled back due to database error');
+          throw dbError;
+        }
       }
     } catch (error) {
       console.error('Error adding event to saved events:', error);
@@ -1189,6 +1261,134 @@ class GlobalDataManager extends EventEmitter {
     }
   }
 
+  // Remove multiple events from saved_events field in AsyncStorage and Supabase in one operation
+  // Note: This only removes from saved_events, NOT from saved_events_all_time (permanent history)
+  async removeMultipleEventsFromSavedEvents(eventIds: number[]) {
+    try {
+      const user = this.currentUser;
+      if (!user || !user.email) {
+        console.error('No user or email available for removing saved events');
+        throw new Error('User not authenticated');
+      }
+
+      if (!eventIds || eventIds.length === 0) {
+        console.log('No event IDs provided for removal');
+        return;
+      }
+
+      console.log(`Starting removal of ${eventIds.length} events for user ${user.email}`);
+      console.log('Event IDs to remove:', eventIds);
+
+      // Get current saved events from Supabase
+      const { data: userData, error } = await supabase
+        .from('all_users')
+        .select('saved_events')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching user data from Supabase:', error);
+        throw error;
+      }
+
+      console.log('Current user data from Supabase:', userData);
+
+      // Parse current saved events
+      let savedEventIds: number[] = [];
+      if (userData?.saved_events) {
+        if (Array.isArray(userData.saved_events)) {
+          savedEventIds = userData.saved_events;
+        } else if (typeof userData.saved_events === 'string' && userData.saved_events) {
+          savedEventIds = userData.saved_events
+            .replace(/[{}"']+/g, '')
+            .split(',')
+            .map((s: string) => parseInt(s.trim(), 10))
+            .filter(Boolean);
+        }
+      }
+
+      console.log('Parsed saved event IDs before removal:', savedEventIds);
+
+      // Filter out the events to be removed
+      const originalLength = savedEventIds.length;
+      const eventsToRemove = eventIds.filter(id => savedEventIds.includes(id));
+      savedEventIds = savedEventIds.filter(id => !eventIds.includes(id));
+      
+      console.log(`Removed ${eventsToRemove.length} events. Array length changed from ${originalLength} to ${savedEventIds.length}`);
+      console.log('Events actually removed:', eventsToRemove);
+      console.log('Updated saved event IDs after removal:', savedEventIds);
+
+      if (eventsToRemove.length === 0) {
+        console.log('No events were actually in the saved list, skipping update');
+        return;
+      }
+
+      // Update Supabase with detailed error checking
+      const { data: updateData, error: updateError } = await supabase
+        .from('all_users')
+        .update({ saved_events: savedEventIds })
+        .eq('email', user.email)
+        .select(); // Return the updated row to verify the change
+
+      if (updateError) {
+        console.error('Error updating Supabase:', updateError);
+        throw updateError;
+      }
+
+      console.log('Supabase batch update successful. Updated data:', updateData);
+
+      // Verify the update worked
+      if (updateData && updateData.length > 0) {
+        console.log('Verified updated saved_events in database:', updateData[0].saved_events);
+      }
+
+      // Get current saved events from AsyncStorage
+      const savedEventsJson = await AsyncStorage.getItem('savedEvents');
+      const currentSavedEvents = savedEventsJson ? JSON.parse(savedEventsJson) : [];
+
+      console.log('Current AsyncStorage events before removal:', currentSavedEvents.map((e: EventCard) => e.id));
+
+      // Remove events from AsyncStorage
+      const updatedSavedEvents = currentSavedEvents.filter((event: EventCard) => !eventIds.includes(event.id));
+      await AsyncStorage.setItem('savedEvents', JSON.stringify(updatedSavedEvents));
+
+      console.log('Updated AsyncStorage events after removal:', updatedSavedEvents.map((e: EventCard) => e.id));
+
+      // CRITICAL: Also clear any request cache that might contain stale saved events data
+      console.log('🧹 Clearing cached saved events data to prevent stale cache issues...');
+      
+      // Clear any cached API requests related to saved events
+      const keysToDelete = [];
+      for (const [key] of this.requestCache.entries()) {
+        if (key.includes('saved_events') || key.includes('user_saved_events') || key.includes('events_batch')) {
+          keysToDelete.push(key);
+        }
+      }
+      
+      keysToDelete.forEach(key => {
+        this.requestCache.delete(key);
+        console.log(`🗑️ Deleted cached request: ${key}`);
+      });
+      
+      // Also clear API service cache if it exists
+      if (this.apiService && typeof this.apiService.clearCache === 'function') {
+        this.apiService.clearCache();
+        console.log('🗑️ Cleared API service cache');
+      }
+      
+      console.log(`✅ Cache cleanup completed - removed ${keysToDelete.length} cached entries`);
+
+      // Emit an event to notify listeners
+      this.emit('savedEventsUpdated', updatedSavedEvents);
+      
+      console.log(`Successfully removed ${eventsToRemove.length} events from saved events`);
+      return { removedCount: eventsToRemove.length, updatedEvents: updatedSavedEvents };
+    } catch (error) {
+      console.error('Error removing multiple events from saved events:', error);
+      throw error;
+    }
+  }
+
   // Remove an event from the saved_events field in AsyncStorage and Supabase
   // Note: This only removes from saved_events, NOT from saved_events_all_time (permanent history)
   async removeEventFromSavedEvents(eventId: number) {
@@ -1274,6 +1474,30 @@ class GlobalDataManager extends EventEmitter {
       await AsyncStorage.setItem('savedEvents', JSON.stringify(updatedSavedEvents));
 
       console.log('Updated AsyncStorage events after removal:', updatedSavedEvents.map((e: EventCard) => e.id));
+
+      // CRITICAL: Also clear any request cache that might contain stale saved events data
+      console.log('🧹 Clearing cached saved events data to prevent stale cache issues...');
+      
+      // Clear any cached API requests related to saved events
+      const keysToDelete = [];
+      for (const [key] of this.requestCache.entries()) {
+        if (key.includes('saved_events') || key.includes('user_saved_events') || key.includes('events_batch')) {
+          keysToDelete.push(key);
+        }
+      }
+      
+      keysToDelete.forEach(key => {
+        this.requestCache.delete(key);
+        console.log(`🗑️ Deleted cached request: ${key}`);
+      });
+      
+      // Also clear API service cache if it exists
+      if (this.apiService && typeof this.apiService.clearCache === 'function') {
+        this.apiService.clearCache();
+        console.log('🗑️ Cleared API service cache');
+      }
+      
+      console.log(`✅ Cache cleanup completed - removed ${keysToDelete.length} cached entries`);
 
       // Emit an event to notify listeners
       this.emit('savedEventsUpdated', updatedSavedEvents);

@@ -23,6 +23,32 @@ import * as Location from 'expo-location';
 import EventDetailModal from './EventDetailModal';
 import { EventCard } from '@/lib/GlobalDataManager';
 
+// Helper function to format event dates properly (handles Unix timestamps)
+const formatEventDate = (dateValue: any): string => {
+  if (!dateValue) return "Please check organizer's page";
+  
+  try {
+    let date: Date;
+    
+    // Handle Unix timestamp (seconds since epoch)
+    if (typeof dateValue === 'number' && dateValue > 1000000000) {
+      // This is a Unix timestamp in seconds
+      date = new Date(dateValue * 1000);
+    } else if (typeof dateValue === 'string') {
+      // This might be an ISO string or other date format
+      date = new Date(dateValue);
+    } else {
+      // Fallback for other formats
+      return "Please check organizer's page";
+    }
+    
+    return date.toLocaleDateString();
+  } catch (error) {
+    console.error('Error formatting event date:', error);
+    return "Please check organizer's page";
+  }
+};
+
 interface UserProfile {
   id: number;
   created_at: string;
@@ -1027,7 +1053,7 @@ export default function UserProfileModal({
                           <View style={styles.eventDetail}>
                             <Ionicons name="calendar-outline" size={14} color="#9E95BD" />
                             <Text style={[styles.eventDetailText, { color: Colors[colorScheme ?? 'light'].text }]}>
-                              {new Date(event.start_date).toLocaleDateString()}
+                              {formatEventDate(event.start_date)}
                             </Text>
                           </View>
                         )}

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Image, ActivityIndicator, Animated, StyleSheet, Dimensions, PanResponder, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Image, ActivityIndicator, Animated, StyleSheet, Dimensions, PanResponder, Alert, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -9,9 +9,36 @@ import { supabase } from '@/lib/supabase';
 import { Animated as RNAnimated } from 'react-native';
 import GlobalDataManager, { EventCard } from '@/lib/GlobalDataManager';
 import EventDetailModal from './EventDetailModal';
+import { useFocusEffect } from '@react-navigation/native';
 // Distance calculations are now handled within GlobalDataManager
 
 const { height, width } = Dimensions.get('window');
+
+// Helper function to format event dates properly (handles Unix timestamps)
+const formatEventDate = (dateValue: any): string => {
+  if (!dateValue) return "Please check organizer's page";
+  
+  try {
+    let date: Date;
+    
+    // Handle Unix timestamp (seconds since epoch)
+    if (typeof dateValue === 'number' && dateValue > 1000000000) {
+      // This is a Unix timestamp in seconds
+      date = new Date(dateValue * 1000);
+    } else if (typeof dateValue === 'string') {
+      // This might be an ISO string or other date format
+      date = new Date(dateValue);
+    } else {
+      // Fallback for other formats
+      return "Please check organizer's page";
+    }
+    
+    return date.toLocaleDateString();
+  } catch (error) {
+    console.error('Error formatting event date:', error);
+    return "Please check organizer's page";
+  }
+};
 
 interface SavedActivitiesProps {
   visible: boolean;
@@ -37,7 +64,8 @@ const SavedEventCard = React.memo(({
   multiSelectSlideAnim,
   fadeAnim,
   scaleAnim,
-  creatorInfo
+  creatorInfo,
+  isDeletingEvents
 }: {
   event: EventCard;
   index: number;
@@ -55,6 +83,7 @@ const SavedEventCard = React.memo(({
   fadeAnim?: RNAnimated.Value;
   scaleAnim?: RNAnimated.Value;
   creatorInfo?: { name: string; username?: string };
+  isDeletingEvents?: boolean;
 }) => {
   const formatDaysOfWeek = useCallback((days: string[] | null | undefined): string => {
     if (!days || days.length === 0) return '';
@@ -120,8 +149,8 @@ const SavedEventCard = React.memo(({
         </RNAnimated.View>
       )}
       
-      {/* Bin icon background revealed as card is dragged (only in normal mode) */}
-      {!isMultiSelectMode && (
+      {/* Bin icon background revealed as card is dragged (only in normal mode and not deleting) */}
+      {!isMultiSelectMode && !isDeletingEvents && (
         <View style={{
           position: 'absolute',
           left: 0,
@@ -218,7 +247,7 @@ const SavedEventCard = React.memo(({
                     <>
                       <Ionicons name="calendar-outline" size={18} color={Colors[colorScheme ?? 'light'].text} />
                       <Text style={[styles.savedLikesCardInfoText, { color: Colors[colorScheme ?? 'light'].text, marginLeft: 6 }]}> 
-                        {new Date(event.start_date).toLocaleDateString()}
+                        {formatEventDate(event.start_date)}
                       </Text>
                     </>
                   )}
@@ -252,7 +281,8 @@ const SavedEventCard = React.memo(({
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.multiSelectSlideAnim === nextProps.multiSelectSlideAnim &&
     prevProps.fadeAnim === nextProps.fadeAnim &&
-    prevProps.scaleAnim === nextProps.scaleAnim
+    prevProps.scaleAnim === nextProps.scaleAnim &&
+    prevProps.isDeletingEvents === nextProps.isDeletingEvents
   );
 });
 
@@ -267,7 +297,8 @@ export default function SavedActivities({
   
   // Initialize state variables
   const [savedActivitiesEvents, setSavedActivitiesEvents] = useState<EventCard[]>([]);
-  const [savedActivitiesLoading, setSavedActivitiesLoading] = useState(false);
+  // Removed savedActivitiesLoading - no loading interruptions for smooth experience
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [pressedCardIdx, setPressedCardIdx] = useState<number | null>(null);
   const [expandedSavedActivity, setExpandedSavedActivity] = useState<EventCard | null>(null);
   const [cardPosition, setCardPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
@@ -275,7 +306,7 @@ export default function SavedActivities({
   // Multi-select state
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  // Removed deleteLoading state - no loading indicators for smooth animations
   const [isDeletingEvents, setIsDeletingEvents] = useState(false);
   
   // Creator info state
@@ -387,14 +418,29 @@ export default function SavedActivities({
     }
   }, [visible]);
 
-  const fetchSavedEvents = useCallback(async () => {
-    setSavedActivitiesLoading(true);
+  const fetchSavedEvents = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) {
+      setIsRefreshing(true);
+    }
+    
     try {
+      console.log('🔄 SavedActivities: Fetching fresh saved events data...');
+      
+      // CRITICAL: Force refresh of saved events by calling refreshAllDataImmediate
+      // This ensures we get fresh data from the database instead of stale cache
+      if (isManualRefresh) {
+        console.log('🧹 SavedActivities: Manual refresh - clearing cache and fetching fresh data...');
+        await dataManager.refreshAllDataImmediate();
+      }
+      
       const savedEvents = await dataManager.getSavedEvents();
+      console.log(`📊 SavedActivities: Fetched ${savedEvents.length} saved events from database`);
       
       // Fetch friends data for saved events
       if (savedEvents.length > 0) {
         const eventIds = savedEvents.map(event => event.id);
+        console.log('📊 SavedActivities: Event IDs retrieved:', eventIds);
+        
         const friendsDataBatch = await dataManager.getFriendsWhoSavedEventsBatch(eventIds);
         
         // Add friends data to each event
@@ -404,19 +450,29 @@ export default function SavedActivities({
         }));
         
         setSavedActivitiesEvents(eventsWithFriendsData);
+        console.log('✅ SavedActivities: Events updated with friends data');
         
         // Fetch creator information for all events
         await fetchCreatorInfo(eventsWithFriendsData);
       } else {
+        console.log('📭 SavedActivities: No saved events found');
         setSavedActivitiesEvents(savedEvents);
       }
     } catch (error) {
-      console.error('Error fetching saved events:', error);
+      console.error('❌ SavedActivities: Error fetching saved events:', error);
       // Fallback to events without friends data
-      const savedEvents = await dataManager.getSavedEvents();
-      setSavedActivitiesEvents(savedEvents);
+      try {
+        const savedEvents = await dataManager.getSavedEvents();
+        setSavedActivitiesEvents(savedEvents);
+        console.log('⚠️ SavedActivities: Using fallback data without friends info');
+      } catch (fallbackError) {
+        console.error('❌ SavedActivities: Fallback also failed:', fallbackError);
+        setSavedActivitiesEvents([]);
+      }
     } finally {
-      setSavedActivitiesLoading(false);
+      if (isManualRefresh) {
+        setIsRefreshing(false);
+      }
     }
   }, [dataManager, fetchCreatorInfo]);
 
@@ -427,48 +483,116 @@ export default function SavedActivities({
     }
   }, [visible, fetchSavedEvents]);
 
+  // CRITICAL: Add effect to listen to data changes even when component is not visible
+  // This ensures we always have fresh data when the component becomes visible
+  useEffect(() => {
+    const handleGlobalDataUpdate = () => {
+      console.log('📡 SavedActivities: Received global data update signal');
+      if (visible) {
+        console.log('🔄 SavedActivities: Component is visible, refreshing immediately');
+        fetchSavedEvents();
+      } else {
+        console.log('💤 SavedActivities: Component not visible, will refresh when it becomes visible');
+      }
+    };
+
+    // Listen to global data updates
+    dataManager.on('dataInitialized', handleGlobalDataUpdate);
+    
+    return () => {
+      dataManager.off('dataInitialized', handleGlobalDataUpdate);
+    };
+  }, [dataManager, visible, fetchSavedEvents]);
+
   // Listen for savedEventsUpdated events from GlobalDataManager
   useEffect(() => {
     const handleSavedEventsUpdated = async (updatedEvents: EventCard[]) => {
-      // Ignore events during deletion to prevent race conditions
-      if (isDeletingEvents) {
-        console.log('🚫 SavedActivities: Ignoring savedEventsUpdated during deletion process');
-        return;
-      }
-      
       console.log('📱 SavedActivities: Received savedEventsUpdated event with', updatedEvents.length, 'events');
       
-      // Add friends data to updated events
+      // Update immediately for real-time response
+      setSavedActivitiesEvents(updatedEvents);
+      
+      // Then enhance with friends data in background
       if (updatedEvents.length > 0) {
         try {
           const eventIds = updatedEvents.map(event => event.id);
           const friendsDataBatch = await dataManager.getFriendsWhoSavedEventsBatch(eventIds);
           
-          // Add friends data to each event
           const eventsWithFriendsData = updatedEvents.map(event => ({
             ...event,
             friendsWhoSaved: friendsDataBatch[event.id] || []
           }));
           
           setSavedActivitiesEvents(eventsWithFriendsData);
+          await fetchCreatorInfo(eventsWithFriendsData);
         } catch (error) {
-          console.error('Error fetching friends data for updated events:', error);
-          // Fallback to events without friends data
-          setSavedActivitiesEvents(updatedEvents);
+          console.error('❌ SavedActivities: Error enhancing events:', error);
+          // Keep the basic events if enhancement fails
         }
-      } else {
-        setSavedActivitiesEvents(updatedEvents);
       }
     };
 
-    // Add event listener
     dataManager.on('savedEventsUpdated', handleSavedEventsUpdated);
+    return () => dataManager.off('savedEventsUpdated', handleSavedEventsUpdated);
+  }, [dataManager, fetchCreatorInfo]);
 
-    // Cleanup listener on unmount
+  // DISABLED: Refresh data when user navigates back to this tab (was causing choppy animations)
+  // The handleSavedEventsUpdated listener already provides real-time updates
+  // useFocusEffect(
+  //   useCallback(() => {
+  //     console.log('🔄 SavedActivities: Tab focused, refreshing saved activities...');
+  //     fetchSavedEvents();
+  //   }, [fetchSavedEvents])
+  // );
+
+  // DISABLED: Force refresh when component becomes visible (was causing choppy animations)
+  // The handleSavedEventsUpdated listener already provides real-time updates
+  // useEffect(() => {
+  //   if (visible) {
+  //     console.log('👁️ SavedActivities: Component became visible, force refreshing...');
+  //     // Small delay to ensure any pending operations complete
+  //     setTimeout(() => {
+  //       fetchSavedEvents();
+  //     }, 100);
+  //   }
+  // }, [visible, fetchSavedEvents]);
+
+  // Safety mechanism: Auto-recovery from stuck states
+  useEffect(() => {
+    let recoveryTimeout: ReturnType<typeof setTimeout>;
+    
+    if (isDeletingEvents) {
+      // If stuck in deleting state for more than 10 seconds, force recovery
+      recoveryTimeout = setTimeout(() => {
+        console.log('🚨 SavedActivities: Detected stuck state, forcing recovery...');
+        setIsDeletingEvents(false);
+        setSelectedEventIds(new Set());
+        setIsMultiSelectMode(false);
+        
+        // Reset multi-select animation
+        RNAnimated.timing(multiSelectSlideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+        
+        // DISABLED: Force refresh data (was causing choppy animations after delete)
+        // fetchSavedEvents(true);
+      }, 10000); // 10 seconds timeout
+    }
+    
     return () => {
-      dataManager.off('savedEventsUpdated', handleSavedEventsUpdated);
+      if (recoveryTimeout) clearTimeout(recoveryTimeout);
     };
-  }, [dataManager, isDeletingEvents]);
+  }, [isDeletingEvents, multiSelectSlideAnim, fetchSavedEvents]);
+
+  // Debug: Log when saved activities events change
+  useEffect(() => {
+    console.log('📊 SavedActivities: Events updated, count:', savedActivitiesEvents.length);
+    if (savedActivitiesEvents.length > 0) {
+      console.log('📊 First event:', savedActivitiesEvents[0].name, 'ID:', savedActivitiesEvents[0].id);
+    }
+  }, [savedActivitiesEvents]);
 
   // Expose refresh method via ref
   useEffect(() => {
@@ -704,48 +828,7 @@ export default function SavedActivities({
     });
   }, []);
 
-  // Smooth animated delete function
-  const animateCardDeletion = useCallback((eventId: number, delay: number = 0) => {
-    // Initialize animations if they don't exist
-    if (!cardFadeAnims[eventId]) {
-      cardFadeAnims[eventId] = new RNAnimated.Value(1);
-    }
-    if (!cardScaleAnims[eventId]) {
-      cardScaleAnims[eventId] = new RNAnimated.Value(1);
-    }
-
-    return new Promise<void>((resolve) => {
-      // Start the animations after delay
-      setTimeout(() => {
-        RNAnimated.parallel([
-          RNAnimated.timing(cardFadeAnims[eventId], {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          RNAnimated.sequence([
-            RNAnimated.timing(cardScaleAnims[eventId], {
-              toValue: 1.05,
-              duration: 100,
-              useNativeDriver: true,
-            }),
-            RNAnimated.timing(cardScaleAnims[eventId], {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]),
-          RNAnimated.timing(cardTranslateX[eventId] || new RNAnimated.Value(0), {
-            toValue: -width,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          resolve();
-        });
-      }, delay);
-    });
-  }, [cardFadeAnims, cardScaleAnims, cardTranslateX]);
+  // Removed complex animation function - using simple multi-delete now
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedEventIds.size === 0) return;
@@ -759,144 +842,113 @@ export default function SavedActivities({
           text: 'Delete', 
           style: 'destructive', 
           onPress: async () => {
-            setDeleteLoading(true);
-            setIsDeletingEvents(true); // Block savedEventsUpdated events
+            const idsToDelete = Array.from(selectedEventIds);
             
             try {
-              const idsToDelete = Array.from(selectedEventIds);
-              console.log('🗑️ Starting smooth deletion animation for', idsToDelete.length, 'events');
+              console.log('🗑️ Slide-out multi-delete:', idsToDelete.length, 'events');
               
-              // Create staggered animations for each card
-              const animationPromises = idsToDelete.map((eventId, index) => 
-                animateCardDeletion(eventId, index * 100) // 100ms stagger between cards
-              );
-              
-              // Wait for all card animations to complete
-              await Promise.all(animationPromises);
-              console.log('✅ All card animations completed');
-              
-              // Use direct GlobalDataManager for backend deletion to avoid conflicts with optimistic updates
-              console.log('🔄 Starting backend deletions...');
-              const deletePromises = idsToDelete.map(async (eventId) => {
-                try {
-                  await dataManager.removeEventFromSavedEvents(eventId);
-                  console.log(`✅ Successfully deleted event ${eventId}`);
-                  return { eventId, success: true };
-                } catch (error: any) {
-                  console.error(`❌ Failed to delete event ${eventId}:`, error);
-                  return { eventId, success: false, error };
-                }
-              });
-              
-              // Execute all deletions in parallel and wait for completion
-              const results = await Promise.all(deletePromises);
-              
-              // Check which deletions succeeded
-              const successfulDeletions = results.filter(result => result.success).map(result => result.eventId);
-              const failedDeletions = results.filter(result => !result.success);
-              
-              console.log('📊 Deletion results:', {
-                total: idsToDelete.length,
-                successful: successfulDeletions.length,
-                failed: failedDeletions.length
-              });
-              
-              if (failedDeletions.length > 0) {
-                console.warn('⚠️ Some deletions failed:', failedDeletions.map(f => f.eventId));
-              }
-              
-              // Only remove successfully deleted events from UI
-              if (successfulDeletions.length > 0) {
-                setSavedActivitiesEvents(currentEvents => {
-                  const filteredEvents = currentEvents.filter(event => !successfulDeletions.includes(event.id));
-                  console.log('🔄 UI updated - removed', successfulDeletions.length, 'events, remaining:', filteredEvents.length);
-                  return filteredEvents;
+              // First, animate selected cards sliding out to the left
+              console.log('🎬 Starting slide-out animations...');
+            
+              // Create staggered slide-left animations for visual feedback
+              const animationPromises = idsToDelete.map((eventId, index) => {
+                return new Promise<void>((resolve) => {
+                  setTimeout(() => {
+                    // Initialize animation if needed
+                    if (!cardTranslateX[eventId]) {
+                      cardTranslateX[eventId] = new RNAnimated.Value(0);
+                    }
+                    if (!cardFadeAnims[eventId]) {
+                      cardFadeAnims[eventId] = new RNAnimated.Value(1);
+                    }
+                    
+                    // Slide to the left and fade out simultaneously
+                    RNAnimated.parallel([
+                      RNAnimated.timing(cardTranslateX[eventId], {
+                        toValue: -400, // Slide 400px to the left
+                        duration: 350,
+                        useNativeDriver: true,
+                      }),
+                      RNAnimated.timing(cardFadeAnims[eventId], {
+                        toValue: 0,
+                        duration: 350,
+                        useNativeDriver: true,
+                      })
+                    ]).start(() => resolve());
+                  }, index * 80); // 80ms stagger between cards
                 });
-              }
-              
-              // Clean up animation values only for successfully deleted events
-              successfulDeletions.forEach(eventId => {
-                if (cardFadeAnims[eventId]) {
-                  delete cardFadeAnims[eventId];
-                }
-                if (cardScaleAnims[eventId]) {
-                  delete cardScaleAnims[eventId];
-                }
-                if (cardTranslateX[eventId]) {
-                  cardTranslateX[eventId].stopAnimation();
-                  delete cardTranslateX[eventId];
-                }
               });
               
-              // Reset animation values for failed deletions
-              failedDeletions.forEach(({ eventId }) => {
-                if (cardFadeAnims[eventId]) {
-                  cardFadeAnims[eventId].setValue(1);
-                }
-                if (cardScaleAnims[eventId]) {
-                  cardScaleAnims[eventId].setValue(1);
-                }
-                if (cardTranslateX[eventId]) {
-                  cardTranslateX[eventId].setValue(0);
-                }
-              });
+              // Wait for animations to complete (but with timeout to prevent hanging)
+              await Promise.race([
+                Promise.all(animationPromises),
+                new Promise(resolve => setTimeout(resolve, 3000)) // 3 second max wait
+              ]);
               
-              // Clear selection and exit multi-select mode with smooth transition
+              // Set deleting state to keep trash icons hidden
+              setIsDeletingEvents(true);
+              
+              // Exit multi-select mode with smooth animation
               setSelectedEventIds(new Set());
               setIsMultiSelectMode(false);
               
-              // Smooth slide back animation
+              // Animate the multi-select panel away
               RNAnimated.timing(multiSelectSlideAnim, {
                 toValue: 0,
                 duration: 300,
                 useNativeDriver: true,
               }).start();
               
-              // Show error message if some deletions failed
-              if (failedDeletions.length > 0) {
-                Alert.alert(
-                  'Partial Deletion', 
-                  `${successfulDeletions.length} of ${idsToDelete.length} events were deleted successfully. ${failedDeletions.length} events could not be deleted.`
-                );
-              } else {
-                console.log('🎉 All deletions completed successfully');
-              }
+              // Do the deletion - this will automatically trigger savedEventsUpdated event
+              await dataManager.removeMultipleEventsFromSavedEvents(idsToDelete);
+      
+      // No need to call fetchSavedEvents here - the dataManager will emit events that update UI
+              
+              // Clean up animation values for deleted events
+              idsToDelete.forEach(eventId => {
+                if (cardFadeAnims[eventId]) delete cardFadeAnims[eventId];
+                if (cardTranslateX[eventId]) {
+                  cardTranslateX[eventId].stopAnimation();
+                  delete cardTranslateX[eventId];
+                }
+              });
+              
+              // Clear deleting state now that deletion is complete
+              setIsDeletingEvents(false);
+              
+              console.log('✅ Slide-out multi-delete completed');
               
             } catch (error) {
-              console.error('❌ Error during smooth deletion:', error);
+              console.error('❌ Multi-delete failed:', error);
               
-              // Revert all UI state by refetching
-              try {
-                const revertedEvents = await dataManager.getSavedEvents();
-                setSavedActivitiesEvents(revertedEvents);
-                
-                // Reset all animation values
-                selectedEventIds.forEach(eventId => {
-                  if (cardFadeAnims[eventId]) {
-                    cardFadeAnims[eventId].setValue(1);
-                  }
-                  if (cardScaleAnims[eventId]) {
-                    cardScaleAnims[eventId].setValue(1);
-                  }
-                  if (cardTranslateX[eventId]) {
-                    cardTranslateX[eventId].setValue(0);
-                  }
-                });
-                
-              } catch (revertError) {
-                console.error('Failed to revert events after delete error');
-              }
-
-              Alert.alert('Error', 'Failed to delete events. Please try again.');
-            } finally {
-              setDeleteLoading(false);
-              setIsDeletingEvents(false); // Re-enable savedEventsUpdated events
+              // Revert animations on error
+              idsToDelete.forEach((eventId: number) => {
+                if (cardFadeAnims[eventId]) {
+                  RNAnimated.timing(cardFadeAnims[eventId], {
+                    toValue: 1,
+                    duration: 200,
+                    useNativeDriver: true,
+                  }).start();
+                }
+                if (cardTranslateX[eventId]) {
+                  RNAnimated.timing(cardTranslateX[eventId], {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                  }).start();
+                }
+              });
+              
+              // Clear deleting state on error
+              setIsDeletingEvents(false);
+              
+              Alert.alert('Error', 'Failed to delete some events. Please try again.');
             }
           }
         },
       ]
     );
-  }, [selectedEventIds, dataManager, animateCardDeletion, multiSelectSlideAnim, cardFadeAnims, cardScaleAnims, cardTranslateX]);
+  }, [selectedEventIds, dataManager, multiSelectSlideAnim, cardFadeAnims, cardTranslateX]);
 
   const handleClose = useCallback(() => {
     // Exit multi-select mode if active
@@ -933,23 +985,28 @@ export default function SavedActivities({
 
   const handleClearAll = useCallback(async () => {
     try {
-      // Use functional state update to get current state
-      let currentEventsSnapshot: EventCard[] = [];
+      console.log('🗑️ SavedActivities: Starting clear all process...');
       
+      // Get current events count using functional state update
+      let allEventIds: number[] = [];
       setSavedActivitiesEvents(currentEvents => {
-        currentEventsSnapshot = [...currentEvents];
-        console.log('🗑️ SavedActivities: Starting clear all process...');
-        console.log('  - Events to clear:', currentEventsSnapshot.length);
-        console.log('  - Event IDs:', currentEventsSnapshot.map(e => e.id));
+        allEventIds = currentEvents.map(event => event.id);
+        console.log('  - Events to clear:', allEventIds.length);
+        console.log('  - Event IDs:', allEventIds);
         
         // Optimistically clear UI first
         console.log('✅ SavedActivities: UI cleared optimistically');
         return [];
       });
       
-      // Wait for the backend clear to complete
-      await dataManager.clearSavedEvents();
-      console.log('✅ SavedActivities: Backend clear completed');
+      if (allEventIds.length === 0) {
+        console.log('ℹ️ SavedActivities: No events to clear');
+        return;
+      }
+      
+      // Use the new batch delete method
+      const result = await dataManager.removeMultipleEventsFromSavedEvents(allEventIds);
+      console.log('✅ SavedActivities: Batch delete completed:', result);
       
       // Verify the clear worked by checking the data again
       const verifyEvents = await dataManager.getSavedEvents();
@@ -958,6 +1015,9 @@ export default function SavedActivities({
       if (verifyEvents.length > 0) {
         console.warn('⚠️  SavedActivities: Clear verification failed - events still exist!');
         console.warn('  - Remaining events:', verifyEvents.map((e: any) => e.id));
+        
+        // Update UI with actual remaining events
+        setSavedActivitiesEvents(verifyEvents);
       } else {
         console.log('✅ SavedActivities: Clear verified successfully - no events remain');
       }
@@ -1056,14 +1116,29 @@ export default function SavedActivities({
       >
         <View style={styles.savedLikesHeader}>
           <Text style={[styles.savedLikesTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Saved Activities</Text>
-          <TouchableOpacity 
-            style={styles.savedLikesCloseButton}
-            onPress={handleClose}
-            accessibilityLabel="Close Saved Activities"
-            accessibilityRole="button"
-          >
-            <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
-          </TouchableOpacity>
+          <View style={styles.headerButtonsContainer}>
+            <TouchableOpacity 
+              style={styles.savedLikesRefreshButton}
+              onPress={() => fetchSavedEvents(true)}
+              accessibilityLabel="Refresh Saved Activities"
+              accessibilityRole="button"
+              disabled={isRefreshing}
+            >
+              <Ionicons 
+                name="refresh" 
+                size={20} 
+                color={isRefreshing ? Colors[colorScheme ?? 'light'].text + '60' : Colors[colorScheme ?? 'light'].text} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.savedLikesCloseButton}
+              onPress={handleClose}
+              accessibilityLabel="Close Saved Activities"
+              accessibilityRole="button"
+            >
+              <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+            </TouchableOpacity>
+          </View>
         </View>
         
         {/* Clear Button */}
@@ -1120,9 +1195,7 @@ export default function SavedActivities({
             end={{ x: 1, y: 1 }}
             style={styles.multiSelectButtonGradient}
           >
-            {deleteLoading ? (
-              <ActivityIndicator size="small" color="white" />
-            ) : isMultiSelectMode ? (
+            {isMultiSelectMode ? (
               selectedEventIds.size > 0 ? (
                 <View style={{ alignItems: 'center' }}>
                   <Ionicons name="trash" size={20} color="white" />
@@ -1139,11 +1212,7 @@ export default function SavedActivities({
           </LinearGradient>
         </TouchableOpacity>
         
-        {savedActivitiesLoading ? (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 60 }}>
-            <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
-          </View>
-        ) : eventsWithDistances.length === 0 ? (
+        {eventsWithDistances.length === 0 ? (
           <View style={styles.savedLikesEmptyContainer}>
             <Ionicons name="heart" size={60} color={Colors[colorScheme ?? 'light'].text} />
             <Text style={[styles.savedLikesEmptyText, { color: Colors[colorScheme ?? 'light'].text }]}>No saved events yet</Text>
@@ -1155,6 +1224,14 @@ export default function SavedActivities({
             contentContainerStyle={{ paddingBottom: 40 }}
             removeClippedSubviews={true}
             keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={() => fetchSavedEvents(true)}
+                colors={[Colors[colorScheme ?? 'light'].tint]}
+                tintColor={Colors[colorScheme ?? 'light'].tint}
+              />
+            }
           >
             {eventsWithDistances.map((event, idx) => {
               // Debug: Check for valid event ID
@@ -1193,6 +1270,7 @@ export default function SavedActivities({
                   fadeAnim={cardFadeAnims[event.id]}
                   scaleAnim={cardScaleAnims[event.id]}
                   creatorInfo={creatorInfo[event.id]}
+                  isDeletingEvents={isDeletingEvents}
                 />
               );
             }).filter(Boolean)}
@@ -1249,6 +1327,13 @@ const styles = StyleSheet.create({
   },
   savedLikesCloseButton: {
     padding: 5,
+  },
+  savedLikesRefreshButton: {
+    padding: 5,
+  },
+  headerButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   savedLikesEmptyContainer: {
     flex: 1,

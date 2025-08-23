@@ -43,6 +43,7 @@ interface CreateEventForm {
   start_date: string;
   end_date: string;
   start_time: string;
+  end_time: string;
   days_of_the_week: string[];
   times: { [key: string]: string | [string, string] };
   featured: boolean;
@@ -100,6 +101,8 @@ export default function CreateEventScreen() {
   const [isCreating, setIsCreating] = useState(false);
   const colorScheme = useColorScheme();
   const navigation = useNavigation();
+  const scrollViewRef = useRef<ScrollView>(null);
+  const descriptionInputRef = useRef<TextInput>(null);
   const [showTimePicker, setShowTimePicker] = useState<{
     visible: boolean;
     day: string;
@@ -250,6 +253,7 @@ export default function CreateEventScreen() {
     start_date: '',
     end_date: '',
     start_time: '',
+    end_time: '',
     days_of_the_week: [],
     times: {},
     featured: true,
@@ -282,6 +286,61 @@ export default function CreateEventScreen() {
     const hours = date.getHours().toString().padStart(2, '0');
     const minutes = date.getMinutes().toString().padStart(2, '0');
     return `${hours}:${minutes}`;
+  };
+
+  // Helper function to check if a date is valid (not in the past)
+  const isDateValid = (dateString: string): boolean => {
+    if (!dateString) return true; // Empty dates are considered valid for optional fields
+    const date = new Date(dateString);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return date >= today;
+  };
+
+  // Helper function to check if end date is after start date
+  const isEndDateValid = (startDateString: string, endDateString: string): boolean => {
+    if (!startDateString || !endDateString) return true; // Empty dates are considered valid
+    const startDate = new Date(startDateString);
+    const endDate = new Date(endDateString);
+    return endDate >= startDate;
+  };
+
+  // Helper function to check if the entire form is valid
+  const isFormValid = (): boolean => {
+    // Check required fields
+    if (!eventForm.name.trim() || !eventForm.location.trim() || !eventForm.description.trim()) {
+      return false;
+    }
+    
+    // Check location validation
+    if (locationValidation.status !== 'valid') {
+      return false;
+    }
+    
+    // Check dates for one-time events
+    if (eventForm.occurrence === 'one-time') {
+      if (!eventForm.start_date || !eventForm.start_time || !eventForm.end_time) {
+        return false;
+      }
+      if (!isDateValid(eventForm.start_date)) {
+        return false;
+      }
+      if (eventForm.end_date && !isEndDateValid(eventForm.start_date, eventForm.end_date)) {
+        return false;
+      }
+    }
+    
+    // Check weekly events
+    if (eventForm.occurrence === 'Weekly' && eventForm.days_of_the_week.length === 0) {
+      return false;
+    }
+    
+    // Check reservation link requirement
+    if (eventForm.reservation === 'yes' && !eventForm.link.trim()) {
+      return false;
+    }
+    
+    return true;
   };
 
   // Image picker functions
@@ -327,6 +386,11 @@ export default function CreateEventScreen() {
 
   // Handle scroll to dismiss keyboard
   const handleScrollBeginDrag = () => {
+    Keyboard.dismiss();
+  };
+
+  // Handle tapping outside inputs to dismiss keyboard
+  const handleBackgroundPress = () => {
     Keyboard.dismiss();
   };
 
@@ -412,11 +476,38 @@ export default function CreateEventScreen() {
     }
     
     if (selectedDate && showDatePicker.visible) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Reset time to start of day for accurate comparison
+      
+      // Check if selected date is before today
+      if (selectedDate < today) {
+        Alert.alert(
+          'Invalid Date', 
+          'Event dates cannot be in the past. Please select a date from today onwards.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
       const dateString = selectedDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
       
       if (showDatePicker.type === 'start') {
         setEventForm({ ...eventForm, start_date: dateString });
+        
+        // If end date is set and is before the new start date, clear it
+        if (eventForm.end_date && new Date(eventForm.end_date) < selectedDate) {
+          setEventForm({ ...eventForm, start_date: dateString, end_date: '' });
+        }
       } else {
+        // For end date, ensure it's not before start date
+        if (eventForm.start_date && selectedDate < new Date(eventForm.start_date)) {
+          Alert.alert(
+            'Invalid End Date', 
+            'End date cannot be before the start date.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
         setEventForm({ ...eventForm, end_date: dateString });
       }
     }
@@ -427,9 +518,11 @@ export default function CreateEventScreen() {
     if (selectedDate && showTimePicker.visible) {
       const timeString = dateToTimeString(selectedDate);
       
-      // Handle general start time
+      // Handle general start time and end time for one-time events
       if (showTimePicker.day === 'start_time') {
         setEventForm({ ...eventForm, start_time: timeString });
+      } else if (showTimePicker.day === 'end_time') {
+        setEventForm({ ...eventForm, end_time: timeString });
       } else {
         // Handle weekly event times
         const newTimes = { ...eventForm.times };
@@ -441,7 +534,10 @@ export default function CreateEventScreen() {
           newTimes[showTimePicker.day] = [currentTime[0] || '', timeString];
         }
         
-        setEventForm({ ...eventForm, times: newTimes });
+        setEventForm({ 
+          ...eventForm, 
+          times: newTimes
+        });
       }
     }
     
@@ -483,6 +579,42 @@ export default function CreateEventScreen() {
         if (!eventForm.start_time) {
           Alert.alert('Error', 'Start time is required for one-time events');
           return;
+        }
+        if (!eventForm.end_time) {
+          Alert.alert('Error', 'End time is required for one-time events');
+          return;
+        }
+        
+        // Validate that end time is after start time
+        if (eventForm.start_time && eventForm.end_time) {
+          const [startHours, startMinutes] = eventForm.start_time.split(':').map(Number);
+          const [endHours, endMinutes] = eventForm.end_time.split(':').map(Number);
+          const startTotalMinutes = startHours * 60 + startMinutes;
+          const endTotalMinutes = endHours * 60 + endMinutes;
+          
+          if (endTotalMinutes <= startTotalMinutes) {
+            Alert.alert('Error', 'End time must be after start time');
+            return;
+          }
+        }
+        
+        // Validate that start date is not in the past
+        const startDate = new Date(eventForm.start_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        if (startDate < today) {
+          Alert.alert('Error', 'Start date cannot be in the past. Please select a date from today onwards.');
+          return;
+        }
+        
+        // Validate end date if provided
+        if (eventForm.end_date) {
+          const endDate = new Date(eventForm.end_date);
+          if (endDate < startDate) {
+            Alert.alert('Error', 'End date cannot be before the start date.');
+            return;
+          }
         }
       }
       // Validate days for weekly events
@@ -546,28 +678,41 @@ export default function CreateEventScreen() {
       }
       // --- NEW LOGIC FOR TIMES FIELD ---
       let times = null;
+      let daysOfTheWeek = null;
+      
       if (eventForm.occurrence === 'one-time') {
         // Find day of week for start_date
         const date = new Date(eventForm.start_date);
         const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
-        // Use start_time and end_time (if provided)
+        
+        // Set days_of_the_week for one-time events
+        daysOfTheWeek = [dayOfWeek];
+        
+        console.log('🔍 One-time event logic:');
+        console.log('  - Start date:', eventForm.start_date);
+        console.log('  - Day of week:', dayOfWeek);
+        console.log('  - Days of the week:', daysOfTheWeek);
+        
+        // Use start_time and end_time (both required for one-time events)
         const startTime = eventForm.start_time;
-        // For one-time, let user optionally enter end_time in the UI, or use start_time for both if not present
-        let endTime = '';
-        if (eventForm.times && eventForm.times[dayOfWeek] && Array.isArray(eventForm.times[dayOfWeek])) {
-          endTime = eventForm.times[dayOfWeek][1] || '';
-        } else {
-          endTime = startTime;
-        }
+        const endTime = eventForm.end_time;
         times = { [dayOfWeek]: [startTime, endTime] };
       } else if (eventForm.occurrence === 'Weekly') {
+        daysOfTheWeek = eventForm.days_of_the_week;
         times = Object.keys(eventForm.times).length > 0 ? eventForm.times : null;
+        
+        console.log('🔍 Weekly event logic:');
+        console.log('  - Days of the week:', daysOfTheWeek);
+        console.log('  - Times:', times);
       }
       // --- END NEW LOGIC ---
       // Prepare event data for insert (remove start_time field)
       console.log('🔍 Creating event data with:');
       console.log('  - posted_by:', username);
       console.log('  - posted_by_email:', user.email);
+      console.log('  - occurrence:', eventForm.occurrence);
+      console.log('  - days_of_the_week:', daysOfTheWeek);
+      console.log('  - times:', times);
       
       const eventData = {
         name: eventForm.name.trim(),
@@ -581,7 +726,7 @@ export default function CreateEventScreen() {
         event_type: [eventForm.event_type],
         start_date: eventForm.occurrence === 'one-time' ? Math.floor(new Date(eventForm.start_date).getTime() / 1000) : null,
         end_date: eventForm.occurrence === 'one-time' ? Math.floor(new Date(eventForm.end_date || eventForm.start_date).getTime() / 1000) : null,
-        days_of_the_week: eventForm.occurrence === 'Weekly' ? eventForm.days_of_the_week : null,
+        days_of_the_week: daysOfTheWeek,
         times: times,
         featured: eventForm.featured,
         link: eventForm.link.trim() || null,
@@ -759,12 +904,56 @@ export default function CreateEventScreen() {
     );
   };
 
+  // Handle description input focus
+  const handleDescriptionFocus = () => {
+    // Add a small delay to ensure the keyboard is fully visible
+    setTimeout(() => {
+      if (scrollViewRef.current && descriptionInputRef.current) {
+        // Measure the position of the description input
+        descriptionInputRef.current.measureLayout(
+          scrollViewRef.current as any,
+          (x, y) => {
+            // Scroll to make the description input visible above the keyboard
+            scrollViewRef.current?.scrollTo({
+              y: Math.max(0, y - 100), // Leave 100px space above the input
+              animated: true
+            });
+          },
+          () => console.log('Failed to measure description input position')
+        );
+      }
+    }, 300);
+  };
+
+  // Handle keyboard show/hide events
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', (e) => {
+      // When keyboard shows, ensure we can scroll to the focused input
+      if (descriptionInputRef.current?.isFocused()) {
+        setTimeout(() => {
+          handleDescriptionFocus();
+        }, 100);
+      }
+    });
+
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      // Optional: Reset scroll position when keyboard hides
+      // scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    });
+
+    return () => {
+      keyboardDidShowListener?.remove();
+      keyboardDidHideListener?.remove();
+    };
+  }, []);
+
   return (
     <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
       <SafeAreaView style={styles.contentSafeArea}>
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardContainer}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
         >
 
         <ScrollView
@@ -772,6 +961,8 @@ export default function CreateEventScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={handleScrollBeginDrag}
+          ref={scrollViewRef}
+          onTouchStart={handleBackgroundPress}
         >
           {/* Simple header that scrolls with content */}
           <View style={styles.simpleHeader}>
@@ -905,7 +1096,7 @@ export default function CreateEventScreen() {
             {/* Start Time (for one-time events only) */}
             {eventForm.occurrence === 'one-time' && (
               <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Start Time</Text>
+                <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Start Time *</Text>
                 <TouchableOpacity
                   style={[styles.timePickerButton, styles.fullWidthTimeButton, { 
                     backgroundColor: Colors[colorScheme ?? 'light'].card,
@@ -923,10 +1114,34 @@ export default function CreateEventScreen() {
               </View>
             )}
 
-            {/* Days of Week (for Weekly events) */}
+            {/* End Time (for one-time events only) */}
+            {eventForm.occurrence === 'one-time' && (
+              <View style={styles.formGroup}>
+                <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>End Time *</Text>
+                <TouchableOpacity
+                  style={[styles.timePickerButton, styles.fullWidthTimeButton, { 
+                    backgroundColor: Colors[colorScheme ?? 'light'].card,
+                    borderColor: colorScheme === 'dark' ? '#333' : '#eee'
+                  }]}
+                  onPress={() => setShowTimePicker({ visible: true, day: 'end_time', type: 'start' })}
+                >
+                  <Ionicons name="time-outline" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ marginRight: 10 }} />
+                  <Text style={[styles.timePickerText, { 
+                    color: eventForm.end_time ? Colors[colorScheme ?? 'light'].text : Colors[colorScheme ?? 'light'].text + '60'
+                  }]}>
+                    {formatTimeDisplay(eventForm.end_time)}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Days of Week (for Weekly events) - Now automatically populated */}
             {eventForm.occurrence === 'Weekly' && (
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Days of Week *</Text>
+                <Text style={[styles.formSubLabel, { color: Colors[colorScheme ?? 'light'].text + '80' }]}>
+                  Select the days when your event occurs
+                </Text>
                 <LinearGradient
                   colors={['#FF69E2', '#FF3366']}
                   start={{ x: 0, y: 0 }}
@@ -945,8 +1160,20 @@ export default function CreateEventScreen() {
                           const newDays = eventForm.days_of_the_week.includes(day)
                             ? eventForm.days_of_the_week.filter(d => d !== day)
                             : [...eventForm.days_of_the_week, day];
-                          setEventForm({ ...eventForm, days_of_the_week: newDays });
+                          
+                          // Remove times for unselected days
+                          const newTimes = { ...eventForm.times };
+                          if (!newDays.includes(day) && newTimes[day]) {
+                            delete newTimes[day];
+                          }
+                          
+                          setEventForm({ 
+                            ...eventForm, 
+                            days_of_the_week: newDays,
+                            times: newTimes
+                          });
                         }}
+                        activeOpacity={0.7}
                       >
                         <Text
                           style={[
@@ -960,6 +1187,11 @@ export default function CreateEventScreen() {
                     ))}
                   </View>
                 </LinearGradient>
+                {eventForm.days_of_the_week.length > 0 && (
+                  <Text style={[styles.formSubLabel, { color: Colors[colorScheme ?? 'light'].text + '80', marginTop: 8 }]}>
+                    Selected: {eventForm.days_of_the_week.join(', ')}
+                  </Text>
+                )}
               </View>
             )}
 
@@ -975,10 +1207,16 @@ export default function CreateEventScreen() {
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Start Date *</Text>
                 <TouchableOpacity
-                  style={[styles.datePickerButton, { 
-                    backgroundColor: Colors[colorScheme ?? 'light'].card,
-                    borderColor: colorScheme === 'dark' ? '#333' : '#eee'
-                  }]}
+                  style={[
+                    styles.datePickerButton, 
+                    { 
+                      backgroundColor: Colors[colorScheme ?? 'light'].card,
+                      borderColor: eventForm.start_date && !isDateValid(eventForm.start_date) 
+                        ? '#F44336' 
+                        : colorScheme === 'dark' ? '#333' : '#eee',
+                      borderWidth: eventForm.start_date && !isDateValid(eventForm.start_date) ? 2 : 1
+                    }
+                  ]}
                   onPress={() => setShowDatePicker({ visible: true, type: 'start' })}
                 >
                   <Ionicons name="calendar-outline" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ marginRight: 10 }} />
@@ -988,6 +1226,9 @@ export default function CreateEventScreen() {
                     {eventForm.start_date || 'Select start date'}
                   </Text>
                 </TouchableOpacity>
+                {eventForm.start_date && !isDateValid(eventForm.start_date) && (
+                  <Text style={styles.dateErrorText}>Start date cannot be in the past</Text>
+                )}
               </View>
             )}
 
@@ -996,10 +1237,16 @@ export default function CreateEventScreen() {
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: Colors[colorScheme ?? 'light'].text }]}>End Date (Optional)</Text>
                 <TouchableOpacity
-                  style={[styles.datePickerButton, { 
-                    backgroundColor: Colors[colorScheme ?? 'light'].card,
-                    borderColor: colorScheme === 'dark' ? '#333' : '#eee'
-                  }]}
+                  style={[
+                    styles.datePickerButton, 
+                    { 
+                      backgroundColor: Colors[colorScheme ?? 'light'].card,
+                      borderColor: eventForm.end_date && !isEndDateValid(eventForm.start_date, eventForm.end_date) 
+                        ? '#F44336' 
+                        : colorScheme === 'dark' ? '#333' : '#eee',
+                      borderWidth: eventForm.end_date && !isEndDateValid(eventForm.start_date, eventForm.end_date) ? 2 : 1
+                    }
+                  ]}
                   onPress={() => setShowDatePicker({ visible: true, type: 'end' })}
                 >
                   <Ionicons name="calendar-outline" size={20} color={Colors[colorScheme ?? 'light'].text} style={{ marginRight: 10 }} />
@@ -1009,6 +1256,9 @@ export default function CreateEventScreen() {
                     {eventForm.end_date || 'Select end date'}
                   </Text>
                 </TouchableOpacity>
+                {eventForm.end_date && !isEndDateValid(eventForm.start_date, eventForm.end_date) && (
+                  <Text style={styles.dateErrorText}>End date cannot be before start date</Text>
+                )}
               </View>
             )}
 
@@ -1164,6 +1414,11 @@ export default function CreateEventScreen() {
                 onChangeText={(text) => setEventForm({ ...eventForm, description: text })}
                 multiline
                 numberOfLines={4}
+                ref={descriptionInputRef}
+                onFocus={handleDescriptionFocus}
+                returnKeyType="done"
+                blurOnSubmit={true}
+                textAlignVertical="top"
               />
             </View>
 
@@ -1171,12 +1426,15 @@ export default function CreateEventScreen() {
 
             {/* Create Button */}
             <TouchableOpacity 
-              style={styles.createButton}
+              style={[
+                styles.createButton,
+                !isFormValid() && styles.createButtonDisabled
+              ]}
               onPress={handleCreateEvent}
-              disabled={isCreating}
+              disabled={isCreating || !isFormValid()}
             >
               <LinearGradient
-                colors={['#FF69E2', '#FF3366']}
+                colors={isFormValid() ? ['#FF69E2', '#FF3366'] : ['#ccc', '#999']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.createButtonGradient}
@@ -1186,11 +1444,23 @@ export default function CreateEventScreen() {
                 ) : (
                   <>
                     <Ionicons name="add" size={24} color="#fff" style={styles.buttonIcon} />
-                    <Text style={styles.createButtonText}>Create Event</Text>
+                    <Text style={styles.createButtonText}>
+                      Create Event
+                    </Text>
                   </>
                 )}
               </LinearGradient>
             </TouchableOpacity>
+
+            {/* Validation Help Text */}
+            {!isFormValid() && (
+              <View style={styles.validationHelpContainer}>
+                <Ionicons name="information-circle-outline" size={16} color="#9E95BD" />
+                <Text style={[styles.validationHelpText, { color: Colors[colorScheme ?? 'light'].text + '70' }]}>
+                  Please complete all required fields to create your event
+                </Text>
+              </View>
+            )}
           </View>
         </ScrollView>
         </KeyboardAvoidingView>
@@ -1235,12 +1505,16 @@ export default function CreateEventScreen() {
                       <Text style={styles.timePickerMainTitle}>
                         {showTimePicker.day === 'start_time' 
                           ? 'Event Start Time' 
+                          : showTimePicker.day === 'end_time'
+                          ? 'Event End Time'
                           : showTimePicker.type === 'start' ? 'Start Time' : 'End Time'
                         }
                       </Text>
                       <Text style={styles.timePickerSubtitle}>
                         {showTimePicker.day === 'start_time' 
                           ? 'When does your event begin?' 
+                          : showTimePicker.day === 'end_time'
+                          ? 'When does your event end?'
                           : showTimePicker.day
                         }
                       </Text>
@@ -1262,6 +1536,8 @@ export default function CreateEventScreen() {
                       value={timeStringToDate(
                         showTimePicker.day === 'start_time' 
                           ? eventForm.start_time
+                          : showTimePicker.day === 'end_time'
+                          ? eventForm.end_time
                           : showTimePicker.type === 'start' 
                             ? (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][0] : '') 
                             : (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][1] : '')
@@ -1298,6 +1574,8 @@ export default function CreateEventScreen() {
               value={timeStringToDate(
                 showTimePicker.day === 'start_time' 
                   ? eventForm.start_time
+                  : showTimePicker.day === 'end_time'
+                  ? eventForm.end_time
                   : showTimePicker.type === 'start' 
                     ? (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][0] : '') 
                     : (Array.isArray(eventForm.times[showTimePicker.day]) ? eventForm.times[showTimePicker.day][1] : '')
@@ -1375,6 +1653,7 @@ export default function CreateEventScreen() {
                       onChange={handleDateChange}
                       style={styles.timePicker}
                       textColor={Colors[colorScheme ?? 'light'].text}
+                      minimumDate={new Date()} // Prevent selecting dates before today
                     />
                   </View>
                   
@@ -1405,6 +1684,7 @@ export default function CreateEventScreen() {
               }
               mode="date"
               onChange={handleDateChange}
+              minimumDate={new Date()} // Prevent selecting dates before today
             />
           )}
         </>
@@ -1744,6 +2024,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
   },
+  createButtonDisabled: {
+    opacity: 0.6,
+  },
   createButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2052,6 +2335,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     fontWeight: '500',
+  },
+  dateErrorText: {
+    color: '#F44336',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+
+  validationHelpContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  validationHelpText: {
+    fontSize: 14,
+    marginLeft: 8,
   },
 
 }); 

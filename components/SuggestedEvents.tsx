@@ -102,6 +102,43 @@ const isEventExpiringSoon = (event: EventCard): boolean => {
   return false;
 };
 
+// Helper function to format event dates properly (handles Unix timestamps)
+const formatEventDate = (dateValue: any): string => {
+  console.log('🔍 formatEventDate called with:', dateValue, 'type:', typeof dateValue);
+  
+  if (!dateValue) return "Please check organizer's page";
+  
+  try {
+    let date: Date;
+    
+    // Handle Unix timestamp (seconds since epoch)
+    if (typeof dateValue === 'number' && dateValue > 1000000000) {
+      // This is a Unix timestamp in seconds
+      date = new Date(dateValue * 1000);
+      console.log('🔍 Unix timestamp detected, converted to:', date.toLocaleDateString());
+    } else if (typeof dateValue === 'string') {
+      // This might be an ISO string or other date format
+      date = new Date(dateValue);
+      console.log('🔍 String date parsed to:', date.toLocaleDateString());
+    } else {
+      // Fallback for other formats
+      console.log('🔍 Unknown date format, using fallback');
+      return "Please check organizer's page";
+    }
+    
+    // Return only month and day (e.g., "Jan 1")
+    const result = date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric' 
+    });
+    console.log('🔍 Final result:', result);
+    return result;
+  } catch (error) {
+    console.error('❌ Error formatting event date:', error);
+    return "Please check organizer's page";
+  }
+};
+
 
 
 
@@ -248,16 +285,42 @@ export default function SuggestedEvents() {
 
     if (!eventId) return { imageUrl: null, allImages: [] };
 
-    const randomImageIndex = Math.floor(Math.random() * 5);
     const baseUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${eventId}`;
     
-    const imageUrl = `${baseUrl}/${randomImageIndex}.jpg`;
+    // Generate all possible image URLs (0.jpg through 4.jpg)
     const allImages = Array.from({ length: 5 }, (_, i) => `${baseUrl}/${i}.jpg`);
+    
+    // Start with the first image (0.jpg) instead of random - more reliable
+    const imageUrl = `${baseUrl}/0.jpg`;
     
     const result = { imageUrl, allImages };
     IMAGE_CACHE.set(cacheKey, result);
     
     return result;
+  }, []);
+
+  // Function to check if an image exists and get the first available one
+  const getFirstAvailableImage = useCallback(async (eventId: number) => {
+    const baseUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${eventId}`;
+    
+    // Try images in order (0.jpg, 1.jpg, 2.jpg, etc.)
+    for (let i = 0; i < 5; i++) {
+      const imageUrl = `${baseUrl}/${i}.jpg`;
+      try {
+        // Quick check if image exists by trying to fetch it
+        const response = await fetch(imageUrl, { method: 'HEAD' });
+        if (response.ok) {
+          console.log(`✅ Found available image for event ${eventId}: ${i}.jpg`);
+          return imageUrl;
+        }
+      } catch (error) {
+        // Continue to next image
+        continue;
+      }
+    }
+    
+    console.log(`❌ No images found for event ${eventId}`);
+    return null;
   }, []);
 
   // Optimized event processing with friends data
@@ -270,7 +333,15 @@ export default function SuggestedEvents() {
     // Process events with image URLs and friends data in parallel
     const processedEvents = await Promise.all(
       validEvents.map(async (event) => {
-      const urls = getEventImageUrls(event.id);
+        // Get the first available image for this event
+        const availableImageUrl = await getFirstAvailableImage(event.id);
+        
+        // Fallback to the old method if no image found
+        const urls = availableImageUrl ? 
+          { imageUrl: availableImageUrl, allImages: getEventImageUrls(event.id).allImages } :
+          getEventImageUrls(event.id);
+        
+        console.log(`🖼️ Event ${event.id} - Available image: ${availableImageUrl}, Fallback image: ${urls.imageUrl}`);
         
         // Fetch friends who saved this event
         let friendsWhoSaved: { id: number; name: string; email: string }[] = [];
@@ -280,18 +351,18 @@ export default function SuggestedEvents() {
           console.error(`Error fetching friends for event ${event.id}:`, error);
         }
         
-      return {
-        ...event,
-        image: urls.imageUrl,
+        return {
+          ...event,
+          image: urls.imageUrl,
           allImages: urls.allImages,
           friendsWhoSaved
-      };
+        };
       })
     );
     
     console.log('✅ Events processed with friends data');
     return processedEvents;
-  }, [getEventImageUrls, dataManager]);
+  }, [getEventImageUrls, getFirstAvailableImage, dataManager]);
 
   // Memoized location permission request
   const requestLocationPermission = useCallback(async () => {
@@ -367,9 +438,8 @@ export default function SuggestedEvents() {
       setLoading(true);
       setIsFetchingActivities(true);
       
-      // CRITICAL: Force immediate refresh to get absolutely latest data (not debounced)
-      console.log('🔄 Force refreshing data before backend call...');
-      await dataManager.refreshAllData();
+      // Get latest user data without forcing global refresh
+      console.log('🔄 Getting user data for backend call...');
       
       // Check location mode from AsyncStorage to determine which location to use
       const [locationMode, customAddress] = await Promise.all([
@@ -1137,8 +1207,8 @@ export default function SuggestedEvents() {
     try {
       console.log('🔄 Refreshing all data to ensure latest state...');
       
-      // CRITICAL: Force a complete data refresh to ensure we have the absolute latest data
-      await GlobalDataManager.getInstance().refreshAllData();
+      // Get current data without forcing global refresh that interferes with other components
+      console.log('🔄 Getting current user data for processing...');
       
       // Additional delay to ensure database transactions are fully committed
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -1685,43 +1755,38 @@ export default function SuggestedEvents() {
                                 <Image 
                                   source={{ uri: eventImageUrl }}
                                   style={styles.modernImage} 
+                                  onLoad={() => {
+                                    console.log(`✅ Image loaded successfully for event ${card.id}: ${eventImageUrl}`);
+                                  }}
                                   onError={(e) => {
-                                    console.log('Image failed to load, trying next image for event:', card.id, '(retry once)');
-                                    // Only retry once - try the next image if available
+                                    console.log('❌ Image failed to load, trying next image for event:', card.id, 'URL:', eventImageUrl);
+                                    
                                     if (card.allImages && card.allImages.length > 0) {
-                                      // Get current failed image and find its index
+                                      // Find current failed image index
                                       const currentImageUrl = eventImageUrl;
-                                      let currentIndex = -1;
+                                      let currentIndex = card.allImages.findIndex(url => url === currentImageUrl);
                                       
-                                      // Find current index, handling the case where it might not be found
-                                      if (currentImageUrl) {
-                                        currentIndex = card.allImages.findIndex(url => url === currentImageUrl);
+                                      // Try the next available image
+                                      let nextIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+                                      
+                                      // Find the next available image (skip any that might be the same)
+                                      while (nextIndex < card.allImages.length && 
+                                             card.allImages[nextIndex] === currentImageUrl) {
+                                        nextIndex++;
                                       }
-                                      
-                                      // Only try the next image (retry once)
-                                      const nextIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
                                       
                                       if (nextIndex < card.allImages.length) {
                                         const nextImageUrl = card.allImages[nextIndex];
+                                        console.log(`🔄 Retrying with image ${nextIndex} for event ${card.id}: ${nextImageUrl}`);
                                         
-                                        // Only try if it's a different image
-                                        if (nextImageUrl !== currentImageUrl) {
-                                          console.log(`Retrying with image ${nextIndex} for event ${card.id}`);
-                                          setEVENTS(prevEvents => 
-                                            prevEvents.map(event => 
-                                              event.id === card.id ? { ...event, image: nextImageUrl } : event
-                                            )
-                                          );
-                                        } else {
-                                          console.log('No different image to try for event:', card.id);
-                                          setEVENTS(prevEvents => 
-                                            prevEvents.map(event => 
-                                              event.id === card.id ? { ...event, image: null } : event
-                                            )
-                                          );
-                                        }
+                                        setEVENTS(prevEvents => 
+                                          prevEvents.map(event => 
+                                            event.id === card.id ? { ...event, image: nextImageUrl } : event
+                                          )
+                                        );
                                       } else {
-                                        console.log('No more images to try for event:', card.id);
+                                        // No more images to try, show placeholder
+                                        console.log('❌ No more images available for event:', card.id);
                                         setEVENTS(prevEvents => 
                                           prevEvents.map(event => 
                                             event.id === card.id ? { ...event, image: null } : event
@@ -1729,8 +1794,8 @@ export default function SuggestedEvents() {
                                         );
                                       }
                                     } else {
-                                      // No allImages array, just show placeholder
-                                      console.log('No allImages array for event:', card.id);
+                                      // No allImages array, show placeholder
+                                      console.log('❌ No allImages array for event:', card.id);
                                       setEVENTS(prevEvents => 
                                         prevEvents.map(event => 
                                           event.id === card.id ? { ...event, image: null } : event
@@ -1971,10 +2036,10 @@ export default function SuggestedEvents() {
                                     <View style={styles.dateContainer}>
                                       <Ionicons name="calendar-outline" size={12} color={colorScheme === 'dark' ? '#B0B0B0' : '#888888'} />
                                       <Text style={[styles.dateText, { color: colorScheme === 'dark' ? '#B0B0B0' : '#888888' }]}>
-                                        {new Date(card.start_date).toLocaleDateString('en-US', { 
-                                          month: 'short', 
-                                          day: 'numeric' 
-                                        })}
+                                        {(() => {
+                                          console.log('🔍 Card date debug - card.start_date:', card.start_date, 'type:', typeof card.start_date);
+                                          return formatEventDate(card.start_date);
+                                        })()}
                                       </Text>
                                     </View>
                                   </>
@@ -2344,7 +2409,7 @@ export default function SuggestedEvents() {
                       <View style={styles.infoTextContainer}>
                         <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date</Text>
                         <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                          {new Date(expandedSavedActivity.start_date).toLocaleDateString()}
+                          {formatEventDate(expandedSavedActivity.start_date)}
                         </Text>
                       </View>
                     </View>

@@ -60,7 +60,20 @@ const isEventExpiringSoon = (event: EventCard): boolean => {
   const eventDate = event.end_date || event.start_date;
   if (eventDate) {
     try {
-      const eventDateTime = new Date(eventDate);
+      let eventDateTime: Date;
+      
+      // Handle Unix timestamp (seconds since epoch)
+      if (typeof eventDate === 'number' && eventDate > 1000000000) {
+        // This is a Unix timestamp in seconds
+        eventDateTime = new Date(eventDate * 1000);
+      } else if (typeof eventDate === 'string') {
+        // This might be an ISO string
+        eventDateTime = new Date(eventDate);
+      } else {
+        // Fallback for other formats
+        return false;
+      }
+      
       const eventDateOnly = new Date(eventDateTime.getFullYear(), eventDateTime.getMonth(), eventDateTime.getDate());
       
       // Event is expiring soon if it's happening within the next 7 days
@@ -72,6 +85,36 @@ const isEventExpiringSoon = (event: EventCard): boolean => {
   }
 
   return false;
+};
+
+// Helper function to format event dates properly (handles Unix timestamps)
+const formatEventDate = (dateValue: any): string => {
+  if (!dateValue) return "Please check organizer's page";
+  
+  try {
+    let date: Date;
+    
+    // Handle Unix timestamp (seconds since epoch)
+    if (typeof dateValue === 'number' && dateValue > 1000000000) {
+      // This is a Unix timestamp in seconds
+      date = new Date(dateValue * 1000);
+      console.log('🔍 Date conversion debug:');
+      console.log('  - Original timestamp:', dateValue);
+      console.log('  - Converted date:', date);
+      console.log('  - Formatted date:', date.toLocaleDateString());
+    } else if (typeof dateValue === 'string') {
+      // This might be an ISO string or other date format
+      date = new Date(dateValue);
+    } else {
+      // Fallback for other formats
+      return "Please check organizer's page";
+    }
+    
+    return date.toLocaleDateString();
+  } catch (error) {
+    console.error('Error formatting event date:', error);
+    return "Please check organizer's page";
+  }
 };
 
 interface CardPosition {
@@ -170,7 +213,14 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
 
     if (visible && event) {
       checkEventData();
-      loadEventImages();
+      
+      // Only load images if event doesn't already have allImages
+      if (!event.allImages || event.allImages.length === 0) {
+        console.log('📸 Event has no allImages (useEffect), loading from storage...');
+        loadEventImages();
+      } else {
+        console.log('📸 Event already has allImages (useEffect):', event.allImages.length, 'images');
+      }
     }
   }, [visible, event, dataManager]);
 
@@ -202,8 +252,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
         setIsLiked(true);
         console.log('✅ Event liked:', event.id);
         
-        // Refresh data to ensure everything is in sync
-        await GlobalDataManager.getInstance().refreshAllData();
+        // No need to refresh all data - the GlobalDataManager already handles 
+        // emitting events to update other components when needed
       }
     } catch (error) {
       console.error('Error toggling like status:', error);
@@ -605,6 +655,15 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       const timer = setTimeout(() => {
         // Determine actual image count
         determineActualImageCount();
+        
+        // Only load images if event doesn't already have allImages
+        if (!event.allImages || event.allImages.length === 0) {
+          console.log('📸 Event has no allImages, loading from storage...');
+          loadEventImages();
+        } else {
+          console.log('📸 Event already has allImages:', event.allImages.length, 'images');
+        }
+        
         // Always fetch fresh creator info instead of using cached data
         if (event.posted_by_email) {
           console.log('🔄 Fetching fresh creator info using email...');
@@ -746,12 +805,14 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
   // Function to determine how many images actually exist
   const determineActualImageCount = async () => {
     if (!event || !event.id) {
+      console.log('📸 determineActualImageCount: No event or ID, setting count to 0');
       setActualImageCount(0);
       return;
     }
     
     // If allImages array is available, check which ones actually exist
     if (event.allImages && event.allImages.length > 0) {
+      console.log('📸 determineActualImageCount: Event has allImages:', event.allImages);
       let actualCount = 0;
       
       // Check each image in the allImages array to see if it actually exists
@@ -760,14 +821,18 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
           const response = await fetch(event.allImages[i], { method: 'HEAD' });
           if (response.ok) {
             actualCount = i + 1; // Count is 1-based
+            console.log('📸 determineActualImageCount: Image', i, 'exists:', event.allImages[i]);
           } else {
+            console.log('📸 determineActualImageCount: Image', i, 'does not exist, stopping count');
             break; // Stop at first missing image
           }
         } catch (error) {
+          console.log('📸 determineActualImageCount: Error checking image', i, 'stopping count');
           break; // Stop at first error
         }
       }
       
+      console.log('📸 determineActualImageCount: Final count from allImages:', actualCount);
       setActualImageCount(actualCount);
       return;
     }
@@ -794,25 +859,34 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
 
   // Get current image URL (synchronous version for immediate use)
   const getCurrentImageUrl = () => {
-    if (!event?.id || currentImageIndex === -1) return event?.image || null;
+    if (!event?.id || currentImageIndex === -1) {
+      console.log('📸 getCurrentImageUrl: No event ID or index -1, returning main image:', event?.image);
+      return event?.image || null;
+    }
     
     // If currentImageIndex is beyond the actual count, fall back to main image
     if (currentImageIndex >= actualImageCount) {
+      console.log('📸 getCurrentImageUrl: Index beyond actual count, returning main image:', event.image);
       return event.image || null;
     }
     
     // If event has allImages array, use it
     if (event.allImages && event.allImages.length > 0) {
-      return event.allImages[currentImageIndex] || event.allImages[0];
+      const imageUrl = event.allImages[currentImageIndex] || event.allImages[0];
+      console.log('📸 getCurrentImageUrl: Using allImages[' + currentImageIndex + ']:', imageUrl);
+      return imageUrl;
     }
     
     // For index 0, return the main image
     if (currentImageIndex === 0) {
+      console.log('📸 getCurrentImageUrl: Index 0, returning main image:', event.image);
       return event.image || null;
     }
     
     // Fallback: construct URL using current index (only if it's within actual count)
-    return `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${currentImageIndex}.jpg`;
+    const constructedUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}/${currentImageIndex}.jpg`;
+    console.log('📸 getCurrentImageUrl: Constructed URL:', constructedUrl);
+    return constructedUrl;
   };
 
   // Helper function to get the actual number of available images
@@ -998,8 +1072,8 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
     if (!event) return;
 
     try {
-      // Format the date
-      const eventDate = event.start_date ? new Date(event.start_date).toLocaleDateString() : 'Check event details';
+      // Format the date using the helper function
+      const eventDate = formatEventDate(event.start_date);
       
       // App link for deep linking
       const appLink = `whatspoppin://event/${event.id}`;
@@ -1975,7 +2049,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                 <View style={styles.infoTextContainer}>
                   <Text style={[styles.infoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Date</Text>
                   <Text style={[styles.infoValue, { color: Colors[colorScheme ?? 'light'].text }]}>
-                    {event.start_date ? new Date(event.start_date).toLocaleDateString() : "Please check organizer's page"}
+                    {formatEventDate(event.start_date)}
                   </Text>
                 </View>
               </View>
