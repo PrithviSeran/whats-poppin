@@ -63,9 +63,9 @@ jobs:
         print(f'🔍 Starting cleanup process (DRY_RUN: {dry_run}, DAYS_BUFFER: {days_buffer})')
 
         try:
-            # Calculate cutoff timestamp (today - buffer days) in milliseconds
-            cutoff_timestamp = int((datetime.now() - timedelta(days=days_buffer)).timestamp() * 1000)
-            print(f'📅 Cutoff timestamp: {cutoff_timestamp} ({datetime.fromtimestamp(cutoff_timestamp / 1000).strftime(\"%Y-%m-%d\")})')
+            # Calculate cutoff timestamp (today - buffer days) in seconds (Unix timestamp)
+            cutoff_timestamp = int((datetime.now() - timedelta(days=days_buffer)).timestamp()
+            print(f'📅 Cutoff timestamp: {cutoff_timestamp} ({datetime.fromtimestamp(cutoff_timestamp).strftime(\"%Y-%m-%d\")})')
             
             # Query for past one-time events
             # We only delete one-time events, keep recurring/weekly events
@@ -92,8 +92,8 @@ jobs:
                     
                     # Convert timestamp to date for comparison
                     if event_timestamp and isinstance(event_timestamp, (int, float)):
-                        # Convert millisecond timestamp to datetime
-                        event_datetime = datetime.fromtimestamp(event_timestamp / 1000)
+                        # Convert Unix timestamp (seconds) to datetime
+                        event_datetime = datetime.fromtimestamp(event_timestamp)
                         event_date_str = event_datetime.strftime('%Y-%m-%d')
                         
                         if event_timestamp < cutoff_timestamp:
@@ -104,6 +104,9 @@ jobs:
                                 'timestamp': event_timestamp,
                                 'occurrence': occurrence
                             })
+                        else:
+                            # Debug: Show events that are NOT being deleted
+                            print(f'  🔍 Event {event_id} ({event_name}) has date {event_date_str} (timestamp: {event_timestamp}) - NOT deleting (future event)')
             
             print(f'📊 Found {len(events_to_delete)} past events out of {total_events} total events')
             
