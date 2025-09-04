@@ -26,6 +26,7 @@ module.exports = {
       supportsTablet: true,
       bundleIdentifier: "com.prithviseran.whatspoppin",
       buildNumber: "2",
+      usesAppleSignIn: true,
       config: {
         googleMapsApiKey: "AIzaSyDpfGWjgw_5ME20DS-I4H6ED-sBZcCUBWM"
       },
@@ -116,6 +117,7 @@ module.exports = {
     },
     plugins: [
       "expo-router",
+      "expo-apple-authentication",
       [
         "expo-location",
         {

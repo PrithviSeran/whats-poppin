@@ -18,10 +18,20 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import LegalDocumentViewer from './LegalDocumentViewer';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+// import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import GlobalDataManager from '@/lib/GlobalDataManager';
 import NotificationService from '@/lib/NotificationService';
 import { supabase } from '@/lib/supabase';
+import * as Crypto from 'expo-crypto';
+// Lazy/optional Apple auth import to avoid build-time type errors if not installed
+const AppleAuth: any = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('expo-apple-authentication');
+  } catch {
+    return null;
+  }
+})();
 
 type RootStackParamList = {
   'social-sign-in': undefined;
@@ -53,15 +63,36 @@ const SignInScreen = () => {
   const colorScheme = useColorScheme();
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
-  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  // const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [isAppleSigningIn, setIsAppleSigningIn] = useState(false);
+  const [isAppleAvailable, setIsAppleAvailable] = useState(false);
 
   // Configure Google Sign-In
+  // useEffect(() => {
+  //   GoogleSignin.configure({
+  //     iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
+  //     // Add Android client ID if needed
+  //     // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
+  //   });
+  // }, []);
+
+  // Check Apple availability on iOS
   useEffect(() => {
-    GoogleSignin.configure({
-      iosClientId: '1028929347533-7e75f5bat89emtq4jl86o3vifpupvcnn.apps.googleusercontent.com',
-      // Add Android client ID if needed
-      // androidClientId: 'your-android-client-id.apps.googleusercontent.com',
-    });
+    (async () => {
+      try {
+        if (Platform.OS === 'ios' && AppleAuth?.isAvailableAsync) {
+          const available = await AppleAuth.isAvailableAsync();
+          console.log('🍎 Apple Sign-In available:', available);
+          setIsAppleAvailable(!!available);
+        } else {
+          console.log('🍎 Apple Sign-In not available on this platform');
+          setIsAppleAvailable(false);
+        }
+      } catch (error) {
+        console.error('🍎 Error checking Apple Sign-In availability:', error);
+        setIsAppleAvailable(false);
+      }
+    })();
   }, []);
 
   const handleOpenTerms = () => {
@@ -72,91 +103,209 @@ const SignInScreen = () => {
     setShowPrivacyModal(true);
   };
 
-  const handleGoogleSignIn = async () => {
+  // const handleGoogleSignIn = async () => {
+  //   try {
+  //     setIsGoogleSigningIn(true);
+      
+  //     // Check if Google Play Services are available (Android)
+  //     if (Platform.OS === 'android') {
+  //       await GoogleSignin.hasPlayServices();
+  //     }
+      
+  //     // Sign in with Google
+  //     const userInfo = await GoogleSignin.signIn() as any;
+  //     console.log('Google Sign-In successful:', userInfo);
+      
+  //     if (!userInfo.data?.idToken) {
+  //       throw new Error('No ID token received from Google');
+  //     }
+      
+  //     // Sign in with Supabase using Google token
+  //     const { data, error } = await supabase.auth.signInWithIdToken({
+  //       provider: 'google',
+  //       token: userInfo.data.idToken,
+  //     });
+      
+  //     if (error) {
+  //       console.error('Supabase Google Sign-In error:', error);
+  //       throw error;
+  //     }
+      
+  //     if (data.user) {
+  //       console.log('✅ Google Sign-In successful, user:', data.user.email);
+        
+  //       // Check if user already has a username
+  //       const { data: userProfile, error: profileError } = await supabase
+  //         .from('all_users')
+  //         .select('username')
+  //         .eq('email', data.user.email)
+  //         .single();
+        
+  //       if (profileError && profileError.code !== 'PGRST116') {
+  //         console.error('Error checking user profile:', profileError);
+  //       }
+        
+  //       // Set user in GlobalDataManager
+  //       GlobalDataManager.getInstance().setCurrentUser(data.user);
+
+  //       // Trigger notification service initialization for Google Sign-In
+  //       try {
+  //         console.log('🔔 SignInScreen: Triggering notification service initialization for Google Sign-In...');
+  //         const notificationService = NotificationService.getInstance();
+  //         await notificationService.handleUserLogin();
+  //         console.log('✅ SignInScreen: Notification service initialized for Google Sign-In');
+  //       } catch (error) {
+  //         console.error('❌ SignInScreen: Error initializing notification service for Google Sign-In:', error);
+  //       }
+
+  //       navigation.navigate('create-account-username', {
+  //         userData: JSON.stringify({
+  //           email: data.user.email,
+  //           googleUserInfo: userInfo.data,
+  //           supabaseUser: data.user
+  //         }),
+  //         isGoogleSignIn: true
+  //       });
+        
+  //       /*
+  //       if (userProfile?.username) {
+  //         // User already has a username, go directly to SuggestedEvents
+  //         navigation.navigate('suggested-events');
+  //       } else {
+  //         // User doesn't have a username, go to CreateAccountUsername
+  //         navigation.navigate('create-account-username', {
+  //           userData: JSON.stringify({
+  //             email: data.user.email,
+  //             googleUserInfo: userInfo.data,
+  //             supabaseUser: data.user
+  //           }),
+  //           isGoogleSignIn: true
+  //         });
+  //       }*/
+  //     }
+  //   } catch (error) {
+  //     console.error('❌ Google Sign-In error:', error);
+  //     // Handle error appropriately
+  //   } finally {
+  //     setIsGoogleSigningIn(false);
+  //   }
+  // };
+
+  const handleAppleSignIn = async () => {
     try {
-      setIsGoogleSigningIn(true);
+      setIsAppleSigningIn(true);
       
-      // Check if Google Play Services are available (Android)
-      if (Platform.OS === 'android') {
-        await GoogleSignin.hasPlayServices();
+      // Check if Apple Sign-In is available
+      if (!AppleAuth?.signInAsync) {
+        throw new Error('Apple Sign-In not available');
       }
       
-      // Sign in with Google
-      const userInfo = await GoogleSignin.signIn() as any;
-      console.log('Google Sign-In successful:', userInfo);
+      console.log('🍎 Starting Apple Sign-In...');
       
-      if (!userInfo.data?.idToken) {
-        throw new Error('No ID token received from Google');
-      }
+      // Generate nonce (raw) and SHA-256 hash for Apple request
+      const generateRandomNonce = (length: number) => {
+        const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+          result += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return result;
+      };
+
+      const rawNonce = generateRandomNonce(32);
+      const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
       
-      // Sign in with Supabase using Google token
-      const { data, error } = await supabase.auth.signInWithIdToken({
-        provider: 'google',
-        token: userInfo.data.idToken,
+      console.log('🍎 Generated nonce, requesting Apple credentials...');
+      console.log('🍎 Bundle ID:', 'com.prithviseran.whatspoppin');
+      console.log('🍎 Platform:', Platform.OS);
+      console.log('🍎 Device:', Platform.OS === 'ios' ? 'iOS Device' : 'Android Device');
+      
+      // Request Apple credentials with minimal scopes first
+      const credential = await AppleAuth.signInAsync({
+        requestedScopes: [
+          AppleAuth.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
       });
       
+      console.log('🍎 Apple credential received:', {
+        user: credential.user,
+        email: credential.email,
+        fullName: credential.fullName,
+        hasIdentityToken: !!credential.identityToken,
+        hasAuthorizationCode: !!credential.authorizationCode,
+      });
+
+      if (!credential.identityToken) {
+        throw new Error('No identity token received from Apple');
+      }
+
+      // Sign in with Supabase using Apple token
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+        nonce: rawNonce,
+      });
+
       if (error) {
-        console.error('Supabase Google Sign-In error:', error);
+        console.error('Supabase Apple Sign-In error:', error);
         throw error;
       }
-      
+
       if (data.user) {
-        console.log('✅ Google Sign-In successful, user:', data.user.email);
-        
-        // Check if user already has a username
-        const { data: userProfile, error: profileError } = await supabase
-          .from('all_users')
-          .select('username')
-          .eq('email', data.user.email)
-          .single();
-        
-        if (profileError && profileError.code !== 'PGRST116') {
-          console.error('Error checking user profile:', profileError);
-        }
-        
+        console.log('✅ Apple Sign-In successful, user:', data.user.email);
+
         // Set user in GlobalDataManager
         GlobalDataManager.getInstance().setCurrentUser(data.user);
 
-        // Trigger notification service initialization for Google Sign-In
+        // Initialize notifications
         try {
-          console.log('🔔 SignInScreen: Triggering notification service initialization for Google Sign-In...');
+          console.log('🔔 SignInScreen: Triggering notification service initialization for Apple Sign-In...');
           const notificationService = NotificationService.getInstance();
           await notificationService.handleUserLogin();
-          console.log('✅ SignInScreen: Notification service initialized for Google Sign-In');
-        } catch (error) {
-          console.error('❌ SignInScreen: Error initializing notification service for Google Sign-In:', error);
+          console.log('✅ SignInScreen: Notification service initialized for Apple Sign-In');
+        } catch (err) {
+          console.error('❌ SignInScreen: Error initializing notification service for Apple Sign-In:', err);
         }
+
+        // Build a google-like payload for downstream username screen
+        const appleUserInfo: any = {
+          name: credential.fullName
+            ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
+            : undefined,
+          email: credential.email || data.user.email,
+          idToken: credential.identityToken,
+        };
 
         navigation.navigate('create-account-username', {
           userData: JSON.stringify({
             email: data.user.email,
-            googleUserInfo: userInfo.data,
-            supabaseUser: data.user
+            googleUserInfo: appleUserInfo, // reuse same field shape for downstream logic
+            supabaseUser: data.user,
           }),
-          isGoogleSignIn: true
+          isGoogleSignIn: true, // reuse the same downstream flow/labels
         });
-        
-        /*
-        if (userProfile?.username) {
-          // User already has a username, go directly to SuggestedEvents
-          navigation.navigate('suggested-events');
-        } else {
-          // User doesn't have a username, go to CreateAccountUsername
-          navigation.navigate('create-account-username', {
-            userData: JSON.stringify({
-              email: data.user.email,
-              googleUserInfo: userInfo.data,
-              supabaseUser: data.user
-            }),
-            isGoogleSignIn: true
-          });
-        }*/
       }
     } catch (error) {
-      console.error('❌ Google Sign-In error:', error);
-      // Handle error appropriately
+      const err: any = error;
+      if (err?.code === 'ERR_CANCELED') {
+        // User canceled; no-op
+        return;
+      }
+      try {
+        const details = {
+          code: err?.code,
+          domain: err?.domain,
+          message: err?.message,
+          userInfo: err?.userInfo,
+          nativeStackIOS: err?.nativeStackIOS,
+          stack: err?.stack,
+        };
+        console.error('❌ Apple Sign-In detailed error:', details);
+      } catch {}
+      console.error('❌ Apple Sign-In error:', err);
     } finally {
-      setIsGoogleSigningIn(false);
+      setIsAppleSigningIn(false);
     }
   };
 
@@ -214,7 +363,7 @@ const SignInScreen = () => {
           </Text>
           
           {/* Google Sign-In Button */}
-          <TouchableOpacity 
+          {/* <TouchableOpacity 
             onPress={handleGoogleSignIn}
             disabled={isGoogleSigningIn}
             style={[styles.googleButton, isGoogleSigningIn && styles.disabledButton]}
@@ -234,7 +383,32 @@ const SignInScreen = () => {
                 {isGoogleSigningIn ? 'Signing in...' : 'Continue with Google'}
               </Text>
             </View>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
+
+          {/* Apple Sign-In Button */}
+          {Platform.OS === 'ios' && isAppleAvailable && (
+            <TouchableOpacity 
+              onPress={handleAppleSignIn}
+              disabled={isAppleSigningIn}
+              style={[styles.appleButton, isAppleSigningIn && styles.disabledButton]}
+              activeOpacity={0.8}
+            >
+              <View style={styles.appleButtonContent}>
+                {isAppleSigningIn ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Image 
+                    source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg' }} 
+                    style={styles.appleIcon}
+                    resizeMode="contain"
+                  />
+                )}
+                <Text style={styles.appleButtonText}>
+                  {isAppleSigningIn ? 'Signing in...' : 'Continue with Apple'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
           
           <View style={styles.dividerContainer}>
             <View style={styles.dividerLine} />
@@ -362,6 +536,38 @@ const styles = StyleSheet.create({
   },
   googleButtonText: {
     color: '#757575',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Gotham Rounded',
+  },
+  appleButton: {
+    backgroundColor: '#000000',
+    borderRadius: 30,
+    width: width * 0.8,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#000000',
+  },
+  appleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appleIcon: {
+    width: 18,
+    height: 18,
+    marginRight: 12,
+    tintColor: '#FFFFFF',
+  },
+  appleButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
     fontFamily: 'Gotham Rounded',

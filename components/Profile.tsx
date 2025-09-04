@@ -100,6 +100,14 @@ export default memo(function Profile({
   const [hasNewRequests, setHasNewRequests] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  // Name edit state
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [editingName, setEditingName] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
+  // Birthday edit state
+  const [showBirthdayModal, setShowBirthdayModal] = useState(false);
+  const [editingBirthday, setEditingBirthday] = useState('');
+  const [isSavingBirthday, setIsSavingBirthday] = useState(false);
 
   // State for follow counts
   const [followersCount, setFollowersCount] = useState(0);
@@ -860,17 +868,46 @@ export default memo(function Profile({
         setUserEvents([]);
       } else {
         const events = eventsData || [];
-        
-        // Initialize event images using the same logic as UserProfileModal
-        const eventsWithImages = events.map(event => {
-          const { imageUrl, allImages } = getEventImageUrls(event.id);
-          return {
-            ...event,
-            image: (event as any).image || imageUrl, // Use existing image or generate first one
-            allImages // Add allImages array for fallback logic
-          };
-        });
-        
+
+        // Build actual image lists from storage to ensure correct availability
+        const eventsWithImages = await Promise.all(
+          events.map(async (event) => {
+            try {
+              const folderPath = `${event.id}`;
+              const { data: files, error: listError } = await supabase.storage
+                .from('event-images')
+                .list(folderPath);
+
+              let allImages: string[] = [];
+              if (!listError && Array.isArray(files) && files.length > 0) {
+                allImages = files
+                  .filter((f) => f.name.toLowerCase().endsWith('.jpg') || f.name.toLowerCase().endsWith('.png') || f.name.toLowerCase().endsWith('.jpeg'))
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((f) => `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${folderPath}/${f.name}`);
+              } else {
+                // Fallback to deterministic 0-4 images if listing fails
+                const baseUrl = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${event.id}`;
+                allImages = Array.from({ length: 5 }, (_, i) => `${baseUrl}/${i}.jpg`);
+              }
+
+              const image = (event as any).image || allImages[0] || null;
+
+              return {
+                ...event,
+                image,
+                allImages,
+              };
+            } catch (e) {
+              const { imageUrl, allImages } = getEventImageUrls(event.id);
+              return {
+                ...event,
+                image: (event as any).image || imageUrl,
+                allImages,
+              };
+            }
+          })
+        );
+
         setUserEvents(eventsWithImages);
         
         // Initialize image states for all events
@@ -1221,7 +1258,7 @@ export default memo(function Profile({
           {/* Profile Information Card */}
           <View style={[styles.profileInfoCard, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
             <View style={[styles.profileInfoHeader, { borderBottomColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]}>
-              <Text style={[styles.profileInfoTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Profile Information (Only visible to you)</Text>
+              <Text style={[styles.profileInfoTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Profile Information</Text>
             </View>
 
             <View style={styles.profileInfoContent}>
@@ -1231,7 +1268,12 @@ export default memo(function Profile({
                 </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Name</Text>
-                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.name || 'Not provided'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.name || 'Not provided'}</Text>
+                    <TouchableOpacity onPress={() => { setEditingName(profile?.name || ''); setShowNameModal(true); }}>
+                      <Ionicons name="pencil" size={18} color={Colors[colorScheme ?? 'light'].secondary} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
 
@@ -1255,7 +1297,12 @@ export default memo(function Profile({
                 </View>
                 <View style={styles.profileInfoDetails}>
                   <Text style={[styles.profileInfoLabel, { color: Colors[colorScheme ?? 'light'].text }]}>Birthday</Text>
-                  <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.birthday || 'Not provided'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={[styles.profileInfoValue, { color: Colors[colorScheme ?? 'light'].text }]}>{profile?.birthday || 'Not provided'}</Text>
+                    <TouchableOpacity onPress={() => { setEditingBirthday(profile?.birthday || ''); setShowBirthdayModal(true); }}>
+                      <Ionicons name="pencil" size={18} color={Colors[colorScheme ?? 'light'].secondary} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
 
@@ -1507,6 +1554,151 @@ export default memo(function Profile({
                 ) : (
                   <Text style={styles.usernameSaveButtonText}>Save Username</Text>
                 )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Name Edit Modal */}
+      <Modal
+        visible={showNameModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowNameModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.usernameModalContent, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}> 
+            <View style={styles.usernameModalHeader}>
+              <Text style={[styles.usernameModalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Edit Name</Text>
+              <TouchableOpacity style={styles.usernameModalCloseButton} onPress={() => setShowNameModal(false)}>
+                <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.usernameModalBody}>
+              <TextInput
+                style={styles.simpleInput}
+                value={editingName}
+                onChangeText={setEditingName}
+                placeholder="Your name"
+                placeholderTextColor="#999"
+                autoCapitalize="words"
+                returnKeyType="done"
+              />
+            </View>
+            <View style={styles.usernameModalFooter}>
+              <TouchableOpacity style={[styles.usernameCancelButton, { borderColor: '#FF69E2', borderWidth: 1 }]} onPress={() => setShowNameModal(false)} disabled={isSavingName}>
+                <Text style={[styles.usernameCancelButtonText, { color: '#FF69E2' }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.usernameSaveButton, (!editingName.trim() || isSavingName) && styles.usernameSaveButtonDisabled]}
+                onPress={async () => {
+                  if (!profile) return;
+                  const newName = editingName.trim();
+                  if (!newName) return;
+                  setIsSavingName(true);
+                  try {
+                    const updated = { ...profile, name: newName } as any;
+                    setProfile(updated);
+                    await dataManager.setUserProfile(updated);
+                    Alert.alert('Success', 'Name updated');
+                    setShowNameModal(false);
+                  } catch (e) {
+                    console.error('Error saving name:', e);
+                    Alert.alert('Error', 'Failed to update name');
+                  } finally {
+                    setIsSavingName(false);
+                  }
+                }}
+                disabled={!editingName.trim() || isSavingName}
+              >
+                <LinearGradient
+                  colors={(!editingName.trim() || isSavingName) ? ['#ccc', '#999'] : ['#FF69E2', '#FF3366']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.actionGradientButton]}
+                >
+                  {isSavingName ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.usernameSaveButtonText}>Save Name</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Birthday Edit Modal */}
+      <Modal
+        visible={showBirthdayModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowBirthdayModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.usernameModalContent, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}> 
+            <View style={styles.usernameModalHeader}>
+              <Text style={[styles.usernameModalTitle, { color: Colors[colorScheme ?? 'light'].text }]}>Edit Birthday</Text>
+              <TouchableOpacity style={styles.usernameModalCloseButton} onPress={() => setShowBirthdayModal(false)}>
+                <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.usernameModalBody}>
+              <Text style={[styles.usernameModalSubtitle, { color: Colors[colorScheme ?? 'light'].text }]}>Format: YYYY-MM-DD</Text>
+              <TextInput
+                style={styles.simpleInput}
+                value={editingBirthday}
+                onChangeText={setEditingBirthday}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor="#999"
+                keyboardType="numbers-and-punctuation"
+                autoCapitalize="none"
+                returnKeyType="done"
+              />
+            </View>
+            <View style={styles.usernameModalFooter}>
+              <TouchableOpacity style={[styles.usernameCancelButton, { borderColor: '#FF69E2', borderWidth: 1 }]} onPress={() => setShowBirthdayModal(false)} disabled={isSavingBirthday}>
+                <Text style={[styles.usernameCancelButtonText, { color: '#FF69E2' }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.usernameSaveButton, (isSavingBirthday || !/^\d{4}-\d{2}-\d{2}$/.test(editingBirthday.trim())) && styles.usernameSaveButtonDisabled]}
+                onPress={async () => {
+                  if (!profile) return;
+                  const val = editingBirthday.trim();
+                  if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+                    Alert.alert('Invalid date', 'Please enter in YYYY-MM-DD format');
+                    return;
+                  }
+                  setIsSavingBirthday(true);
+                  try {
+                    const updated = { ...profile, birthday: val } as any;
+                    setProfile(updated);
+                    await dataManager.setUserProfile(updated);
+                    Alert.alert('Success', 'Birthday updated');
+                    setShowBirthdayModal(false);
+                  } catch (e) {
+                    console.error('Error saving birthday:', e);
+                    Alert.alert('Error', 'Failed to update birthday');
+                  } finally {
+                    setIsSavingBirthday(false);
+                  }
+                }}
+                disabled={isSavingBirthday || !/^\d{4}-\d{2}-\d{2}$/.test(editingBirthday.trim())}
+              >
+                <LinearGradient
+                  colors={(isSavingBirthday || !/^\d{4}-\d{2}-\d{2}$/.test(editingBirthday.trim())) ? ['#ccc', '#999'] : ['#FF69E2', '#FF3366']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.actionGradientButton]}
+                >
+                  {isSavingBirthday ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.usernameSaveButtonText}>Save Birthday</Text>
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </View>
@@ -1857,18 +2049,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   usernameSaveButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
     borderRadius: 12,
-    backgroundColor: '#22C55E',
+    overflow: 'hidden',
   },
   usernameSaveButtonDisabled: {
-    backgroundColor: 'rgba(34, 197, 94, 0.5)',
+    opacity: 0.7,
   },
   usernameSaveButtonText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  actionGradientButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
   },
 
   // Modal styles
@@ -2381,6 +2580,16 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '600',
+  },
+  simpleInput: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    color: '#000000',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E5E7',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
 
 

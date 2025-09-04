@@ -311,7 +311,8 @@ export default function SuggestedEvents() {
         const response = await fetch(imageUrl, { method: 'HEAD' });
         if (response.ok) {
           console.log(`✅ Found available image for event ${eventId}: ${i}.jpg`);
-          return imageUrl;
+          // Return with a cache-busting param to avoid showing stale deleted images
+          return `${imageUrl}?t=${Date.now()}`;
         }
       } catch (error) {
         // Continue to next image
@@ -338,8 +339,8 @@ export default function SuggestedEvents() {
         
         // Fallback to the old method if no image found
         const urls = availableImageUrl ? 
-          { imageUrl: availableImageUrl, allImages: getEventImageUrls(event.id).allImages } :
-          getEventImageUrls(event.id);
+          { imageUrl: availableImageUrl, allImages: getEventImageUrls(event.id).allImages.map(u => `${u}?t=${Date.now()}`) } :
+          (() => { const u = getEventImageUrls(event.id); return { imageUrl: `${u.imageUrl}?t=${Date.now()}`, allImages: u.allImages.map(x => `${x}?t=${Date.now()}`) }; })();
         
         console.log(`🖼️ Event ${event.id} - Available image: ${availableImageUrl}, Fallback image: ${urls.imageUrl}`);
         

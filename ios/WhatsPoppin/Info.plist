@@ -4,6 +4,8 @@
   <dict>
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
+    <key>CFBundleAllowMixedLocalizations</key>
+    <true/>
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
@@ -31,6 +33,12 @@
         </array>
         <key>CFBundleURLName</key>
         <string>com.prithviseran.whatspoppin</string>
+      </dict>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>exp+whats-poppin</string>
+        </array>
       </dict>
       <dict>
         <key>CFBundleURLSchemes</key>

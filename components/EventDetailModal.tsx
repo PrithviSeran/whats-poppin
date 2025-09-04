@@ -297,11 +297,54 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
     try {
       const services = OptimizedComponentServices.getInstance();
       
+      // Sanitize edited fields before update to avoid invalid types (e.g., bigint "")
+      const payload: any = {};
+      const src: any = editedEvent || {};
+      const numericBigIntFields = new Set(['start_date', 'end_date']);
+      const numericFields = new Set(['cost', 'age_restriction', 'latitude', 'longitude']);
+      
+      Object.keys(src).forEach((key) => {
+        const value = (src as any)[key];
+        if (value === undefined) {
+          return; // omit undefined
+        }
+        if (value === '') {
+          // For empty string, either omit or set null for known nullable fields
+          if (numericBigIntFields.has(key) || numericFields.has(key) || key === 'link' || key === 'organization' || key === 'description' || key === 'location') {
+            payload[key] = null;
+          }
+          return;
+        }
+        if (numericBigIntFields.has(key)) {
+          // Accept number; if string, parse to int seconds
+          if (typeof value === 'number') {
+            payload[key] = value;
+          } else if (typeof value === 'string') {
+            const parsed = parseInt(value, 10);
+            payload[key] = Number.isFinite(parsed) ? parsed : null;
+          } else {
+            payload[key] = null;
+          }
+          return;
+        }
+        if (numericFields.has(key)) {
+          if (typeof value === 'number') {
+            payload[key] = value;
+          } else if (typeof value === 'string') {
+            const parsed = key === 'age_restriction' ? parseInt(value, 10) : parseFloat(value);
+            payload[key] = Number.isFinite(parsed) ? parsed : null;
+          }
+          return;
+        }
+        // Default: pass through
+        payload[key] = value;
+      });
+      
       // Update the event in the database
-      await services.updateEvent(event.id, editedEvent);
+      await services.updateEvent(event.id, payload);
       
       // Update the local event object
-      Object.assign(event, editedEvent);
+      Object.assign(event, payload);
       
       // Show success message and close modal
       Alert.alert('Success', 'Event updated successfully!');
@@ -476,14 +519,51 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
     if (!event?.id) return;
     
     try {
-      const services = OptimizedComponentServices.getInstance();
-      const fileName = `${index}.jpg`;
+      // Resolve the actual filename from the displayed image URL if available
+      let resolvedFileName: string | null = null;
+      if (eventImages && eventImages[index]) {
+        try {
+          const url = eventImages[index];
+          const last = url.split('?')[0].split('/').pop();
+          if (last) resolvedFileName = last;
+        } catch {}
+      }
+
+      // Fallback to index-based naming if we couldn't parse a filename
+      const fileName = resolvedFileName || `${index}.jpg`;
       const filePath = `${event.id}/${fileName}`;
       
-      // Delete from storage
-      await services.deleteFile('event-images', filePath);
+      // Delete directly from Supabase storage (avoid queued operations for immediacy)
+      const { error: deleteError } = await supabase.storage
+        .from('event-images')
+        .remove([filePath]);
       
-      // Reload all images to ensure we have the latest state
+      if (deleteError) {
+        console.error('Error removing image from storage:', deleteError);
+        Alert.alert('Error', 'Failed to remove image. Please try again.');
+        return;
+      }
+      
+      // Verify deletion by checking HEAD a few times (to avoid CDN/cache delay)
+      const url = `https://iizdmrngykraambvsbwv.supabase.co/storage/v1/object/public/event-images/${filePath}`;
+      const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+      let exists = true;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const resp = await fetch(url, { method: 'HEAD', cache: 'no-store' as any });
+          exists = resp.ok;
+        } catch {
+          exists = false;
+        }
+        if (!exists) break;
+        await sleep(300);
+      }
+      
+      if (exists) {
+        console.warn('Image still appears to exist after deletion attempt; refreshing list anyway.');
+      }
+      
+      // Reload all images to ensure UI reflects current state
       await loadEventImages();
       
       Alert.alert('Success', 'Image removed successfully!');
@@ -599,7 +679,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       };
 
       const status = isOpen ? 'open' : 'closed';
-      const statusText = isOpen ? `Open until ${formatTime(closeTime)}` : `Closed • Opens ${formatTime(openTime)}`;
+      const statusText = isOpen ? `Active until ${formatTime(closeTime)}` : `Not Active • Opens ${formatTime(openTime)}`;
       
       return {
         display: `${formatTime(openTime)} - ${formatTime(closeTime)}`,
@@ -856,6 +936,41 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       setActualImageCount(0);
     }
   };
+
+  // Ensure the editable image list reflects existing images when in edit mode
+  useEffect(() => {
+    const syncImagesForEdit = async () => {
+      if (!isEditMode || !event) return;
+      try {
+        // Prefer event.allImages if available
+        if (event.allImages && event.allImages.length > 0) {
+          const validated: string[] = [];
+          for (let i = 0; i < event.allImages.length; i++) {
+            try {
+              const resp = await fetch(event.allImages[i], { method: 'HEAD' });
+              if (resp.ok) {
+                validated.push(event.allImages[i]);
+              } else {
+                break;
+              }
+            } catch {
+              break;
+            }
+          }
+          setEventImages(validated);
+          return;
+        }
+
+        // Otherwise, fall back to the storage listing logic
+        await loadEventImages();
+      } catch (e) {
+        // As a final fallback, leave current state
+      }
+    };
+
+    syncImagesForEdit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode, event?.id]);
 
   // Get current image URL (synchronous version for immediate use)
   const getCurrentImageUrl = () => {
@@ -1874,7 +1989,21 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
                     style={[styles.linkButton, { flex: 1, marginRight: 10 }]}
                     onPress={() => {
                       if (event.link) {
-                        Linking.openURL(event.link).catch(err => {
+                        const normalizeExternalUrl = (rawUrl: string): string => {
+                          try {
+                            let url = (rawUrl || '').trim();
+                            if (!/^https?:\/\//i.test(url)) {
+                              url = 'https://' + url.replace(/^\/+/, '');
+                            }
+                            return encodeURI(url);
+                          } catch {
+                            return rawUrl;
+                          }
+                        };
+
+                        const externalUrl = normalizeExternalUrl(event.link);
+
+                        Linking.openURL(externalUrl).catch(err => {
                           console.error('Failed to open URL:', err);
                         });
                       }
