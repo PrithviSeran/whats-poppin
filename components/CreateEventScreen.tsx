@@ -384,15 +384,16 @@ export default function CreateEventScreen() {
     return `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
   };
 
-  // Handle scroll to dismiss keyboard
+  // Handle scroll to dismiss keyboard - only when actually scrolling
   const handleScrollBeginDrag = () => {
+    // Dismiss keyboard when user starts scrolling
     Keyboard.dismiss();
   };
 
-  // Handle tapping outside inputs to dismiss keyboard
-  const handleBackgroundPress = () => {
-    Keyboard.dismiss();
-  };
+  // Remove background press handler - we don't want to dismiss on taps
+  // const handleBackgroundPress = () => {
+  //   // Removed - we only want to dismiss on scroll, not on taps
+  // };
 
   // Function to validate address using OpenStreetMap Nominatim API (same as EventFilterOverlay)
   const validateLocation = async (address: string) => {
@@ -962,7 +963,6 @@ export default function CreateEventScreen() {
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={handleScrollBeginDrag}
           ref={scrollViewRef}
-          onTouchStart={handleBackgroundPress}
         >
           {/* Simple header that scrolls with content */}
           <View style={styles.simpleHeader}>
