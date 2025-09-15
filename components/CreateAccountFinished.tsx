@@ -5,7 +5,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { UserData } from '@/types/user';
 import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -130,14 +129,9 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
           console.log('🔄 User created but no session - attempting to confirm email manually...');
           
           // Get the verification record from our custom table to prove email was verified
-          const { data: verificationData } = await supabase
-            .from('email_verifications')
-            .select('*')
-            .eq('email', userData.email.toLowerCase())
-            .not('verified_at', 'is', null)
-            .order('verified_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+
+          const verificationData = await services.confirmVerification(userData.email);
+          console.log('verificationData', verificationData);
           
           if (verificationData) {
             console.log('✅ Email verification confirmed in our records');
@@ -193,9 +187,7 @@ export default function CreateAccountFinished({ route }: { route: CreateAccountF
 
         console.log('📝 Final insert data:', insertData);
 
-        const { error: insertError } = await supabase
-          .from('all_users')
-          .insert([insertData]);
+        const { error: insertError } = await services.createUser(insertData);
           
         if (insertError) {
           console.error('❌ Error inserting into all_users:', insertError);

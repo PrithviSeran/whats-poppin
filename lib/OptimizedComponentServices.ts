@@ -117,6 +117,16 @@ class OptimizedComponentServices {
       priority: 'high'
     });
   }
+
+  async createUser(userData: any) {
+    return this.apiService.queueRequest<any>(
+      'insert',
+      {
+        table: 'all_users',
+        data: [userData]
+      }
+    )
+  }
   
   // ========== USER PROFILE OPERATIONS ==========
   
@@ -233,6 +243,72 @@ class OptimizedComponentServices {
       cacheTTL: 300000 // 5 minutes cache
     });
   }
+ // =============== EMAIL VERIFICATION OPERATIONS ===============
+ 
+  async sendVerificationCode(email: string) {
+
+    return this.apiService.queueRequest<any>('rpc', {
+      data: {
+        functionName: 'send-verification-code',
+        params: { email: email.toLowerCase() }
+      },
+      priority: 'high',
+      maxRetries: 3,
+      cacheKey: `verification_sent_${email.toLowerCase()}`,
+      cacheTTL: 60000 // 1 minute cache to prevent duplicate sends
+    });
+
+  }
+
+  async verifyCode(email: string, code: string) {
+    return this.apiService.queueRequest<any[]>('select', {
+      table: 'email_verifications',
+      data: { 
+        select: '*',
+        limit: 1
+      },
+      filters: { 
+        eq: { 
+          email: email.toLowerCase(),
+          code: code
+        }
+      },
+      priority: 'high',
+      maxRetries: 2,
+      cacheKey: `verification_check_${email.toLowerCase()}_${code}`,
+      cacheTTL: 30000 // 30 seconds cache for verification checks
+    });
+  }
+
+  async updateVerification(id: number) {
+    return this.apiService.queueRequest('update', {
+      table: 'email_verifications',
+      data: { verified_at: new Date().toISOString() },
+      filters: { eq: { id: id } },
+      priority: 'high',
+      maxRetries: 2
+    });
+  }
+
+  async confirmVerification(email: string) {
+    return this.apiService.queueRequest<any>(
+      'select',
+      {
+        table: 'email_verifications',
+        filters: {
+          email: email.toLowerCase(),
+          not: { verified_at: null },
+          order: { column: 'verified_at', ascending: false },
+          limit: 1,
+          single: true
+        },
+        cacheKey: `email_verification_${email.toLowerCase()}`,
+        cacheTTL: 300000 // 5 minutes
+      }
+    )
+  }
+
+
   
   // ========== SOCIAL OPERATIONS ==========
   

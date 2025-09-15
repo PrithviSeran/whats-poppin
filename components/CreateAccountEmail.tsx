@@ -20,10 +20,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import MaskedView from '@react-native-masked-view/masked-view';
 import CreateAccountProgressBar from './CreateAccountProgressBar';
-import { supabase } from '@/lib/supabase';
-import { AuthChangeEvent, Session } from '@supabase/supabase-js';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 
 const { width } = Dimensions.get('window');
 
@@ -64,6 +62,7 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
   const colorScheme = useColorScheme();
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
   const userData = route?.params?.userData ? JSON.parse(route.params.userData) : {};
+  const services = OptimizedComponentServices.getInstance();
 
   // Cooldown timer effect
   useEffect(() => {
@@ -113,18 +112,10 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     setEmailError('');
     
     try {
-      // Only check our all_users table for registered accounts
-      // We don't need to worry about the auth table since we're using OTP without creating users
-      const { data: userData, error: userError } = await supabase
-        .from('all_users')
-        .select('email')
-        .eq('email', email.toLowerCase())
-        .maybeSingle();
-      
-      if (userError && userError.code !== 'PGRST116') {
-        console.error('Error checking email:', userError);
-        return;
-      }
+      // Use APIRequestService to check email existence with caching
+
+      const userData = await services.getUserByEmail(email);
+      console.log('userData', userData);
       
       if (userData) {
         setEmailExists(true);
@@ -132,6 +123,7 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
       }
     } catch (error) {
       console.error('Error checking email existence:', error);
+      // Don't show error to user for email check failures
     } finally {
       setIsCheckingEmail(false);
     }
@@ -177,17 +169,12 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
 
     try {
       console.log('Sending verification code to:', email);
-      
-      // Call our custom Edge Function to send verification code
-      const { data: functionData, error: functionError } = await supabase.functions.invoke('send-verification-code', {
-        body: { email: email.toLowerCase() }
-      });
 
-      if (functionError) {
-        console.error('Error calling send-verification-code function:', functionError);
-        setVerificationError('Failed to send verification email. Please try again.');
-        return;
-      }
+      // Use APIRequestService to call the Edge Function
+      const functionData = await services.sendVerificationCode(email);
+
+
+      console.log('functionData', functionData);
 
       if (!functionData?.success) {
         console.error('Send verification function returned error:', functionData);
@@ -220,36 +207,28 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
     try {
       console.log('🔐 Verifying code:', enteredCode, 'for email:', email.toLowerCase());
       
-      // Check verification code in our custom table
-      const { data: verificationData, error: verificationError } = await supabase
-        .from('email_verifications')
-        .select('*')
-        .eq('email', email.toLowerCase())
-        .eq('code', enteredCode)
-        .gt('expires_at', new Date().toISOString())
-        .is('verified_at', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // Use APIRequestService to check verification code
+      const verificationData = await services.verifyCode(email, enteredCode);
 
-      if (verificationError) {
-        console.error('Error checking verification code:', verificationError);
-        setVerificationError('Failed to verify code. Please try again.');
-        return;
-      }
+      // Filter for valid, unexpired, and unused codes
+      const validVerification = verificationData?.find(verification => 
+        verification.email === email.toLowerCase() &&
+        verification.code === enteredCode &&
+        new Date(verification.expires_at) > new Date() &&
+        !verification.verified_at
+      );
 
-      if (!verificationData) {
+      if (!validVerification) {
         setVerificationError('Invalid or expired verification code. Please check the code or request a new one.');
         return;
       }
 
-      // Mark the verification as used
-      const { error: updateError } = await supabase
-        .from('email_verifications')
-        .update({ verified_at: new Date().toISOString() })
-        .eq('id', verificationData.id);
-
-      if (updateError) {
+      // Mark the verification as used using APIRequestService
+      try {
+        
+        await services.updateVerification(validVerification.id);
+        
+      } catch (updateError) {
         console.error('Error marking verification as used:', updateError);
         // Don't fail here - verification was successful
       }
@@ -267,6 +246,14 @@ const CreateAccountEmail: React.FC<CreateAccountEmailProps> = ({ route }) => {
   };
 
   // Cleanup effect
+  useEffect(() => {
+    return () => {
+      // Clear any pending API requests for this component
+      services.clearCache(`email_check_${email.toLowerCase()}`);
+      services.clearCache(`verification_sent_${email.toLowerCase()}`);
+      services.clearCache(`verification_check_${email.toLowerCase()}_${enteredCode}`);
+    };
+  }, [email, enteredCode]);
 
 
   const resendVerificationEmail = async () => {
