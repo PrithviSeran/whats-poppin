@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import CreateAccountProgressBar from './CreateAccountProgressBar';
 import { supabase } from '@/lib/supabase';
 import GlobalDataManager from '@/lib/GlobalDataManager';
+import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 
 type RootStackParamList = {
   'create-account-email': { userData: string };
@@ -62,16 +63,19 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
     const checkExistingUsername = async () => {
       if (isGoogleSignIn && userData.email) {
         try {
-          const { data: userProfile, error } = await supabase
-            .from('all_users')
-            .select('username')
-            .eq('email', userData.email)
-            .single();
-          
-          if (error && error.code !== 'PGRST116') {
-            console.error('Error checking user profile:', error);
-            return;
-          }
+          const optimizedServices = OptimizedComponentServices.getInstance();
+          const userProfile = await optimizedServices.selectFromTable(
+            'all_users',
+            'username',
+            { 
+              eq: { email: userData.email },
+              single: true
+            },
+            { 
+              cacheKey: `user_profile_${userData.email}`,
+              cacheTTL: 300000 // 5 minutes cache
+            }
+          ) as any;
           
           if (userProfile?.username) {
             // User already has a username, redirect to SuggestedEvents
@@ -120,29 +124,17 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
     setUsernameError('');
 
     try {
-      // Check if username already exists
-      const { data, error } = await supabase
-        .from('all_users')
-        .select('username')
-        .eq('username', text.toLowerCase())
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        // PGRST116 is "not found" which is what we want
-        console.error('Error checking username:', error);
-        setUsernameError('Error checking username availability');
-        setUsernameValid(false);
-        return;
-      }
-
-      if (data) {
-        // Username already exists
-        setUsernameError('This username is already taken');
-        setUsernameValid(false);
-      } else {
+      const optimizedServices = OptimizedComponentServices.getInstance();
+      const isAvailable = await optimizedServices.checkUsernameAvailability(text.toLowerCase());
+      
+      if (isAvailable) {
         // Username is available
         setUsernameError('');
         setUsernameValid(true);
+      } else {
+        // Username already exists
+        setUsernameError('This username is already taken');
+        setUsernameValid(false);
       }
     } catch (error) {
       console.error('Error checking username:', error);
@@ -172,25 +164,36 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
       if (isGoogleSignIn) {
         // For Google Sign-In flow, update the user's profile and go to SuggestedEvents
         try {
+          const optimizedServices = OptimizedComponentServices.getInstance();
           // First check if user already exists in all_users table
-          const { data: existingUser, error: checkError } = await supabase
-            .from('all_users')
-            .select('id')
-            .eq('email', userData.email)
-            .single();
-          
-          if (checkError && checkError.code !== 'PGRST116') {
-            console.error('Error checking existing user:', checkError);
-            return;
+          let existingUser;
+          try {
+            existingUser = await optimizedServices.selectFromTable(
+              'all_users',
+              'id',
+              { 
+                eq: { email: userData.email },
+                single: true
+              },
+              { 
+                cacheKey: `user_check_${userData.email}`,
+                cacheTTL: 60000 // 1 minute cache
+              }
+            ) as any;
+          } catch (error) {
+            // User doesn't exist, which is fine
+            existingUser = null;
           }
           
-          let result;
+          let result: any;
           if (existingUser) {
             // Update existing user
-            result = await supabase
-              .from('all_users')
-              .update({ username: username.trim().toLowerCase() })
-              .eq('email', userData.email);
+            result = await optimizedServices.updateTable(
+              'all_users',
+              { username: username.trim().toLowerCase() },
+              { eq: { email: userData.email } },
+              { priority: 'high' }
+            );
           } else {
             // Insert new user
             const insertData = {
@@ -202,47 +205,58 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
               preferences: [],
             };
             
-            result = await supabase
-              .from('all_users')
-              .insert([insertData]);
+            result = await optimizedServices.insertIntoTable(
+              'all_users',
+              [insertData],
+              { priority: 'high' }
+            );
           }
           
-          if (result.error) {
+          if (result?.error) {
             console.error('Error updating user profile:', result.error);
             // Handle error appropriately
             return;
           }
 
           // After successful database update, fetch the complete user profile
-          const { data: userProfile, error: profileError } = await supabase
-            .from('all_users')
-            .select('*')
-            .eq('email', userData.email)
-            .single();
+          try {
+            const userProfile = await optimizedServices.selectFromTable(
+              'all_users',
+              '*',
+              { 
+                eq: { email: userData.email },
+                single: true
+              },
+              { 
+                cacheKey: `user_profile_complete_${userData.email}`,
+                cacheTTL: 300000 // 5 minutes cache
+              }
+            ) as any;
 
-          if (profileError) {
+            if (userProfile) {
+              // Update GlobalDataManager with the complete user profile
+              await GlobalDataManager.getInstance().setUserProfile({
+                id: userProfile.id,
+                created_at: userProfile.created_at,
+                email: userProfile.email,
+                username: userProfile.username,
+                name: userProfile.name,
+                birthday: userProfile.birthday,
+                profileImage: userProfile.profile_image,
+                bannerImage: userProfile.banner_image,
+                location: userProfile.location,
+                ['start-time']: userProfile['start-time'],
+                ['end-time']: userProfile['end-time'],
+                ['travel-distance']: userProfile['travel-distance'],
+                saved_events: userProfile.saved_events,
+                preferences: userProfile.preferences,
+                rejected_events: userProfile.rejected_events,
+                preferred_days: userProfile.preferred_days,
+                saved_events_all_time: userProfile.saved_events_all_time,
+              });
+            }
+          } catch (profileError) {
             console.error('Error fetching updated user profile:', profileError);
-          } else if (userProfile) {
-            // Update GlobalDataManager with the complete user profile
-            await GlobalDataManager.getInstance().setUserProfile({
-              id: userProfile.id,
-              created_at: userProfile.created_at,
-              email: userProfile.email,
-              username: userProfile.username,
-              name: userProfile.name,
-              birthday: userProfile.birthday,
-              profileImage: userProfile.profile_image,
-              bannerImage: userProfile.banner_image,
-              location: userProfile.location,
-              ['start-time']: userProfile['start-time'],
-              ['end-time']: userProfile['end-time'],
-              ['travel-distance']: userProfile['travel-distance'],
-              saved_events: userProfile.saved_events,
-              preferences: userProfile.preferences,
-              rejected_events: userProfile.rejected_events,
-              preferred_days: userProfile.preferred_days,
-              saved_events_all_time: userProfile.saved_events_all_time,
-            });
           }
           
           // Navigate to SuggestedEvents

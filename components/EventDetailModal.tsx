@@ -32,6 +32,7 @@ import UserProfileModal from './UserProfileModal';
 import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import * as ImagePicker from 'expo-image-picker';
 
+const services = OptimizedComponentServices.getInstance();
 
 const { width, height } = Dimensions.get('window');
 
@@ -792,11 +793,7 @@ export default function EventDetailModal({ event, visible, onClose, userLocation
       if (isEmail) {
         // If it's an email, search by email first
         console.log('Identifier appears to be an email, searching by email...');
-        const { data: emailData, error: emailError } = await supabase
-          .from('all_users')
-          .select('id, name, email, username')
-          .eq('email', creatorIdentifier)
-          .single();
+        const { data: emailData, error: emailError } = await services.getUserByEmailSingle(creatorIdentifier);
         
         if (emailError) {
           console.log('⚠️ Creator not found by email. Creator may have been deleted or email is invalid:', creatorIdentifier);

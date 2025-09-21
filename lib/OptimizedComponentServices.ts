@@ -118,6 +118,48 @@ class OptimizedComponentServices {
     });
   }
 
+  /**
+   * Sign in with ID token (for OAuth providers like Apple, Google)
+   */
+  async signInWithIdToken(provider: string, token: string, nonce?: string) {
+    return this.apiService.queueRequest('auth', {
+      data: {
+        operation: 'signInWithIdToken',
+        params: { provider, token, nonce }
+      },
+      priority: 'high',
+      maxRetries: 2
+    });
+  }
+
+  /**
+   * Reset password for email
+   */
+  async resetPasswordForEmail(email: string, options?: any) {
+    return this.apiService.queueRequest('auth', {
+      data: {
+        operation: 'resetPasswordForEmail',
+        params: { email, options }
+      },
+      priority: 'high',
+      maxRetries: 2
+    });
+  }
+
+  /**
+   * Verify OTP (for password reset, email verification, etc.)
+   */
+  async verifyOtp(email: string, token: string, type?: string) {
+    return this.apiService.queueRequest('auth', {
+      data: {
+        operation: 'verifyOtp',
+        params: { email, token, type }
+      },
+      priority: 'high',
+      maxRetries: 2
+    });
+  }
+
   async createUser(userData: any) {
     return this.apiService.queueRequest<any>(
       'insert',
@@ -435,6 +477,27 @@ class OptimizedComponentServices {
       cacheTTL: 60000 // 1 minute cache for file lists
     });
   }
+
+  /**
+   * Direct storage access for cases requiring immediate Supabase storage operations
+   */
+  getStorageClient() {
+    return supabase.storage;
+  }
+
+  /**
+   * Execute RPC function
+   */
+  async executeRpc(functionName: string, params?: any) {
+    return this.apiService.queueRequest('rpc', {
+      data: {
+        functionName,
+        params
+      },
+      priority: 'medium',
+      maxRetries: 2
+    });
+  }
   
   /**
    * Get user by ID with caching
@@ -461,6 +524,137 @@ class OptimizedComponentServices {
       priority: 'medium',
       cacheKey: `user_email_${email}`,
       cacheTTL: 300000 // 5 minutes cache
+    });
+  }
+
+  /**
+   * Get single user by email with caching
+   */
+  async getUserByEmailSingle(email: string) {
+    return this.apiService.queueRequest('select', {
+      table: 'all_users',
+      data: { select: 'id, name, email, username' },
+      filters: { 
+        eq: { email: email },
+        single: true
+      },
+      priority: 'medium',
+      cacheKey: `user_email_single_${email}`,
+      cacheTTL: 300000 // 5 minutes cache
+    });
+  }
+
+  /**
+   * Get user by username with caching
+   */
+  async getUserByUsername(username: string) {
+    return this.apiService.queueRequest('select', {
+      table: 'all_users',
+      data: { select: 'id, name, email, username' },
+      filters: { eq: { username: username } },
+      priority: 'medium',
+      cacheKey: `user_username_${username}`,
+      cacheTTL: 300000 // 5 minutes cache
+    });
+  }
+
+  /**
+   * Search users by various criteria
+   */
+  async searchUsersByQuery(query: string, currentUserId?: number) {
+    // Use the existing searchUsers method which handles username/email search
+    return this.searchUsers(query, currentUserId);
+  }
+
+  /**
+   * Search users by username with ilike pattern matching
+   */
+  async searchUsersByUsername(query: string, currentUserId?: number, limit: number = 10) {
+    return this.apiService.queueRequest('select', {
+      table: 'all_users',
+      data: { 
+        select: 'id, name, username, email',
+        limit: limit
+      },
+      filters: {
+        ilike: { username: `%${query.trim()}%` },
+        neq: { id: currentUserId || 0 },
+        notNull: ['username']
+      },
+      priority: 'medium',
+      cacheKey: `user_search_username_${query.trim()}_${currentUserId}`,
+      cacheTTL: 60000 // 1 minute cache
+    });
+  }
+
+  /**
+   * Search users by name with ilike pattern matching
+   */
+  async searchUsersByName(query: string, currentUserId?: number, limit: number = 10) {
+    return this.apiService.queueRequest('select', {
+      table: 'all_users',
+      data: { 
+        select: 'id, name, username, email',
+        limit: limit
+      },
+      filters: {
+        ilike: { name: `%${query.trim()}%` },
+        neq: { id: currentUserId || 0 }
+      },
+      priority: 'medium',
+      cacheKey: `user_search_name_${query.trim()}_${currentUserId}`,
+      cacheTTL: 60000 // 1 minute cache
+    });
+  }
+
+gt  /**
+   * Generic database select with caching
+   */
+  async selectFromTable(table: string, selectFields: string, filters?: any, options?: any) {
+    return this.apiService.queueRequest('select', {
+      table,
+      data: { select: selectFields, ...options },
+      filters,
+      priority: 'medium',
+      cacheKey: options?.cacheKey,
+      cacheTTL: options?.cacheTTL || 60000 // 1 minute default cache
+    });
+  }
+
+  /**
+   * Generic database insert
+   */
+  async insertIntoTable(table: string, data: any, options?: any) {
+    return this.apiService.queueRequest('insert', {
+      table,
+      data,
+      priority: options?.priority || 'medium',
+      batch: options?.batch
+    });
+  }
+
+  /**
+   * Generic database update
+   */
+  async updateTable(table: string, data: any, filters: any, options?: any) {
+    return this.apiService.queueRequest('update', {
+      table,
+      data,
+      filters,
+      priority: options?.priority || 'medium',
+      maxRetries: options?.maxRetries || 2
+    });
+  }
+
+  /**
+   * Generic database delete
+   */
+  async deleteFromTable(table: string, filters: any, options?: any) {
+    return this.apiService.queueRequest('delete', {
+      table,
+      filters,
+      priority: options?.priority || 'medium',
+      maxRetries: options?.maxRetries || 2
     });
   }
   

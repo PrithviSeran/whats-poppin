@@ -13,6 +13,8 @@ import SocialDataManager from '@/lib/SocialDataManager';
 import EventDetailModal from './EventDetailModal';
 import OptimizedComponentServices from '@/lib/OptimizedComponentServices';
 import * as Location from 'expo-location';
+
+const services = OptimizedComponentServices.getInstance();
 import EventCardComponent from './EventCard';
 import UserProfileModal from './UserProfileModal';
 
@@ -328,13 +330,7 @@ export default function Discover() {
       let searchError: any = null;
       
       // Search by username first (prioritized)
-      const { data: usernameUsers, error: usernameError } = await supabase
-        .from('all_users')
-        .select('id, name, username, email')
-        .ilike('username', `%${query.trim()}%`)
-        .neq('id', userProfile.id)
-        .not('username', 'is', null)
-        .limit(10);
+      const { data: usernameUsers, error: usernameError } = await services.searchUsersByUsername(query.trim(), userProfile.id, 10);
 
       if (usernameError) {
         console.error('Error searching by username:', usernameError);
@@ -344,12 +340,7 @@ export default function Discover() {
 
       // If no username matches found, search by name
       if (users.length === 0) {
-        const { data: nameUsers, error: nameError } = await supabase
-          .from('all_users')
-          .select('id, name, username, email')
-          .ilike('name', `%${query.trim()}%`)
-          .neq('id', userProfile.id)
-          .limit(10);
+        const { data: nameUsers, error: nameError } = await services.searchUsersByName(query.trim(), userProfile.id, 10);
 
         if (nameError) {
           searchError = nameError;

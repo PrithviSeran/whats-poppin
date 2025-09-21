@@ -476,6 +476,28 @@ class APIRequestService extends EventEmitter {
           Object.entries(value as any).forEach(([col, val]) => {
             query = query.not(col, 'eq', val);
           });
+        } else if (key === 'neq') {
+          Object.entries(value as any).forEach(([col, val]) => {
+            query = query.neq(col, val);
+          });
+        } else if (key === 'ilike') {
+          Object.entries(value as any).forEach(([col, val]) => {
+            query = query.ilike(col, val);
+          });
+        } else if (key === 'notNull') {
+          if (Array.isArray(value)) {
+            value.forEach(col => {
+              query = query.not(col, 'is', null);
+            });
+          }
+        } else if (key === 'order') {
+          if (typeof value === 'object' && value.column) {
+            query = query.order(value.column, { ascending: value.ascending !== false });
+          }
+        } else if (key === 'range') {
+          if (typeof value === 'object' && value.from !== undefined && value.to !== undefined) {
+            query = query.range(value.from, value.to);
+          }
         }
         // Add more filter types as needed
       });
@@ -487,6 +509,13 @@ class APIRequestService extends EventEmitter {
     }
     if (request.data?.offset) {
       query = query.range(request.data.offset, request.data.offset + (request.data.limit || 50) - 1);
+    }
+    
+    // Apply single/maybeSingle modifiers
+    if (request.filters?.single) {
+      query = query.single();
+    } else if (request.filters?.maybeSingle) {
+      query = query.maybeSingle();
     }
     
     const { data, error } = await query;
