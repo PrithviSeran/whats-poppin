@@ -36,6 +36,7 @@ module.exports = {
         },
         NSLocationWhenInUseUsageDescription: "This app needs access to your location to show nearby events and your position on the map.",
         NSLocationAlwaysUsageDescription: "This app needs access to your location to show nearby events and your position on the map.",
+        NSPhotoLibraryUsageDescription: "This app needs access to your photos so you can upload a profile or banner picture. These images will only be used when other users see your profile.",
         UIBackgroundModes: ["location", "fetch", "remote-notification"],
         CFBundleURLTypes: [
           {

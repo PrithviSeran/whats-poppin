@@ -77,7 +77,7 @@ const CreateAccountUsername: React.FC<CreateAccountUsernameProps> = ({ route }) 
             }
           ) as any;
           
-          if (userProfile?.username) {
+          if (userProfile[0].username) {
             // User already has a username, redirect to SuggestedEvents
             navigation.navigate('suggested-events');
           }
