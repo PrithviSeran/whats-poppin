@@ -54,7 +54,7 @@ BEGIN
         WHERE user_id = user_id_to_delete;
         
         -- Delete user's posted events (if you want to remove their events too)
-        DELETE FROM new_events 
+        DELETE FROM all_events 
         WHERE posted_by_email = OLD.email;
         
         -- Finally, delete from all_users

@@ -244,18 +244,18 @@ class GlobalDataManager extends EventEmitter {
   }
 
   private async fetchAndStoreEvents() {
-    const cacheKey = 'new_events';
+    const cacheKey = 'all_events';
     
     try {
       const events = await this.makeApiCall(cacheKey, async () => {
         const { data: events, error } = await supabase
-          .from('new_events')
+          .from('all_events')
           .select(`
             id, created_at, name, organization, location, cost, age_restriction, 
             reservation, description, start_date, end_date, occurrence, latitude, 
             longitude, days_of_the_week, event_type, link, times, featured, 
             posted_by, posted_by_email,
-            all_users!new_events_posted_by_fkey (
+            all_users!all_events_posted_by_fkey (
               id, name, email, username
             )
           `);
@@ -435,7 +435,7 @@ class GlobalDataManager extends EventEmitter {
       
       // Fetch full event objects for these IDs using API service
       const events = await this.apiService.queueRequest<any[]>('select', {
-        table: 'new_events',
+        table: 'all_events',
         data: { select: '*' },
         filters: { in: { id: savedEventIds } },
         priority: 'medium',
@@ -531,7 +531,7 @@ class GlobalDataManager extends EventEmitter {
       
       // Fetch full event objects for these IDs using API service
       const events = await this.apiService.queueRequest<any[]>('select', {
-        table: 'new_events',
+        table: 'all_events',
         data: { select: '*' },
         filters: { in: { id: rejectedEventsArr } },
         priority: 'low', // Lower priority for rejected events
@@ -784,7 +784,7 @@ class GlobalDataManager extends EventEmitter {
 
       // Fetch the full event object first for optimistic update
       const eventData = await this.apiService.queueRequest<any[]>('select', {
-        table: 'new_events',
+        table: 'all_events',
         data: { select: '*' },
         filters: { eq: { id: eventId } },
         priority: 'high',

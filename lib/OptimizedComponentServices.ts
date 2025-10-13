@@ -188,7 +188,7 @@ class OptimizedComponentServices {
     };
     
     return this.apiService.queueRequest('insert', {
-      table: 'new_events',
+      table: 'all_events',
       data: enrichedEventData,
       priority: 'high',
       batch: 'event_operations'
@@ -200,7 +200,7 @@ class OptimizedComponentServices {
    */
   async deleteEvent(eventId: number) {
     return this.apiService.queueRequest('delete', {
-      table: 'new_events',
+      table: 'all_events',
       filters: { eq: { id: eventId } },
       priority: 'high',
       maxRetries: 2
@@ -212,7 +212,7 @@ class OptimizedComponentServices {
    */
   async updateEvent(eventId: number, eventData: any) {
     return this.apiService.queueRequest('update', {
-      table: 'new_events',
+      table: 'all_events',
       data: eventData,
       filters: { eq: { id: eventId } },
       priority: 'high',
@@ -225,7 +225,7 @@ class OptimizedComponentServices {
    */
   async getEvents(filters?: any, cacheKey?: string) {
     return this.apiService.queueRequest('select', {
-      table: 'new_events',
+      table: 'all_events',
       data: { select: 'id, created_at, name, organization, location, cost, age_restriction, reservation, description, start_date, end_date, occurrence, latitude, longitude, days_of_the_week, event_type, link, times, featured, posted_by, posted_by_email' },
       filters,
       priority: 'medium',
@@ -466,7 +466,7 @@ class OptimizedComponentServices {
    */
   async batchCreateEvents(events: any[]) {
     return this.apiService.queueRequest('insert', {
-      table: 'new_events',
+      table: 'all_events',
       data: { values: events },
       priority: 'medium',
       batch: 'event_operations'

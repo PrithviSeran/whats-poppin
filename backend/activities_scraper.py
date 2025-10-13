@@ -1505,7 +1505,7 @@ class TorontoActivityScraper:
             for i in range(0, len(cleaned_activities), batch_size):
                 batch = cleaned_activities[i:i+batch_size]
                 print(f"Saving batch {i//batch_size + 1} ({len(batch)} records)...")
-                result = supabase.table('new_events').upsert(batch).execute()
+                result = supabase.table('all_events').upsert(batch).execute()
                 print(f"Successfully saved batch {i//batch_size + 1}")
                 
         except Exception as e:
@@ -1810,13 +1810,13 @@ class TorontoActivityScraper:
             return []
         
         try:
-            result = supabase.table('new_events').select('id, name, location, latitude, longitude').execute()
+            result = supabase.table('all_events').select('id, name, location, latitude, longitude').execute()
             return result.data
         except Exception as e:
             print(f"Error fetching existing events: {e}")
             return []
 
-    def filter_new_events_only(self, scraped_activities: List[Dict]) -> List[Dict]:
+    def filter_all_events_only(self, scraped_activities: List[Dict]) -> List[Dict]:
         """Filter out events that already exist in database - OPTIMIZED VERSION"""
         import re
         from difflib import SequenceMatcher
@@ -1898,7 +1898,7 @@ class TorontoActivityScraper:
         
         print(f"Created {len(location_grid)} location grids and {len(name_index)} name prefixes")
         
-        new_events = []
+        all_events = []
         duplicate_count = 0
         processed_count = 0
         
@@ -1958,15 +1958,15 @@ class TorontoActivityScraper:
                             break
             
             if not is_duplicate:
-                new_events.append(activity)
+                all_events.append(activity)
         
         elapsed = time.time() - start_time
         print(f"Filtering completed in {elapsed:.1f} seconds")
         print(f"Filtered out {duplicate_count} duplicates")
-        print(f"Found {len(new_events)} new events to add")
-        return new_events
+        print(f"Found {len(all_events)} new events to add")
+        return all_events
 
-    def save_new_events_only(self, activities: List[Dict]):
+    def save_all_events_only(self, activities: List[Dict]):
         """Save only new events to database without affecting existing ones"""
         if not supabase:
             print("Supabase not initialized - skipping database save")
@@ -1981,7 +1981,7 @@ class TorontoActivityScraper:
             
             # Get the highest existing ID to continue from there
             try:
-                result = supabase.table('new_events').select('id').order('id', desc=True).limit(1).execute()
+                result = supabase.table('all_events').select('id').order('id', desc=True).limit(1).execute()
                 if result.data:
                     self.next_event_id = result.data[0]['id'] + 1
                 else:
@@ -2057,7 +2057,7 @@ class TorontoActivityScraper:
             for i in range(0, len(cleaned_activities), batch_size):
                 batch = cleaned_activities[i:i+batch_size]
                 print(f"Inserting batch {i//batch_size + 1} ({len(batch)} records)...")
-                result = supabase.table('new_events').insert(batch).execute()
+                result = supabase.table('all_events').insert(batch).execute()
                 print(f"Successfully inserted batch {i//batch_size + 1}")
                 
         except Exception as e:
@@ -2126,16 +2126,16 @@ class TorontoActivityScraper:
         
         # Filter against existing database events
         print("\n=== Filtering Against Existing Database Events ===")
-        new_events_only = self.filter_new_events_only(merged_activities)
+        all_events_only = self.filter_all_events_only(merged_activities)
         
-        if new_events_only:
+        if all_events_only:
             # Save only new events
             print("\n=== Saving New Events to Database ===")
-            self.save_new_events_only(new_events_only)
+            self.save_all_events_only(all_events_only)
         else:
             print("\nNo new events found to add!")
         
-        return new_events_only
+        return all_events_only
 
 # Usage example
 if __name__ == "__main__":

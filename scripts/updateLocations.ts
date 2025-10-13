@@ -4,7 +4,7 @@ async function updateLocations() {
   try {
     // First, get all events
     const { data: events, error: fetchError } = await supabase
-      .from('new_events')
+      .from('all_events')
       .select('id, name');
 
     if (fetchError) {
@@ -45,7 +45,7 @@ async function updateLocations() {
 
     // Verify the updates
     const { data: verifyData, error: verifyError } = await supabase
-      .from('new_events')
+      .from('all_events')
       .select('id, name, latitude, longitude');
 
     if (verifyError) {

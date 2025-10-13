@@ -5,7 +5,7 @@ create or replace function update_event_coordinates(
   new_longitude double precision
 ) returns void as $$
 begin
-  update new_events
+  update all_events
   set 
     latitude = new_latitude,
     longitude = new_longitude

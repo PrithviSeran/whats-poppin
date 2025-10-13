@@ -745,7 +745,7 @@ export default function SuggestedEvents() {
         (async () => {
           try {
             const { data: event, error } = await supabase
-              .from('new_events')
+              .from('all_events')
               .select('id, created_at, name, organization, location, cost, age_restriction, reservation, description, start_date, end_date, occurrence, latitude, longitude, days_of_the_week, event_type, link, times, featured, posted_by, posted_by_email')
               .eq('id', parseInt(sharedEventId, 10))
               .single();

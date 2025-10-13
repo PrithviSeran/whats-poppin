@@ -117,7 +117,7 @@ class EventRecommendationSystem:
         
         try:
             # Single API call to get all featured statuses
-            result = self.Client.table("new_events").select("id, featured").in_("id", list(event_ids)).execute()
+            result = self.Client.table("all_events").select("id, featured").in_("id", list(event_ids)).execute()
             
             # Build lookup dictionary
             featured_lookup = {}
@@ -141,7 +141,7 @@ class EventRecommendationSystem:
         """Individual featured check - DEPRECATED: Use get_featured_events_batch() for efficiency"""
 
         try:
-            result = self.Client.table("new_events").select("featured").eq("id", event_id).maybe_single().execute()
+            result = self.Client.table("all_events").select("featured").eq("id", event_id).maybe_single().execute()
             return result.data.get("featured", False) if result.data else False
         except Exception as e:
     
@@ -253,23 +253,23 @@ class EventRecommendationSystem:
 
         return age
     
-    def get_new_events_data(self, exclude_user_email=None):
+    def get_all_events_data(self, exclude_user_email=None):
         """Fetch ALL events data from Supabase without any preference filtering, optionally excluding user-created events"""
         try:
-            result = self.Client.table("new_events").select("*").execute()
-            new_events = result.data if result.data else []
+            result = self.Client.table("all_events").select("*").execute()
+            all_events = result.data if result.data else []
             
             # Filter out events created by the user if email is provided
             if exclude_user_email:
-                original_count = len(new_events)
-                new_events = [event for event in new_events if event.get("posted_by") != exclude_user_email]
-                filtered_count = len(new_events)
+                original_count = len(all_events)
+                all_events = [event for event in all_events if event.get("posted_by") != exclude_user_email]
+                filtered_count = len(all_events)
                 excluded_count = original_count - filtered_count
                 print(f"🎯 Fetched {original_count} total events, excluded {excluded_count} events created by {exclude_user_email}, returning {filtered_count} events")
             else:
-                print(f"🎯 Fetched {len(new_events)} total events from database")
+                print(f"🎯 Fetched {len(all_events)} total events from database")
             
-            return new_events
+            return all_events
         except Exception as e:
             print(f"Error fetching all events data: {e}")
             return []
@@ -311,9 +311,9 @@ class EventRecommendationSystem:
         return filtered_events
     
     def get_events_data(self, user_preferences=None):
-        """DEPRECATED: Use get_new_events_data() + filter_events_by_preferences() instead"""
-        print("⚠️ WARNING: Using deprecated get_events_data method. Use get_new_events_data() + filter_events_by_preferences() instead")
-        return self.get_new_events_data()
+        """DEPRECATED: Use get_all_events_data() + filter_events_by_preferences() instead"""
+        print("⚠️ WARNING: Using deprecated get_events_data method. Use get_all_events_data() + filter_events_by_preferences() instead")
+        return self.get_all_events_data()
         
     def parse_event_types(self, event_type):
         if isinstance(event_type, list):
@@ -569,7 +569,7 @@ class EventRecommendationSystem:
     
     def apply_distance_filter(self, events, lat, lng, filter_by_distance, max_distance):
         """Apply distance filtering - implement your logic"""
-        new_events_filtered = []
+        all_events_filtered = []
         distance_threshold_km = max_distance
 
         if filter_by_distance and lat is not None and lng is not None:
@@ -588,17 +588,17 @@ class EventRecommendationSystem:
                     event["distance"] = distance
                     # Only include events within the user's travel distance threshold
                     if distance <= distance_threshold_km:
-                        new_events_filtered.append(event)
+                        all_events_filtered.append(event)
                 else:
                     # Optionally include events without location data, or filter them out
                     event["distance"] = None
-                    new_events_filtered.append(event)
+                    all_events_filtered.append(event)
         else:
             # If not filtering by distance, use all events filtered by preferences
-            new_events_filtered = events
+            all_events_filtered = events
             # Still add distance field if location data is available
             if lat is not None and lng is not None:
-                for event in new_events_filtered:
+                for event in all_events_filtered:
                     event_latitude = event.get("latitude")
                     event_longitude = event.get("longitude")
                     if event_latitude is not None and event_longitude is not None:
@@ -611,7 +611,7 @@ class EventRecommendationSystem:
                         event["distance"] = distance
                     else:
                         event["distance"] = None
-        return new_events_filtered
+        return all_events_filtered
     
     def build_interactions(self, users, events_data=None):
         """Build user interactions with optional events data to avoid N+1 queries for featured lookups"""
@@ -880,13 +880,13 @@ class EventRecommendationSystem:
 
             # 2. Fetch ALL events from Supabase (no filtering at database level)
             try:
-                new_events_raw = self.get_new_events_data(exclude_user_email=email)
-                print(f"All events fetched: {len(new_events_raw)}")
+                all_events_raw = self.get_all_events_data(exclude_user_email=email)
+                print(f"All events fetched: {len(all_events_raw)}")
                 
                 # DEBUG: Check event type distribution in database
-                if new_events_raw:
+                if all_events_raw:
                     event_type_counts = {}
-                    for event in new_events_raw[:50]:  # Sample first 50 events
+                    for event in all_events_raw[:50]:  # Sample first 50 events
                         event_types = event.get('event_type', [])
                         if isinstance(event_types, str):
                             event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
@@ -899,16 +899,16 @@ class EventRecommendationSystem:
                 # 3. Apply preference filtering AFTER getting all events
                 print(f"🔍 Filtering - Event types: {final_user_preferences}, Featured only: {featured_only}")
                 if final_user_preferences or featured_only:
-                    events_before_pref = len(new_events_raw)
-                    new_events_raw = self.filter_events_by_preferences(new_events_raw, final_user_preferences, featured_only)
-                    events_after_pref = len(new_events_raw)
+                    events_before_pref = len(all_events_raw)
+                    all_events_raw = self.filter_events_by_preferences(all_events_raw, final_user_preferences, featured_only)
+                    events_after_pref = len(all_events_raw)
                     print(f"✅ Preference filtering: {events_before_pref} -> {events_after_pref} events (filtered out: {events_before_pref - events_after_pref})")
                     print(f"🎯 Applied filters - Event types: {final_user_preferences}, Featured only: {featured_only}")
                     
                     # DEBUG: Check event type distribution after filtering
-                    if new_events_raw:
+                    if all_events_raw:
                         filtered_event_type_counts = {}
-                        for event in new_events_raw[:20]:  # Sample filtered events
+                        for event in all_events_raw[:20]:  # Sample filtered events
                             event_types = event.get('event_type', [])
                             if isinstance(event_types, str):
                                 event_types = [t.strip().strip('"') for t in event_types.strip('{}').split(',') if t.strip()]
@@ -924,7 +924,7 @@ class EventRecommendationSystem:
                 print(f"Error fetching events: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error fetching events: {str(e)}")
             
-            if not new_events_raw:
+            if not all_events_raw:
                 return {
                     "summary": "No events found matching user preferences.",
                     "events": [],
@@ -933,15 +933,15 @@ class EventRecommendationSystem:
 
             # 3. Apply filters
             try:
-                print(f"Starting filter process with {len(new_events_raw)} events")
+                print(f"Starting filter process with {len(all_events_raw)} events")
                 print(f"Final time filters: {final_start_time} - {final_end_time}")
                 print(f"Use calendar filter: {use_calendar_filter}, Selected dates: {selected_dates}")
                 
                 # Only apply time filter if both start_time and end_time are not None
                 if final_start_time and final_end_time:
-                    events_before_time = len(new_events_raw)
-                    new_events_raw = self.filter_by_time(new_events_raw, final_start_time, final_end_time)
-                    events_after_time = len(new_events_raw)
+                    events_before_time = len(all_events_raw)
+                    all_events_raw = self.filter_by_time(all_events_raw, final_start_time, final_end_time)
+                    events_after_time = len(all_events_raw)
                     print(f"Time filter: {events_before_time} -> {events_after_time} events (filtered out: {events_before_time - events_after_time})")
                 else:
                     print("No time filtering applied - missing start or end time")
@@ -949,9 +949,9 @@ class EventRecommendationSystem:
                 # Apply date/day filtering based on calendar mode
                 if use_calendar_filter and selected_dates:
                     print(f"Applying calendar date filter with {len(selected_dates)} selected dates: {selected_dates}")
-                    events_before_date = len(new_events_raw)
-                    new_events_raw = self.filter_by_dates(new_events_raw, selected_dates)
-                    events_after_date = len(new_events_raw)
+                    events_before_date = len(all_events_raw)
+                    all_events_raw = self.filter_by_dates(all_events_raw, selected_dates)
+                    events_after_date = len(all_events_raw)
                     print(f"Calendar date filter: {events_before_date} -> {events_after_date} events (filtered out: {events_before_date - events_after_date})")
                 else:
                     # Use traditional day preference filtering
@@ -960,34 +960,34 @@ class EventRecommendationSystem:
                     print(f"User preferred days type: {type(final_user_preferred_days)}, length: {len(final_user_preferred_days) if isinstance(final_user_preferred_days, list) else 'N/A'}")
                     
                     # Debug: Show sample events before filtering
-                    if new_events_raw:
-                        sample_events = new_events_raw[:3]
+                    if all_events_raw:
+                        sample_events = all_events_raw[:3]
                         print("Sample events before day filtering:")
                         for event in sample_events:
                             print(f"  Event {event.get('id')}: {event.get('name', 'Unknown')} - Occurrence: {event.get('occurrence')}, Days: {event.get('days_of_the_week')}, Start Date: {event.get('start_date')}")
                     
-                    events_before_day = len(new_events_raw)
-                    new_events_raw = self.filter_by_occurrence(new_events_raw, final_user_preferred_days)
-                    events_after_day = len(new_events_raw)
+                    events_before_day = len(all_events_raw)
+                    all_events_raw = self.filter_by_occurrence(all_events_raw, final_user_preferred_days)
+                    events_after_day = len(all_events_raw)
                     print(f"Day preference filter: {events_before_day} -> {events_after_day} events (filtered out: {events_before_day - events_after_day})")
                     
                     # Debug: Show sample events after filtering
-                    if new_events_raw:
-                        sample_events_after = new_events_raw[:3]
+                    if all_events_raw:
+                        sample_events_after = all_events_raw[:3]
                         print("Sample events after day filtering:")
                         for event in sample_events_after:
                             print(f"  Event {event.get('id')}: {event.get('name', 'Unknown')} - Occurrence: {event.get('occurrence')}, Days: {event.get('days_of_the_week')}, Start Date: {event.get('start_date')}")
                 
-                new_events_filtered = self.apply_distance_filter(
-                    new_events_raw, latitude, longitude, 
+                all_events_filtered = self.apply_distance_filter(
+                    all_events_raw, latitude, longitude, 
                     filter_distance, final_user_travel_distance
                 )
-                print(f"Events after distance filter: {len(new_events_filtered)}")
+                print(f"Events after distance filter: {len(all_events_filtered)}")
             except Exception as e:
                 print(f"Error applying filters: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error applying filters: {str(e)}")
 
-            if not new_events_filtered:
+            if not all_events_filtered:
                 return {
                     "summary": "No events found after applying filters.",
                     "events": [],
@@ -997,7 +997,7 @@ class EventRecommendationSystem:
             # Remove saved and rejected events (user-created events already filtered out during data fetch)
             try:
                 exclude_ids = set(saved_events) | set(rejected_events)
-                final_events = [e for e in new_events_filtered if e["id"] not in exclude_ids]
+                final_events = [e for e in all_events_filtered if e["id"] not in exclude_ids]
                 event_ids_filtered = [event["id"] for event in final_events]
                 print(f"🚫 Excluded IDs (saved + rejected): {exclude_ids}")
                 print(f"Events after removing saved/rejected: {len(event_ids_filtered)}")
@@ -1018,22 +1018,22 @@ class EventRecommendationSystem:
             ).execute()
             all_users = all_users_result.data
             user_emails = [user.get("email") for user in all_users if user.get("email")]
-            event_ids = [event["id"] for event in new_events_filtered]
+            event_ids = [event["id"] for event in all_events_filtered]
 
             # N+1 Query Optimization: Pass events data to avoid individual featured lookups
-            interactions = self.build_interactions(all_users, events_data=new_events_filtered)
+            interactions = self.build_interactions(all_users, events_data=all_events_filtered)
             user_feature_tuples = self.build_user_features(all_users)
-            event_feature_tuples = self.build_event_features(new_events_filtered)
+            event_feature_tuples = self.build_event_features(all_events_filtered)
 
             # DEBUG: Check event types available for ML training
-            if new_events_filtered:
+            if all_events_filtered:
                 ml_event_type_counts = {}
-                for event in new_events_filtered[:30]:  # Sample events for ML training
+                for event in all_events_filtered[:30]:  # Sample events for ML training
                     event_types = self.parse_event_types(event.get('event_type', []))
                     for event_type in event_types:
                         ml_event_type_counts[event_type] = ml_event_type_counts.get(event_type, 0) + 1
                 print(f"🤖 Event types available for ML training: {ml_event_type_counts}")
-                print(f"📊 Total events for ML training: {len(new_events_filtered)}")
+                print(f"📊 Total events for ML training: {len(all_events_filtered)}")
                 
             # Use cloud-native BeaconAI with FORCED FRESH TRAINING
             self.rec.user_id = email
@@ -1057,7 +1057,7 @@ class EventRecommendationSystem:
             # Get the full event objects for the recommended events - OPTIMIZED with lookup dict
             recommended_events = []
             # Create a lookup dictionary for O(1) access instead of O(n) search
-            event_lookup = {event["id"]: event for event in new_events_filtered}
+            event_lookup = {event["id"]: event for event in all_events_filtered}
             for eid, score in recommendations:
                 if eid in exclude_ids:
                     continue
@@ -1098,7 +1098,7 @@ class EventRecommendationSystem:
             return {
                 "summary": f"Found {len(events_filtered)} recommended events for {email}",
                 "events": events_filtered[:10],  # Return top 10
-                "total_found": len(new_events_filtered)
+                "total_found": len(all_events_filtered)
             }
         except Exception as e:
             print(f"Error in recommend_events: {str(e)}")
@@ -1255,13 +1255,13 @@ async def debug_filter(request: Request):
         
         # Get events
         user_preferences = recommender.parse_preferences(user_data.get("preferences", []))
-        new_events = recommender.get_events_data(user_preferences if user_preferences else None)
+        all_events = recommender.get_events_data(user_preferences if user_preferences else None)
         
         # Sample a few events for debugging
-        sample_events = new_events[:3] if new_events else []
+        sample_events = all_events[:3] if all_events else []
         
         debug_info = {
-            "original_event_count": len(new_events),
+            "original_event_count": len(all_events),
             "sample_events": [],
             "filters_applied": {},
             "filtering_results": {}
@@ -1278,7 +1278,7 @@ async def debug_filter(request: Request):
                 "days_of_the_week": event.get("days_of_the_week")
             })
         
-        current_events = new_events.copy()
+        current_events = all_events.copy()
         
         # Test time filtering
         if user_start_time and user_end_time:
@@ -1355,7 +1355,7 @@ async def debug_event_types():
     """Debug endpoint to examine event types in the database"""
     try:
         # Get a sample of events to examine their event_type field
-        result = recommender.Client.table("new_events").select("id, name, event_type").limit(20).execute()
+        result = recommender.Client.table("all_events").select("id, name, event_type").limit(20).execute()
         events = result.data or []
         
         debug_info = {

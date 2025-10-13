@@ -809,7 +809,7 @@ export default function Discover() {
       setIsLoadingMore(true);
       
       let query = supabase
-        .from('new_events')
+        .from('all_events')
         .select('*')
         .order('created_at', { ascending: false });
       

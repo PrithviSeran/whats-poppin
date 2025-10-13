@@ -69,7 +69,7 @@ jobs:
             
             # Query for past one-time events
             # We only delete one-time events, keep recurring/weekly events
-            result = supabase.table('new_events').select('id, name, start_date, end_date, occurrence').execute()
+            result = supabase.table('all_events').select('id, name, start_date, end_date, occurrence').execute()
             
             if not result.data:
                 print('✅ No events found in database')
@@ -135,7 +135,7 @@ jobs:
                 batch_ids = [event['id'] for event in batch]
                 
                 try:
-                    delete_result = supabase.table('new_events').delete().in_('id', batch_ids).execute()
+                    delete_result = supabase.table('all_events').delete().in_('id', batch_ids).execute()
                     batch_deleted = len(batch_ids)
                     deleted_count += batch_deleted
                     print(f'✅ Deleted batch {i//batch_size + 1}: {batch_deleted} events')
@@ -147,7 +147,7 @@ jobs:
             print(f'🎉 Cleanup completed! Deleted {deleted_count} past events')
             
             # Log summary
-            remaining_result = supabase.table('new_events').select('id', count='exact').execute()
+            remaining_result = supabase.table('all_events').select('id', count='exact').execute()
             remaining_count = remaining_result.count if remaining_result.count else 0
             
             print(f'📈 Summary:')

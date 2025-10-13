@@ -58,7 +58,7 @@ class APIRequestService extends EventEmitter {
   // Batching configurations
   private batchConfigs: Map<string, BatchConfig> = new Map([
     ['user_updates', { maxBatchSize: 10, maxWaitTime: 2000, tables: ['all_users'] }],
-    ['event_operations', { maxBatchSize: 20, maxWaitTime: 1500, tables: ['new_events', 'user_events'] }],
+    ['event_operations', { maxBatchSize: 20, maxWaitTime: 1500, tables: ['all_events', 'user_events'] }],
     ['social_operations', { maxBatchSize: 15, maxWaitTime: 1000, tables: ['follows', 'friends'] }]
   ]);
   

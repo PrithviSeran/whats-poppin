@@ -113,7 +113,7 @@ class DataOperationsService {
       // Update events posted_by field
       if (oldUsername) {
         await this.apiService.queueRequest('update', {
-          table: 'new_events',
+          table: 'all_events',
           data: { posted_by: newUsername },
           filters: { eq: { posted_by: oldUsername } },
           priority: 'medium',
@@ -315,7 +315,7 @@ class DataOperationsService {
     
     try {
       const result = await this.apiService.queueRequest<EventCard[]>('select', {
-        table: 'new_events',
+        table: 'all_events',
         data: { select: '*' },
         filters: { eq: { id: eventId } },
         priority: 'medium',

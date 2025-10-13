@@ -739,7 +739,7 @@ export default function CreateEventScreen() {
       };
       // Insert event into Supabase
       const { data, error } = await supabase
-        .from('new_events')
+        .from('all_events')
         .insert([eventData])
         .select();
       if (error) {

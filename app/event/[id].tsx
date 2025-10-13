@@ -28,7 +28,7 @@ export default function SharedEventPage() {
         
         // Fetch the event details from Supabase
         const { data: event, error } = await supabase
-          .from('new_events')
+          .from('all_events')
           .select('*')
           .eq('id', parseInt(id, 10))
           .single();

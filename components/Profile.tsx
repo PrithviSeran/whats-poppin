@@ -628,7 +628,7 @@ export default memo(function Profile({
               // Step 1: Delete all events posted by this user
               console.log('📝 Deleting user\'s posted events...');
               const { error: eventsError } = await supabase
-                .from('new_events')
+                .from('all_events')
                 .delete()
                 .eq('posted_by', profile.email);
               
@@ -858,7 +858,7 @@ export default memo(function Profile({
       
       // Fetch events posted by this user using username
       const { data: eventsData, error: eventsError } = await supabase
-        .from('new_events')
+        .from('all_events')
         .select('id, created_at, name, organization, location, cost, age_restriction, reservation, description, start_date, end_date, occurrence, latitude, longitude, days_of_the_week, event_type, link, times, featured, posted_by, posted_by_email')
         .eq('posted_by', profile.username)
         .order('created_at', { ascending: false });
