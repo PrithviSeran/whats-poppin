@@ -1,13 +1,16 @@
 import requests
 import json
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta, date
 from typing import List, Dict, Optional
 import time as time_module
 import os
 import base64
 import hashlib
-from urllib.parse import urlparse
 from supabase import create_client, Client
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+import time 
+
 
 # Configuration
 GOOGLE_API_KEY = os.getenv('GOOGLE_PLACES_API_KEY')
@@ -2137,25 +2140,127 @@ class TorontoActivityScraper:
         
         return all_events_only
 
+
+def get_images_from_url(url, max_images=5):
+    """
+    Scrape images from a given URL.
+    Returns a list of image URLs.
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        img_tags = soup.find_all('img')
+        
+        image_urls = []
+        for img in img_tags:
+            img_url = img.get('src') or img.get('data-src')
+            if img_url:
+                # Convert relative URLs to absolute
+                absolute_url = urljoin(url, img_url)
+                # Filter out small icons and non-http(s) URLs
+                if absolute_url.startswith('http') and not any(x in absolute_url.lower() for x in ['icon', 'logo', 'favicon']):
+                    image_urls.append(absolute_url)
+            
+            if len(image_urls) >= max_images:
+                break
+        
+        return image_urls[:max_images]
+    
+    except Exception as e:
+        print(f"Error scraping {url}: {str(e)}")
+        return []
+
+def download_image(image_url):
+    """
+    Download an image from URL and return its bytes.
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(image_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        return response.content
+    except Exception as e:
+        print(f"Error downloading image {image_url}: {str(e)}")
+        return None
+
+def upload_to_supabase(image_bytes, path):
+    """
+    Upload image bytes to Supabase storage.
+    Path format: {event_id}/{image_number}.jpg
+    """
+    try:
+        supabase.storage.from_('event-images').upload(
+            path=path,
+            file=image_bytes,
+            file_options={"content-type": "image/jpeg"}
+        )
+        print(f"Uploaded: {path}")
+        return True
+    except Exception as e:
+        print(f"Error uploading {path}: {str(e)}")
+        return False
+
+def main():
+    # Fetch all events from the database
+    try:
+        response = supabase.table('all_events').select('id, link').execute()
+        events = response.data
+        print(f"Found {len(events)} events to process")
+    except Exception as e:
+        print(f"Error fetching events: {str(e)}")
+        return
+    
+    # Process each event
+    for event in events:
+        event_id = event['id']
+        link = event['link']
+        
+        if not link:
+            print(f"Skipping event {event_id}: No link provided")
+            continue
+        
+        print(f"\nProcessing event {event_id}: {link}")
+        
+        # Scrape images from the link
+        image_urls = get_images_from_url(link, max_images=5)
+        
+        if not image_urls:
+            print(f"No images found for event {event_id}")
+            continue
+        
+        print(f"Found {len(image_urls)} images")
+        
+        # Download and upload each image
+        for idx, img_url in enumerate(image_urls):
+            print(f"Processing image {idx}...")
+            
+            # Download image
+            image_bytes = download_image(img_url)
+            if not image_bytes:
+                continue
+            
+            # Upload to Supabase storage
+            storage_path = f"{event_id}/{idx}.jpg"
+            upload_to_supabase(image_bytes, storage_path)
+            
+            # Be nice to servers
+            time.sleep(0.5)
+        
+        # Pause between events
+        time.sleep(1)
+    
+    print("\nProcessing complete!")
+
 # Usage example
 if __name__ == "__main__":
-    # Set up your environment variables first:
-    # export GOOGLE_PLACES_API_KEY="your_key_here"
-    # export YELP_API_KEY="your_key_here"
-    # export TICKET_MASTER_API_KEY="your_key_here"
-    # export SUPABASE_URL="your_supabase_url"
-    # export SUPABASE_KEY="your_supabase_anon_key"
+
+    print(SUPABASE_URL)
     
-    scraper = TorontoActivityScraper()
-    
-    # Option 1: Run incremental scrape (only add new events)
-    new_activities = scraper.run_incremental_scrape()
-    print("Incremental scraping completed!")
-    print(f"Added {len(new_activities)} new events")
-    
-    # Option 2: Run full scrape (replaces all existing events)
-    # activities = scraper.run_full_scrape()
-    # print("Full scraping completed!")
-    
-    # Option 3: Test only Toronto Open Data functionality
-    # test_results = scraper.test_toronto_open_data(limit=2)
+    main()

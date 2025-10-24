@@ -2,7 +2,7 @@ module.exports = {
   expo: {
     name: "Whats Poppin",
     slug: "whats-poppin",
-    version: "1.5.0",
+    version: "1.6.0",
     orientation: "portrait",
     icon: "./assets/images/logo-light.png",
     scheme: "whatspoppin",
@@ -25,7 +25,7 @@ module.exports = {
       icon: "./assets/images/balloons.png",
       supportsTablet: false,
       bundleIdentifier: "com.prithviseran.whatspoppin",
-      buildNumber: "2",
+      buildNumber: "3",
       usesAppleSignIn: true,
       config: {
         googleMapsApiKey: "AIzaSyDpfGWjgw_5ME20DS-I4H6ED-sBZcCUBWM"
@@ -117,6 +117,14 @@ module.exports = {
     },
     plugins: [
       "expo-router",
+      [
+        'expo-build-properties',
+        {
+          ios: {
+            deploymentTarget: '15.2',
+          },
+        },
+      ],
       "expo-apple-authentication",
       [
         "expo-location",
